@@ -1,9 +1,15 @@
 // ============================================================
-// SVMKPI_ADMIN.gs  v2.0.0
+// SVMKPI_ADMIN.gs  v2.1.0
 // Store Visit Monitoring KPI — Admin / Menu / Trigger Layer
 // ------------------------------------------------------------
 // Single master onOpen() for entire project.
 // All menus unified here. Unified portal replaces sidebar.
+// v2.1.0: Added doGet() so this project can also be deployed as a
+//         standalone Web App (Deploy > New deployment > Web app),
+//         serving SVMI_PORTAL.html at a public URL instead of only
+//         inside a Sheets dialog. Same HTML file, same backend
+//         functions, same google.script.run bridge — no other
+//         code changes required. See README.txt for deployment steps.
 // ============================================================
 
 // ═══════════════════════════════════════════════════════════════
@@ -34,6 +40,29 @@ function openUnifiedPortal() {
     .setWidth(1100)
     .setHeight(700);
   SpreadsheetApp.getUi().showModelessDialog(html, 'SVMI Command Center');
+}
+
+/**
+ * doGet(e)
+ * Web App entry point. Lets this project be opened as a standalone
+ * page at its deployment URL (Deploy > New deployment > Web app),
+ * instead of only via the in-Sheet "Open Command Center" menu item.
+ *
+ * Serves the exact same SVMI_PORTAL.html used by openUnifiedPortal() —
+ * all 4 tabs and every google.script.run call work identically, since
+ * this is a container-bound script: SpreadsheetApp.getActiveSpreadsheet()
+ * still resolves to the Sheet this script is attached to, however the
+ * script was invoked (menu, trigger, or web app request).
+ *
+ * @param {GoogleAppsScript.Events.DoGet} e  Unused — no query-param
+ *        routing yet. Reserved for a future "?tab=" deep link.
+ * @returns {GoogleAppsScript.HTML.HtmlOutput}
+ */
+function doGet(e) {
+  return HtmlService
+    .createHtmlOutputFromFile('SVMI_PORTAL')
+    .setTitle('SVMI Command Center')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
 
