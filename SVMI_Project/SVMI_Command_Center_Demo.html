@@ -73,12 +73,16 @@ textarea.fi{resize:vertical;min-height:50px}
 .ss-opt:hover{background:#ebf4ff;color:#1a56db}
 
 /* ── Visitor chips ── */
-.chip-area{display:flex;flex-wrap:wrap;gap:5px;min-height:28px;padding:4px 6px;
-  border:1px solid #cbd5e0;border-radius:4px;background:var(--card);margin-bottom:4px}
+/* Selected visitors sit inside the same box you type in — one control, not a
+   chip panel stacked on top of a separate search field. */
+.token-box{display:flex;flex-wrap:wrap;align-items:center;gap:5px;min-height:30px;
+  padding:4px 30px 4px 6px;border:1px solid #cbd5e0;border-radius:4px;background:var(--card);cursor:text}
+.token-box:focus-within{border-color:#1a56db;box-shadow:0 0 0 2px rgba(26,86,219,.12)}
+.token-input{flex:1;min-width:120px;border:none;outline:none;background:none;
+  font-size:12px;font-family:Arial;color:var(--text);padding:3px 2px}
 .chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;
   border-radius:12px;font-size:11px;font-weight:700;color:#fff}
 .chip-x{cursor:pointer;font-size:13px;opacity:.85;line-height:1;border:none;background:none;color:#fff;padding:0}
-.chip-empty{font-size:10px;color:var(--muted);font-style:italic;padding:3px 2px}
 .chip-x:hover{opacity:1}
 
 /* ── Store info panel ── */
@@ -395,7 +399,8 @@ textarea.fi{padding-right:28px}
   .ss-drop{max-height:240px}
   .chip{font-size:12px;padding:4px 10px}
   .chip-x{font-size:17px;padding:0 3px}
-  .chip-area{min-height:38px}
+  .token-box{min-height:42px}
+  .token-input{font-size:16px}
   .field-x{font-size:19px;padding:4px 7px}
   .log-body{max-height:220px}
 }
@@ -466,17 +471,18 @@ textarea.fi{padding-right:28px}
           <label>Visited By <span class="req">*</span></label>
           <button type="button" class="mini-x" id="visClear" onclick="clearField('visitors')" hidden>clear all</button>
         </div>
-        <div class="chip-area" id="chipArea" onclick="document.getElementById('visSearch').focus()"></div>
         <div class="ss-wrap">
-          <input type="text" id="visSearch" class="ss-input" placeholder="Search or pick visitors…"
-            oninput="filterVisitors()" onfocus="filterVisitors()" onblur="closeDrop('visDrop')"
-            onkeydown="comboKey(event,'visDrop','visSearch','purpSearch')"
-            autocomplete="off">
+          <div class="token-box" id="chipArea" onclick="focusVisitors(event)">
+            <span id="chipHolder"></span>
+            <input type="text" id="visSearch" class="token-input" placeholder="Search or pick visitors…"
+              oninput="filterVisitors()" onfocus="filterVisitors()" onblur="closeDrop('visDrop')"
+              onkeydown="comboKey(event,'visDrop','visSearch','purpSearch')"
+              autocomplete="off">
+          </div>
           <button type="button" class="combo-caret" title="Show all visitors"
             onmousedown="event.preventDefault();toggleCombo('visDrop','visSearch')">▼</button>
           <div class="ss-drop" id="visDrop"></div>
         </div>
-        <div class="hint">Tap a name's <b>&times;</b> to drop just that visitor, or press <kbd>Backspace</kbd> in an empty box.</div>
         <button class="vm-toggle" onclick="toggleVM()">⚙ Manage Roster</button>
         <div class="vm-panel" id="vmPanel">
           <div style="font-size:10px;font-weight:700;color:#4a5568;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px">Visitor Roster</div>
@@ -1485,12 +1491,15 @@ function pickVisitor(el) {
   syncFieldClears();
 }
 
+// Chips go into their own holder so re-rendering them never blows away the
+// input sitting next to them (which would drop focus mid-typing).
+function focusVisitors(e) {
+  if (e.target.classList.contains('chip-x')) return;   // let the × do its job
+  document.getElementById('visSearch').focus();
+}
+
 function renderChips() {
-  var area = document.getElementById('chipArea');
-  if (!selVisitors.length) {
-    area.innerHTML = '<span class="chip-empty">No visitors selected yet — search below</span>';
-    return;
-  }
+  var area = document.getElementById('chipHolder');
   area.innerHTML = selVisitors.map(function(name) {
     var v = allVisitors.find(function(x){ return x.name === name; });
     var col = v ? v.color : '#555';
