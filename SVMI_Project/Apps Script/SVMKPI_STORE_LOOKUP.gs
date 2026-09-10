@@ -475,9 +475,102 @@ function sl_getBrandList() {
 }
 
 /**
+ * sl_getVisitedThisMonth(brandFilter)
+ * Returns stores that HAVE been visited in the current calendar month,
+ * optionally filtered by brand. Powers the "Visited This Month" view in
+ * the Store Insights tab. (Its mirror image — what's still outstanding —
+ * is the Unvisited This Month tab, served by sl_getComplianceGaps().)
+ *
+ * @param {string} brandFilter — brand name (UPPERCASE) or 'ALL' / '' for no filter
+ * @returns {{
+ *   name: string, brand: string, region: string, visits: number,
+ *   lastVisitDate: string, lastPurpose: string, visitors: string
+ * }[]}  Sorted most-recently-visited first; same-day ties by store name.
+ */
+function sl_getVisitedThisMonth(brandFilter) {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const now = new Date();
+
+  // Current month bounds (server timezone)
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+  const monthEnd   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+  // ── Store roster from SETTINGS (brand/region come from here) ──
+  const settings = ss.getSheetByName(SL_SHEET.SETTINGS);
+  if (!settings || settings.getLastRow() < 2) return [];
+
+  const settingsRows = settings.getRange(2, 1, settings.getLastRow() - 1, 3).getValues();
+  const allStores    = new Map(); // name → {brand, region}
+
+  settingsRows.forEach(row => {
+    const name   = String(row[SL_SETTINGS_COL.STORE]  || '').trim().toUpperCase();
+    const brand  = String(row[SL_SETTINGS_COL.BRAND]  || '').trim().toUpperCase();
+    const region = String(row[SL_SETTINGS_COL.REGION] || '').trim().toUpperCase();
+    if (!name || allStores.has(name)) return;
+    if (brandFilter && brandFilter !== 'ALL' && brand !== brandFilter) return;
+    allStores.set(name, { brand, region });
+  });
+
+  // ── Scan MASTER_LOG once, accumulating this month's visits ───
+  const log = ss.getSheetByName(SL_SHEET.MASTER_LOG);
+  if (!log || log.getLastRow() < 2) return [];
+
+  const logData = log.getRange(2, 1, log.getLastRow() - 1, 8).getValues();
+  const acc     = new Map(); // name → {visits, lastDate, lastPurpose, visitors:Set}
+
+  logData.forEach(row => {
+    const store = String(row[SL_COL.STORE] || '').trim().toUpperCase();
+    if (!store || !allStores.has(store)) return;
+
+    const dateRaw = row[SL_COL.DATE];
+    const date = dateRaw instanceof Date && !isNaN(dateRaw) ? dateRaw : null;
+    if (!date || date < monthStart || date > monthEnd) return;
+
+    let a = acc.get(store);
+    if (!a) { a = { visits: 0, lastDate: null, lastPurpose: '', visitors: [] }; acc.set(store, a); }
+
+    a.visits++;
+    if (!a.lastDate || date > a.lastDate) {
+      a.lastDate    = date;
+      a.lastPurpose = String(row[SL_COL.PURPOSE] || '').trim().toUpperCase();
+    }
+    // Col F is pipe-delimited for multi-visitor rows (Bible §3.4)
+    String(row[SL_COL.VISITOR] || '').toUpperCase().split('|')
+      .map(v => v.trim()).filter(Boolean)
+      .forEach(v => { if (a.visitors.indexOf(v) === -1) a.visitors.push(v); });
+  });
+
+  // ── Shape the result ─────────────────────────────────────────
+  const result = [];
+  acc.forEach((a, name) => {
+    const info = allStores.get(name);
+    result.push({
+      name,
+      brand:         info.brand,
+      region:        info.region,
+      visits:        a.visits,
+      lastVisitDate: a.lastDate ? _sl_formatDate(a.lastDate) : '—',
+      lastPurpose:   a.lastPurpose || '—',
+      visitors:      a.visitors.sort().join(', '),
+      _sortKey:      a.lastDate ? a.lastDate.getTime() : 0,
+    });
+  });
+
+  result.sort((a, b) => b._sortKey - a._sortKey || a.name.localeCompare(b.name));
+  result.forEach(r => { delete r._sortKey; });
+  return result;
+}
+
+/**
  * sl_getUnvisitedThisMonth(brandFilter)
  * Returns stores from SETTINGS that have NO visit in the current
  * calendar month, optionally filtered by brand.
+ *
+ * NOTE: no longer wired to the portal UI — the Unvisited This Month tab
+ * uses sl_getComplianceGaps() instead, which applies each store's own
+ * category window (monthly / quarterly / semi-annual) rather than a flat
+ * calendar month. Kept as a straight calendar-month view for callers that
+ * want exactly that.
  *
  * @param {string} brandFilter — brand name (UPPERCASE) or 'ALL' / '' for no filter
  * @returns {{
