@@ -136,7 +136,7 @@ textarea.fi{resize:vertical;min-height:50px}
 .si-side{border-right:1px solid var(--border);overflow-y:auto;padding:12px;background:var(--navy-d)}
 .si-main{overflow-y:auto;padding:12px 14px}
 .si-label{font-size:9px;font-weight:700;color:var(--light);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;margin-top:8px;display:block}
-.si-search{width:100%;padding:6px 28px 6px 8px;font-size:11px;background:var(--navy-c);
+.si-search{width:100%;padding:6px 48px 6px 8px;font-size:11px;background:var(--navy-c);
   border:1px solid var(--border-d);border-radius:4px;color:var(--white);outline:none;font-family:Arial}
 .si-search::placeholder{color:#8A9AB5}
 .si-search:focus{border-color:var(--gold)}
@@ -236,6 +236,42 @@ textarea.fi{resize:vertical;min-height:50px}
 .pill-mild{background:#EBF8FF;color:#2B6CB0}
 .pill-never{background:var(--bg);color:var(--muted);font-style:italic}
 
+/* ── Filterable / sortable table headers ── */
+.data-tbl thead th.fh{padding:0}
+.fh-inner{display:flex;align-items:center;gap:4px;padding:8px 8px 8px 10px}
+.fh-lbl{flex:1;cursor:pointer;user-select:none;white-space:nowrap;display:flex;align-items:center;gap:4px}
+.fh-lbl:hover{color:var(--gold)}
+.fh-arrow{font-size:8px;opacity:.35}
+.fh-arrow.on{opacity:1;color:var(--gold)}
+.fh-btn{border:none;background:rgba(255,255,255,.12);color:var(--white);font-size:9px;line-height:1;
+  cursor:pointer;padding:4px 5px;border-radius:3px;font-family:Arial;flex-shrink:0}
+.fh-btn:hover{background:rgba(255,255,255,.28)}
+.fh-btn.on{background:var(--gold);color:var(--navy-d)}
+.data-tbl thead th.c .fh-inner{justify-content:center}
+
+/* Filter popover — fixed position so a scrolling table can't clip it */
+.colf{position:fixed;z-index:400;background:var(--card);border:1px solid #cbd5e0;border-radius:6px;
+  box-shadow:0 8px 24px rgba(0,0,0,.18);padding:8px;width:210px;font-size:11px;color:var(--text)}
+.colf[hidden]{display:none}
+.colf-hdr{font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.4px;margin-bottom:6px}
+.colf input[type=text],.colf input[type=number]{width:100%;padding:5px 7px;font-size:11px;
+  border:1px solid #cbd5e0;border-radius:4px;font-family:Arial;outline:none;color:var(--text);background:var(--card)}
+.colf input:focus{border-color:#1a56db}
+.colf-range{display:flex;gap:5px;align-items:center}
+.colf-list{max-height:170px;overflow-y:auto;margin-top:6px;border-top:1px solid var(--border);padding-top:5px}
+.colf-opt{display:flex;align-items:center;gap:6px;padding:3px 2px;cursor:pointer;border-radius:3px}
+.colf-opt:hover{background:#EDF2F7}
+.colf-opt input{margin:0;flex-shrink:0}
+.colf-opt span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.colf-acts{display:flex;gap:5px;margin-top:7px}
+.colf-acts button{flex:1;padding:5px;font-size:10px;font-weight:700;border:none;border-radius:4px;
+  cursor:pointer;font-family:Arial}
+.colf-clear{background:#EDF2F7;color:#4a5568}
+.colf-done{background:#1a56db;color:#fff}
+.comp-active-note{font-size:10px;color:var(--orange);font-weight:700;margin-left:8px}
+@media (max-width:820px){ .colf{width:min(260px,86vw)} }
+
 /* ── System Tools ── */
 .tools-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px 14px;overflow-y:auto;flex:1}
 .tool-card{background:var(--card);border:1px solid var(--border);border-radius:6px;overflow:hidden}
@@ -273,11 +309,18 @@ textarea.fi{resize:vertical;min-height:50px}
 .no-data{text-align:center;padding:12px;color:var(--muted);font-size:10px;font-style:italic}
 
 /* ── Per-field clear (×) controls ── */
-.field-x{position:absolute;right:5px;top:50%;transform:translateY(-50%);border:none;background:none;
+.field-x{position:absolute;right:26px;top:50%;transform:translateY(-50%);border:none;background:none;
   color:var(--muted);font-size:15px;line-height:1;cursor:pointer;padding:2px 5px;border-radius:3px;font-family:Arial}
 .field-x:hover{background:#EDF2F7;color:var(--red)}
 .field-x[hidden]{display:none}
-.ss-input{padding-right:28px}
+.ss-input{padding-right:48px}
+/* Caret makes a type-to-search box read as a dropdown: click it to browse the
+   whole list, or just start typing to narrow it. */
+.combo-caret{position:absolute;right:4px;top:50%;transform:translateY(-50%);border:none;background:none;
+  color:var(--muted);font-size:10px;line-height:1;cursor:pointer;padding:5px 6px;border-radius:3px;font-family:Arial}
+.combo-caret:hover{background:#EDF2F7;color:var(--navy)}
+.si-side .combo-caret{color:var(--light)}
+.si-side .combo-caret:hover{background:rgba(255,255,255,.12);color:var(--white)}
 .fg-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px}
 .fg-head label{margin-bottom:0}
 .mini-x{font-size:9px;color:var(--muted);background:none;border:none;cursor:pointer;
@@ -285,7 +328,7 @@ textarea.fi{resize:vertical;min-height:50px}
 .mini-x:hover{color:var(--red)}
 .mini-x[hidden]{display:none}
 .ta-wrap{position:relative}
-.ta-wrap .field-x{top:8px;transform:none}
+.ta-wrap .field-x{top:8px;right:6px;transform:none}
 textarea.fi{padding-right:28px}
 .hint{font-size:9px;color:var(--muted);margin-top:4px;line-height:1.5}
 .hint kbd{background:#EDF2F7;border:1px solid #cbd5e0;border-bottom-width:2px;border-radius:3px;
@@ -395,6 +438,8 @@ textarea.fi{padding-right:28px}
             onkeydown="comboKey(event,'storeDrop','storeSearch','dateVisited')"
             autocomplete="off">
           <button type="button" class="field-x" id="storeX" onclick="clearField('store')" title="Clear store" hidden>&times;</button>
+          <button type="button" class="combo-caret" title="Show all stores"
+            onmousedown="event.preventDefault();toggleCombo('storeDrop','storeSearch')">▼</button>
           <div class="ss-drop" id="storeDrop"></div>
         </div>
         <input type="hidden" id="storeVal">
@@ -420,10 +465,12 @@ textarea.fi{padding-right:28px}
         </div>
         <div class="chip-area" id="chipArea" onclick="document.getElementById('visSearch').focus()"></div>
         <div class="ss-wrap">
-          <input type="text" id="visSearch" class="ss-input" placeholder="Type visitor name to add…"
+          <input type="text" id="visSearch" class="ss-input" placeholder="Search or pick visitors…"
             oninput="filterVisitors()" onfocus="filterVisitors()" onblur="closeDrop('visDrop')"
             onkeydown="comboKey(event,'visDrop','visSearch','purpSearch')"
             autocomplete="off">
+          <button type="button" class="combo-caret" title="Show all visitors"
+            onmousedown="event.preventDefault();toggleCombo('visDrop','visSearch')">▼</button>
           <div class="ss-drop" id="visDrop"></div>
         </div>
         <div class="hint">Tap a name's <b>&times;</b> to drop just that visitor, or press <kbd>Backspace</kbd> in an empty box.</div>
@@ -451,6 +498,8 @@ textarea.fi{padding-right:28px}
             onkeydown="comboKey(event,'purpDrop','purpSearch','remarks')"
             autocomplete="off">
           <button type="button" class="field-x" id="purpX" onclick="clearField('purpose')" title="Clear purpose" hidden>&times;</button>
+          <button type="button" class="combo-caret" title="Show all purposes"
+            onmousedown="event.preventDefault();toggleCombo('purpDrop','purpSearch')">▼</button>
           <div class="ss-drop" id="purpDrop"></div>
         </div>
         <input type="hidden" id="purpVal">
@@ -498,6 +547,8 @@ textarea.fi{padding-right:28px}
           oninput="filterSIStores()" onfocus="filterSIStores()" onblur="closeDrop('siDrop')"
           onkeydown="comboKey(event,'siDrop','siSearch',null)" autocomplete="off">
         <button type="button" class="field-x" id="siX" onclick="clearSIStore()" title="Clear store" hidden>&times;</button>
+        <button type="button" class="combo-caret" title="Show all stores"
+          onmousedown="event.preventDefault();toggleCombo('siDrop','siSearch')">▼</button>
         <div class="ss-drop" id="siDrop"></div>
       </div>
       <input type="hidden" id="siStore">
@@ -642,6 +693,9 @@ textarea.fi{padding-right:28px}
     </div>
   </div>
 </div>
+
+<!-- Column filter popover (Unvisited This Month) -->
+<div class="colf" id="colFilterPop" hidden onclick="event.stopPropagation()"></div>
 
 <!-- System Tools confirmation -->
 <div class="dup-ov" id="confirmOv">
@@ -918,6 +972,18 @@ function pickActiveOpt(dropId) {
   if (!el) return false;
   COMBOS[dropId].pick(el);
   return true;
+}
+
+// Caret click: open the full list, or close it if it is already showing.
+function toggleCombo(dropId, inputId) {
+  var drop = document.getElementById(dropId);
+  if (drop.classList.contains('open')) {
+    drop.classList.remove('open');
+    setActiveOpt(dropId, -1);
+    return;
+  }
+  document.getElementById(inputId).focus();
+  COMBOS[dropId].refresh();
 }
 
 function focusNext(nextId) {
@@ -1347,7 +1413,27 @@ function loadVisited() {
 // ═══════════════════════════════════════
 // TAB 3 — UNVISITED THIS MONTH
 // ═══════════════════════════════════════
-var compFilter = 'ALL';
+// Column model for the gaps table: what each header sorts and filters on.
+//   text = contains-match, set = pick from the distinct values, num = min/max
+var COMP_COLS = [
+  { key:'_n',            label:'#',          type:null,   sortable:false },
+  { key:'store',         label:'Store Name', type:'text', sortable:true },
+  { key:'brand',         label:'Brand',      type:'set',  sortable:true },
+  { key:'region',        label:'Region',     type:'set',  sortable:true },
+  { key:'ytdVisits',     label:'YTD Visits', type:'num',  sortable:true, center:true },
+  { key:'windowLabel',   label:'Required',   type:'set',  sortable:true },
+  { key:'lastVisitDate', label:'Last Visit', type:'text', sortable:true, sortBy:'daysSince', sortFlip:true },
+  { key:'daysSince',     label:'Days Since', type:'num',  sortable:true, center:true }
+];
+
+var compAll  = [];               // every gap row from the backend
+var compColF = {};               // key -> active filter for that column
+var compSort = { key: null, dir: 1 };
+
+function compCol(key) {
+  for (var i = 0; i < COMP_COLS.length; i++) if (COMP_COLS[i].key === key) return COMP_COLS[i];
+  return null;
+}
 
 function loadCompliance() {
   var mo = parseInt(document.getElementById('monthSel').value);
@@ -1365,67 +1451,268 @@ function loadCompliance() {
 }
 
 function renderCompliance(rows) {
-  compFilter = 'ALL';
-  var monthly   = rows.filter(function(r){ return r.windowLabel === 'Monthly'; }).length;
-  var quarterly = rows.filter(function(r){ return r.windowLabel === 'Quarterly'; }).length;
-  var semi      = rows.filter(function(r){ return r.windowLabel === 'Semi-Annual'; }).length;
+  compAll  = rows || [];
+  compColF = {};
+  compSort = { key: null, dir: 1 };
+  closeColFilter();
 
   var html = '<div class="comp-filters">'
     +'<button class="cf-btn active"      data-f="ALL"         onclick="setFilter(this,\'ALL\')">All Stores</button>'
     +'<button class="cf-btn monthly"     data-f="Monthly"     onclick="setFilter(this,\'Monthly\')">Monthly</button>'
     +'<button class="cf-btn quarterly"   data-f="Quarterly"   onclick="setFilter(this,\'Quarterly\')">Quarterly</button>'
     +'<button class="cf-btn semiannual"  data-f="Semi-Annual" onclick="setFilter(this,\'Semi-Annual\')">Semi-Annual</button>'
-    +'<span class="cf-count" id="cfCount">'+rows.length+' store'+(rows.length!==1?'s':'')+'</span>'
-    +'</div>';
+    +'<span class="cf-count" id="cfCount"></span>'
+    +'</div>'
+    +'<div class="kpi-row" id="compKpis"></div>'
+    +'<div id="compBody"></div>';
+  document.getElementById('visitsPanel').innerHTML = html;
+  applyCompFilters();
+}
 
-  html += '<div class="kpi-row">'
-    +'<div class="ck total"><div class="ck-lbl">TOTAL GAPS</div><div class="ck-val">'+rows.length+'</div><div class="ck-sub">across all windows</div></div>'
+// Rows surviving every active column filter, in the current sort order.
+function compRows() {
+  var rows = compAll.filter(function(r) {
+    for (var key in compColF) {
+      var f = compColF[key];
+      if (!f) continue;
+      var v = r[key];
+      if (f.type === 'text') {
+        if (f.text && String(v == null ? '' : v).toUpperCase().indexOf(f.text.toUpperCase()) === -1) return false;
+      } else if (f.type === 'set') {
+        if (f.sel && f.sel.length && f.sel.indexOf(String(v == null ? '' : v)) === -1) return false;
+      } else if (f.type === 'num') {
+        var n = (v === null || v === undefined || v === '') ? null : Number(v);
+        if (f.min !== '' && f.min != null && (n === null || n < Number(f.min))) return false;
+        if (f.max !== '' && f.max != null && (n === null || n > Number(f.max))) return false;
+      }
+    }
+    return true;
+  });
+
+  if (compSort.key) {
+    var col  = compCol(compSort.key) || {};
+    var sk   = col.sortBy || compSort.key;
+    var flip = col.sortFlip ? -1 : 1;
+    rows = rows.slice().sort(function(a, b) {
+      var av = a[sk], bv = b[sk];
+      if (col.type === 'num' || col.sortBy) {   // numeric-ish: nulls ("never visited") sort last
+        av = (av === null || av === undefined || av === '') ? -Infinity : Number(av);
+        bv = (bv === null || bv === undefined || bv === '') ? -Infinity : Number(bv);
+        return (av - bv) * compSort.dir * flip;
+      }
+      return String(av == null ? '' : av).localeCompare(String(bv == null ? '' : bv)) * compSort.dir * flip;
+    });
+  }
+  return rows;
+}
+
+function applyCompFilters() {
+  var rows = compRows();
+
+  // KPI cards track what is actually on screen, so they never contradict the table.
+  var monthly   = rows.filter(function(r){ return r.windowLabel === 'Monthly'; }).length;
+  var quarterly = rows.filter(function(r){ return r.windowLabel === 'Quarterly'; }).length;
+  var semi      = rows.filter(function(r){ return r.windowLabel === 'Semi-Annual'; }).length;
+  var filtered  = rows.length !== compAll.length;
+
+  document.getElementById('compKpis').innerHTML =
+     '<div class="ck total"><div class="ck-lbl">TOTAL GAPS</div><div class="ck-val">'+rows.length+'</div>'
+    +'<div class="ck-sub">'+(filtered ? 'filtered of '+compAll.length : 'across all windows')+'</div></div>'
     +'<div class="ck monthly"><div class="ck-lbl">MONTHLY REQUIRED</div><div class="ck-val">'+monthly+'</div><div class="ck-sub">NCR + Near Provincial</div></div>'
     +'<div class="ck quarterly"><div class="ck-lbl">QUARTERLY REQUIRED</div><div class="ck-val">'+quarterly+'</div><div class="ck-sub">Far Provincial</div></div>'
-    +'<div class="ck semiannual"><div class="ck-lbl">SEMI-ANNUAL REQUIRED</div><div class="ck-val">'+semi+'</div><div class="ck-sub">Flight Provincial</div></div>'
-    +'</div>';
+    +'<div class="ck semiannual"><div class="ck-lbl">SEMI-ANNUAL REQUIRED</div><div class="ck-val">'+semi+'</div><div class="ck-sub">Flight Provincial</div></div>';
 
-  if (!rows.length) {
-    html += stateMsg('✅','All Stores Visited','Every store has met its required visit frequency.');
-    document.getElementById('visitsPanel').innerHTML = html; return;
+  var cnt = document.getElementById('cfCount');
+  if (cnt) {
+    cnt.innerHTML = rows.length+' store'+(rows.length!==1?'s':'')
+      + (filtered ? '<span class="comp-active-note">filtered</span>' : '');
   }
 
-  html += '<div class="tbl-scroll"><table class="data-tbl" id="compTbl"><thead><tr>'
-    +'<th>#</th><th>Store Name</th><th>Brand</th><th>Region</th>'
-    +'<th class="c">YTD Visits</th><th>Required</th><th>Last Visit</th><th class="c">Days Since</th>'
-    +'</tr></thead><tbody>';
+  if (!compAll.length) {
+    document.getElementById('compBody').innerHTML =
+      stateMsg('✅','All Stores Visited','Every store has met its required visit frequency.');
+    return;
+  }
 
-  rows.forEach(function(r, i) {
-    html += '<tr class="cr" data-w="'+esc(r.windowLabel)+'">'
-      +'<td class="crn">'+(i+1)+'</td>'
-      +'<td><span class="store-link" data-store="'+esc(r.store)+'" onclick="jumpToStore(this.dataset.store)">'+esc(r.store)+'</span></td>'
-      +'<td>'+esc(r.brand)+'</td>'
-      +'<td>'+esc(r.region)+'</td>'
-      +'<td class="c" style="font-weight:700;color:var(--navy)">'+(r.ytdVisits||0)+'</td>'
-      +'<td><span class="wb wb-'+esc(r.windowLabel)+'">'+esc(r.windowLabel)+'</span></td>'
-      +'<td>'+esc(r.lastVisitDate)+'</td>'
-      +'<td class="c">'+pill(r.daysSince)+'</td>'
-      +'</tr>';
+  var html = '<div class="tbl-scroll"><table class="data-tbl" id="compTbl"><thead><tr>';
+  COMP_COLS.forEach(function(col) {
+    var arrow = '';
+    if (col.sortable) {
+      var on = compSort.key === col.key;
+      arrow = '<span class="fh-arrow'+(on?' on':'')+'">'+(on && compSort.dir === -1 ? '▼' : '▲')+'</span>';
+    }
+    var lbl = col.sortable
+      ? '<span class="fh-lbl" onclick="compSortBy(\''+col.key+'\')">'+esc(col.label)+arrow+'</span>'
+      : '<span class="fh-lbl" style="cursor:default">'+esc(col.label)+'</span>';
+    var btn = col.type
+      ? '<button class="fh-btn'+(compColF[col.key]?' on':'')+'" title="Filter '+esc(col.label)
+        +'" onclick="openColFilter(event,\''+col.key+'\')">▼</button>'
+      : '';
+    html += '<th class="fh'+(col.center?' c':'')+'"><div class="fh-inner">'+lbl+btn+'</div></th>';
   });
+  html += '</tr></thead><tbody>';
 
+  if (!rows.length) {
+    html += '<tr><td colspan="'+COMP_COLS.length+'" style="text-align:center;padding:22px;color:var(--muted);font-style:italic">'
+      +'No rows match the current filters. <span class="store-link" onclick="clearAllCompFilters()">Clear all filters</span></td></tr>';
+  } else {
+    rows.forEach(function(r, i) {
+      html += '<tr class="cr" data-w="'+esc(r.windowLabel)+'">'
+        +'<td class="crn">'+(i+1)+'</td>'
+        +'<td><span class="store-link" data-store="'+esc(r.store)+'" onclick="jumpToStore(this.dataset.store)">'+esc(r.store)+'</span></td>'
+        +'<td>'+esc(r.brand)+'</td>'
+        +'<td>'+esc(r.region)+'</td>'
+        +'<td class="c" style="font-weight:700;color:var(--navy)">'+(r.ytdVisits||0)+'</td>'
+        +'<td><span class="wb wb-'+esc(r.windowLabel)+'">'+esc(r.windowLabel)+'</span></td>'
+        +'<td>'+esc(r.lastVisitDate)+'</td>'
+        +'<td class="c">'+pill(r.daysSince)+'</td>'
+        +'</tr>';
+    });
+  }
   html += '</tbody></table></div>';
-  document.getElementById('visitsPanel').innerHTML = html;
+  document.getElementById('compBody').innerHTML = html;
 }
 
+function compSortBy(key) {
+  if (compSort.key === key) compSort.dir = compSort.dir === 1 ? -1 : 1;
+  else { compSort.key = key; compSort.dir = 1; }
+  closeColFilter();
+  applyCompFilters();
+}
+
+function clearAllCompFilters() {
+  compColF = {};
+  document.querySelectorAll('.cf-btn').forEach(function(b){ b.classList.remove('active'); });
+  var all = document.querySelector('.cf-btn[data-f="ALL"]');
+  if (all) all.classList.add('active');
+  closeColFilter();
+  applyCompFilters();
+}
+
+// ── Header filter popover ──────────────────────────────────
+function openColFilter(e, key) {
+  e.stopPropagation();
+  var col = compCol(key);
+  if (!col) return;
+  var pop = document.getElementById('colFilterPop');
+
+  // Second click on the same header closes it.
+  if (!pop.hidden && pop.dataset.key === key) { closeColFilter(); return; }
+  pop.dataset.key = key;
+
+  var f = compColF[key];
+  var html = '<div class="colf-hdr">Filter · '+esc(col.label)+'</div>';
+
+  if (col.type === 'text') {
+    html += '<input type="text" id="colfText" placeholder="Contains…" value="'
+      +esc(f && f.text ? f.text : '')+'" oninput="setColFilterText()">';
+  } else if (col.type === 'num') {
+    html += '<div class="colf-range">'
+      +'<input type="number" id="colfMin" placeholder="min" value="'+esc(f && f.min != null ? f.min : '')+'" oninput="setColFilterNum()">'
+      +'<span style="color:var(--muted)">–</span>'
+      +'<input type="number" id="colfMax" placeholder="max" value="'+esc(f && f.max != null ? f.max : '')+'" oninput="setColFilterNum()">'
+      +'</div>';
+  } else {
+    var vals = [];
+    compAll.forEach(function(r) {
+      var v = String(r[key] == null ? '' : r[key]);
+      if (vals.indexOf(v) === -1) vals.push(v);
+    });
+    vals.sort();
+    var sel = f && f.sel ? f.sel : vals.slice();
+    html += '<div class="colf-list">';
+    vals.forEach(function(v, i) {
+      html += '<label class="colf-opt"><input type="checkbox" class="colfBox" value="'+esc(v)+'"'
+        +(sel.indexOf(v) !== -1 ? ' checked' : '')+' onchange="setColFilterSet()">'
+        +'<span>'+esc(v || '—')+'</span></label>';
+    });
+    html += '</div>';
+  }
+
+  html += '<div class="colf-acts">'
+    +'<button class="colf-clear" onclick="clearColFilter()">Clear</button>'
+    +'<button class="colf-done" onclick="closeColFilter()">Done</button>'
+    +'</div>';
+
+  pop.innerHTML = html;
+  pop.hidden = false;
+
+  // Fixed-position so a horizontally scrolling table can never clip it.
+  var r = e.currentTarget.getBoundingClientRect();
+  var w = pop.offsetWidth;
+  var left = Math.max(6, Math.min(r.left, window.innerWidth - w - 6));
+  pop.style.left = left + 'px';
+  pop.style.top  = Math.min(r.bottom + 4, window.innerHeight - pop.offsetHeight - 6) + 'px';
+
+  var first = pop.querySelector('input');
+  if (first && first.type === 'text') first.focus();
+}
+
+function closeColFilter() {
+  var pop = document.getElementById('colFilterPop');
+  if (pop) { pop.hidden = true; pop.dataset.key = ''; }
+}
+
+function setColFilterText() {
+  var key = document.getElementById('colFilterPop').dataset.key;
+  var v = document.getElementById('colfText').value.trim();
+  if (v) compColF[key] = { type: 'text', text: v };
+  else delete compColF[key];
+  applyCompFilters();
+}
+
+function setColFilterNum() {
+  var key = document.getElementById('colFilterPop').dataset.key;
+  var mn = document.getElementById('colfMin').value.trim();
+  var mx = document.getElementById('colfMax').value.trim();
+  if (mn === '' && mx === '') delete compColF[key];
+  else compColF[key] = { type: 'num', min: mn === '' ? null : mn, max: mx === '' ? null : mx };
+  applyCompFilters();
+}
+
+function setColFilterSet() {
+  var pop = document.getElementById('colFilterPop');
+  var key = pop.dataset.key;
+  var boxes = pop.querySelectorAll('.colfBox');
+  var sel = [], total = boxes.length;
+  for (var i = 0; i < boxes.length; i++) if (boxes[i].checked) sel.push(boxes[i].value);
+  if (sel.length === total) delete compColF[key];      // everything ticked == no filter
+  else compColF[key] = { type: 'set', sel: sel };
+  // Keep the window pill buttons honest when Required is filtered by hand.
+  if (key === 'windowLabel') syncWindowButtons();
+  applyCompFilters();
+}
+
+function clearColFilter() {
+  var key = document.getElementById('colFilterPop').dataset.key;
+  delete compColF[key];
+  if (key === 'windowLabel') syncWindowButtons();
+  closeColFilter();
+  applyCompFilters();
+}
+
+// The Monthly/Quarterly/Semi-Annual pills are just a shortcut for the
+// "Required" column filter, so the two always agree.
 function setFilter(btn, f) {
-  compFilter = f;
   document.querySelectorAll('.cf-btn').forEach(function(b){ b.classList.remove('active'); });
   btn.classList.add('active');
-  var rows = document.querySelectorAll('#compTbl .cr');
-  var visible = 0;
-  rows.forEach(function(row) {
-    var show = (f === 'ALL' || row.dataset.w === f);
-    row.style.display = show ? '' : 'none';
-    if (show) { row.querySelector('.crn').textContent = ++visible; }
-  });
-  var c = document.getElementById('cfCount');
-  if (c) c.textContent = visible+' store'+(visible!==1?'s':'');
+  if (f === 'ALL') delete compColF.windowLabel;
+  else compColF.windowLabel = { type: 'set', sel: [f] };
+  closeColFilter();
+  applyCompFilters();
 }
+
+function syncWindowButtons() {
+  var f = compColF.windowLabel;
+  var active = (f && f.sel && f.sel.length === 1) ? f.sel[0] : (f ? null : 'ALL');
+  document.querySelectorAll('.cf-btn').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.f === active);
+  });
+}
+
+// Clicking anywhere else dismisses the popover.
+document.addEventListener('click', function() { closeColFilter(); });
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeColFilter(); });
 
 // ═══════════════════════════════════════
 // TAB 4 — SYSTEM TOOLS
