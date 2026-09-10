@@ -541,6 +541,9 @@ function sl_getVisitedThisMonth(brandFilter) {
   });
 
   // ── Shape the result ─────────────────────────────────────────
+  // daysSince is carried alongside the formatted date so the portal can sort
+  // "Last Visit" chronologically — the display string ("Aug 31, 2026") would
+  // otherwise only sort alphabetically.
   const result = [];
   acc.forEach((a, name) => {
     const info = allStores.get(name);
@@ -552,12 +555,12 @@ function sl_getVisitedThisMonth(brandFilter) {
       lastVisitDate: a.lastDate ? _sl_formatDate(a.lastDate) : '—',
       lastPurpose:   a.lastPurpose || '—',
       visitors:      a.visitors.sort().join(', '),
-      _sortKey:      a.lastDate ? a.lastDate.getTime() : 0,
+      daysSince:     a.lastDate ? Math.floor((now - a.lastDate) / 86400000) : null,
     });
   });
 
-  result.sort((a, b) => b._sortKey - a._sortKey || a.name.localeCompare(b.name));
-  result.forEach(r => { delete r._sortKey; });
+  // Most recently visited first; same-day ties by store name.
+  result.sort((a, b) => (a.daysSince - b.daysSince) || a.name.localeCompare(b.name));
   return result;
 }
 

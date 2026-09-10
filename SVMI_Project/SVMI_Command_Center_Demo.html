@@ -1177,15 +1177,14 @@ textarea.fi{padding-right:28px}
           lastVisitDate: a.lastDate ? slFormatDate(a.lastDate) : '—',
           lastPurpose: a.lastPurpose || '—',
           visitors: Array.from(a.visitors).sort().join(', '),
+          // Sortable companion to lastVisitDate — the display string alone
+          // would only sort alphabetically.
+          daysSince: a.lastDate ? Math.floor((now - a.lastDate) / 86400000) : null,
         });
       });
 
       // Most recently visited first; same-day ties fall back to store name.
-      result.sort((a, b) => {
-        const ad = acc.get(a.name).lastDate, bd = acc.get(b.name).lastDate;
-        if (+bd !== +ad) return bd - ad;
-        return a.name.localeCompare(b.name);
-      });
+      result.sort((a, b) => (a.daysSince - b.daysSince) || a.name.localeCompare(b.name));
       return result;
     },
 
@@ -1984,6 +1983,45 @@ function renderProfile(d) {
 
 // Store Insights shows what HAS been covered this month; the stores still
 // outstanding live in the "Unvisited This Month" tab.
+var VIS_COLS = [
+  { key:'_n',            label:'#',            type:null,   sortable:false },
+  { key:'name',          label:'Store',        type:'text', sortable:true },
+  { key:'brand',         label:'Brand',        type:'set',  sortable:true },
+  { key:'region',        label:'Region',       type:'set',  sortable:true },
+  { key:'visits',        label:'Visits',       type:'num',  sortable:true, center:true },
+  { key:'lastVisitDate', label:'Last Visit',   type:'text', sortable:true, sortBy:'daysSince', sortFlip:true },
+  { key:'lastPurpose',   label:'Last Purpose', type:'set',  sortable:true },
+  { key:'visitors',      label:'Visited By',   type:'text', sortable:true }
+];
+
+function visRenderRow(r, i) {
+  return '<tr>'
+    +'<td class="crn">'+(i+1)+'</td>'
+    +'<td><span class="store-link" data-store="'+esc(r.name)+'" onclick="jumpToStore(this.dataset.store)">'+esc(r.name)+'</span></td>'
+    +'<td>'+esc(r.brand)+'</td>'
+    +'<td>'+esc(r.region)+'</td>'
+    +'<td class="c" style="font-weight:700;color:var(--navy)">'+(r.visits||0)+'</td>'
+    +'<td>'+esc(r.lastVisitDate)+'</td>'
+    +'<td>'+badge(r.lastPurpose)+'</td>'
+    +'<td>'+esc(r.visitors||'—')+'</td>'
+    +'</tr>';
+}
+
+function visOnRender(rows, allRows) {
+  var visits = rows.reduce(function(n, r){ return n + (r.visits || 0); }, 0);
+  var el = document.getElementById('visSummary');
+  if (el) {
+    el.innerHTML = visits+' visit'+(visits!==1?'s':'')+' logged · tap a store name to open its full profile'
+      + (rows.length !== allRows.length
+          ? '<span class="comp-active-note">filtered to '+rows.length+' of '+allRows.length+'</span>' : '');
+  }
+  var hint = document.getElementById('coverageHint');
+  if (hint) {
+    hint.textContent = rows.length+' store'+(rows.length!==1?'s':'')+' visited this month'
+      + (rows.length !== allRows.length ? ' (filtered)' : '');
+  }
+}
+
 function loadVisited() {
   var brand = gBrand === 'ALL' ? '' : gBrand;
   document.getElementById('coverageHint').textContent = 'Loading…';
@@ -1997,25 +2035,20 @@ function loadVisited() {
         document.getElementById('siMain').innerHTML = stateMsg('📭','No Visits Logged','No stores have been visited yet this month.');
         return;
       }
-      var totalVisits = rows.reduce(function(n,r){ return n + (r.visits||0); }, 0);
-      var html = '<h3 style="margin-bottom:3px;color:var(--navy);font-size:13px">Stores Visited This Month ('+rows.length+')</h3>';
-      html += '<div style="font-size:10px;color:var(--muted);margin-bottom:10px">'
-        +totalVisits+' visit'+(totalVisits!==1?'s':'')+' logged · tap a store name to open its full profile</div>';
-      html += '<div class="tbl-scroll"><table class="data-tbl"><thead><tr>'
-        +'<th>#</th><th>Store</th><th>Brand</th><th>Region</th>'
-        +'<th class="c">Visits</th><th>Last Visit</th><th>Last Purpose</th><th>Visited By</th>'
-        +'</tr></thead><tbody>';
-      rows.forEach(function(r,i) {
-        html += '<tr><td>'+(i+1)+'</td>'
-          +'<td><span class="store-link" data-store="'+esc(r.name)+'" onclick="jumpToStore(this.dataset.store)">'+esc(r.name)+'</span></td>'
-          +'<td>'+esc(r.brand)+'</td><td>'+esc(r.region)+'</td>'
-          +'<td class="c" style="font-weight:700;color:var(--navy)">'+(r.visits||0)+'</td>'
-          +'<td>'+esc(r.lastVisitDate)+'</td>'
-          +'<td>'+badge(r.lastPurpose)+'</td>'
-          +'<td>'+esc(r.visitors||'—')+'</td></tr>';
+      document.getElementById('siMain').innerHTML =
+        '<div style="padding:12px 14px 20px">'
+        +'<h3 style="margin-bottom:3px;color:var(--navy);font-size:13px">Stores Visited This Month ('+rows.length+')</h3>'
+        +'<div id="visSummary" style="font-size:10px;color:var(--muted);margin-bottom:10px"></div>'
+        +'<div id="visBody"></div></div>';
+      // Same filter/sort engine as the Unvisited tab — headers filter and sort here too.
+      ftCreate('vis', {
+        cols:      VIS_COLS,
+        rows:      rows,
+        mount:     'visBody',
+        renderRow: visRenderRow,
+        onRender:  visOnRender,
+        empty:     'No stores have been visited yet this month.'
       });
-      html += '</tbody></table></div>';
-      document.getElementById('siMain').innerHTML = '<div style="padding:12px 14px 20px">'+html+'</div>';
     })
     .withFailureHandler(function(err) {
       document.getElementById('coverageHint').textContent = '';
@@ -2025,10 +2058,244 @@ function loadVisited() {
 }
 
 // ═══════════════════════════════════════
+// FILTERABLE / SORTABLE TABLE ENGINE
+// Shared by the Unvisited This Month gaps table and the Store Insights
+// visited-this-month table, so header filtering behaves identically in both
+// and only exists once. Column types:
+//   text = contains-match · set = tick the values to keep · num = min/max
+// ═══════════════════════════════════════
+var FT = {};   // table id -> { cols, rows, colF, sort, mount, renderRow, onRender, empty }
+
+function ftCreate(id, opts) {
+  FT[id] = {
+    cols:      opts.cols,
+    rows:      opts.rows || [],
+    mount:     opts.mount,
+    renderRow: opts.renderRow,
+    onRender:  opts.onRender || null,
+    empty:     opts.empty || 'No rows to show.',
+    colF:      {},
+    sort:      { key: null, dir: 1 }
+  };
+  ftClosePop();
+  ftRender(id);
+}
+
+function ftCol(id, key) {
+  var cols = FT[id].cols;
+  for (var i = 0; i < cols.length; i++) if (cols[i].key === key) return cols[i];
+  return null;
+}
+
+function ftIsFiltered(id) {
+  for (var k in FT[id].colF) if (FT[id].colF[k]) return true;
+  return false;
+}
+
+// Rows surviving every active column filter, in the current sort order.
+function ftRows(id) {
+  var t = FT[id];
+  var rows = t.rows.filter(function(r) {
+    for (var key in t.colF) {
+      var f = t.colF[key];
+      if (!f) continue;
+      var v = r[key];
+      if (f.type === 'text') {
+        if (f.text && String(v == null ? '' : v).toUpperCase().indexOf(f.text.toUpperCase()) === -1) return false;
+      } else if (f.type === 'set') {
+        if (f.sel && f.sel.indexOf(String(v == null ? '' : v)) === -1) return false;
+      } else if (f.type === 'num') {
+        var n = (v === null || v === undefined || v === '') ? null : Number(v);
+        if (f.min != null && f.min !== '' && (n === null || n < Number(f.min))) return false;
+        if (f.max != null && f.max !== '' && (n === null || n > Number(f.max))) return false;
+      }
+    }
+    return true;
+  });
+
+  if (t.sort.key) {
+    var col  = ftCol(id, t.sort.key) || {};
+    var sk   = col.sortBy || t.sort.key;
+    var flip = col.sortFlip ? -1 : 1;
+    rows = rows.slice().sort(function(a, b) {
+      var av = a[sk], bv = b[sk];
+      if (col.type === 'num' || col.sortBy) {   // numeric: blanks ("never visited") sort last
+        av = (av === null || av === undefined || av === '') ? -Infinity : Number(av);
+        bv = (bv === null || bv === undefined || bv === '') ? -Infinity : Number(bv);
+        return (av - bv) * t.sort.dir * flip;
+      }
+      return String(av == null ? '' : av).localeCompare(String(bv == null ? '' : bv)) * t.sort.dir * flip;
+    });
+  }
+  return rows;
+}
+
+function ftRender(id) {
+  var t = FT[id];
+  var rows = ftRows(id);
+
+  var html = '<div class="tbl-scroll"><table class="data-tbl" id="ftTbl-'+id+'"><thead><tr>';
+  t.cols.forEach(function(col) {
+    var arrow = '';
+    if (col.sortable) {
+      var on = t.sort.key === col.key;
+      arrow = '<span class="fh-arrow'+(on?' on':'')+'">'+(on && t.sort.dir === -1 ? '▼' : '▲')+'</span>';
+    }
+    var lbl = col.sortable
+      ? '<span class="fh-lbl" onclick="ftSortBy(\''+id+'\',\''+col.key+'\')">'+esc(col.label)+arrow+'</span>'
+      : '<span class="fh-lbl" style="cursor:default">'+esc(col.label)+'</span>';
+    var btn = col.type
+      ? '<button class="fh-btn'+(t.colF[col.key]?' on':'')+'" title="Filter '+esc(col.label)
+        +'" onclick="ftOpenPop(event,\''+id+'\',\''+col.key+'\')">▼</button>'
+      : '';
+    html += '<th class="fh'+(col.center?' c':'')+'"><div class="fh-inner">'+lbl+btn+'</div></th>';
+  });
+  html += '</tr></thead><tbody>';
+
+  if (!rows.length) {
+    html += '<tr><td colspan="'+t.cols.length+'" style="text-align:center;padding:22px;color:var(--muted);font-style:italic">'
+      + (ftIsFiltered(id)
+          ? 'No rows match the current filters. <span class="store-link" onclick="ftClearAll(\''+id+'\')">Clear all filters</span>'
+          : esc(t.empty))
+      + '</td></tr>';
+  } else {
+    rows.forEach(function(r, i) { html += t.renderRow(r, i); });
+  }
+  html += '</tbody></table></div>';
+  document.getElementById(t.mount).innerHTML = html;
+
+  if (t.onRender) t.onRender(rows, t.rows);
+}
+
+function ftSortBy(id, key) {
+  var t = FT[id];
+  if (t.sort.key === key) t.sort.dir = t.sort.dir === 1 ? -1 : 1;
+  else { t.sort.key = key; t.sort.dir = 1; }
+  ftClosePop();
+  ftRender(id);
+}
+
+function ftClearAll(id) {
+  FT[id].colF = {};
+  if (id === 'comp') syncWindowButtons();
+  ftClosePop();
+  ftRender(id);
+}
+
+// ── Header filter popover (one element, shared by every table) ──
+function ftOpenPop(e, id, key) {
+  e.stopPropagation();
+  var t = FT[id], col = ftCol(id, key);
+  if (!col) return;
+  var pop = document.getElementById('colFilterPop');
+
+  // Second click on the same header closes it.
+  if (!pop.hidden && pop.dataset.table === id && pop.dataset.key === key) { ftClosePop(); return; }
+  pop.dataset.table = id;
+  pop.dataset.key   = key;
+
+  var f = t.colF[key];
+  var html = '<div class="colf-hdr">Filter · '+esc(col.label)+'</div>';
+
+  if (col.type === 'text') {
+    html += '<input type="text" id="colfText" placeholder="Contains…" value="'
+      +esc(f && f.text ? f.text : '')+'" oninput="ftSetText()">';
+  } else if (col.type === 'num') {
+    html += '<div class="colf-range">'
+      +'<input type="number" id="colfMin" placeholder="min" value="'+esc(f && f.min != null ? f.min : '')+'" oninput="ftSetNum()">'
+      +'<span style="color:var(--muted)">–</span>'
+      +'<input type="number" id="colfMax" placeholder="max" value="'+esc(f && f.max != null ? f.max : '')+'" oninput="ftSetNum()">'
+      +'</div>';
+  } else {
+    var vals = [];
+    t.rows.forEach(function(r) {
+      var v = String(r[key] == null ? '' : r[key]);
+      if (vals.indexOf(v) === -1) vals.push(v);
+    });
+    vals.sort();
+    var sel = f && f.sel ? f.sel : vals.slice();
+    html += '<div class="colf-list">';
+    vals.forEach(function(v) {
+      html += '<label class="colf-opt"><input type="checkbox" class="colfBox" value="'+esc(v)+'"'
+        +(sel.indexOf(v) !== -1 ? ' checked' : '')+' onchange="ftSetSet()">'
+        +'<span>'+esc(v || '—')+'</span></label>';
+    });
+    html += '</div>';
+  }
+
+  html += '<div class="colf-acts">'
+    +'<button class="colf-clear" onclick="ftClearCol()">Clear</button>'
+    +'<button class="colf-done" onclick="ftClosePop()">Done</button>'
+    +'</div>';
+
+  pop.innerHTML = html;
+  pop.hidden = false;
+
+  // Fixed-position so a horizontally scrolling table can never clip it.
+  var r = e.currentTarget.getBoundingClientRect();
+  var left = Math.max(6, Math.min(r.left, window.innerWidth - pop.offsetWidth - 6));
+  pop.style.left = left + 'px';
+  pop.style.top  = Math.min(r.bottom + 4, window.innerHeight - pop.offsetHeight - 6) + 'px';
+
+  var first = pop.querySelector('input');
+  if (first && first.type === 'text') first.focus();
+}
+
+function ftClosePop() {
+  var pop = document.getElementById('colFilterPop');
+  if (pop) { pop.hidden = true; pop.dataset.table = ''; pop.dataset.key = ''; }
+}
+
+function ftPopTarget() {
+  var pop = document.getElementById('colFilterPop');
+  return { id: pop.dataset.table, key: pop.dataset.key };
+}
+
+function ftSetText() {
+  var p = ftPopTarget();
+  var v = document.getElementById('colfText').value.trim();
+  if (v) FT[p.id].colF[p.key] = { type: 'text', text: v };
+  else delete FT[p.id].colF[p.key];
+  ftRender(p.id);
+}
+
+function ftSetNum() {
+  var p  = ftPopTarget();
+  var mn = document.getElementById('colfMin').value.trim();
+  var mx = document.getElementById('colfMax').value.trim();
+  if (mn === '' && mx === '') delete FT[p.id].colF[p.key];
+  else FT[p.id].colF[p.key] = { type: 'num', min: mn === '' ? null : mn, max: mx === '' ? null : mx };
+  ftRender(p.id);
+}
+
+function ftSetSet() {
+  var p     = ftPopTarget();
+  var boxes = document.getElementById('colFilterPop').querySelectorAll('.colfBox');
+  var sel = [];
+  for (var i = 0; i < boxes.length; i++) if (boxes[i].checked) sel.push(boxes[i].value);
+  if (sel.length === boxes.length) delete FT[p.id].colF[p.key];   // everything ticked == no filter
+  else FT[p.id].colF[p.key] = { type: 'set', sel: sel };
+  // Keep the window pill buttons honest when Required is filtered by hand.
+  if (p.id === 'comp' && p.key === 'windowLabel') syncWindowButtons();
+  ftRender(p.id);
+}
+
+function ftClearCol() {
+  var p = ftPopTarget();
+  delete FT[p.id].colF[p.key];
+  if (p.id === 'comp' && p.key === 'windowLabel') syncWindowButtons();
+  ftClosePop();
+  ftRender(p.id);
+}
+
+// Clicking anywhere else dismisses the popover.
+document.addEventListener('click', function() { ftClosePop(); });
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') ftClosePop(); });
+
+
+// ═══════════════════════════════════════
 // TAB 3 — UNVISITED THIS MONTH
 // ═══════════════════════════════════════
-// Column model for the gaps table: what each header sorts and filters on.
-//   text = contains-match, set = pick from the distinct values, num = min/max
 var COMP_COLS = [
   { key:'_n',            label:'#',          type:null,   sortable:false },
   { key:'store',         label:'Store Name', type:'text', sortable:true },
@@ -2039,15 +2306,6 @@ var COMP_COLS = [
   { key:'lastVisitDate', label:'Last Visit', type:'text', sortable:true, sortBy:'daysSince', sortFlip:true },
   { key:'daysSince',     label:'Days Since', type:'num',  sortable:true, center:true }
 ];
-
-var compAll  = [];               // every gap row from the backend
-var compColF = {};               // key -> active filter for that column
-var compSort = { key: null, dir: 1 };
-
-function compCol(key) {
-  for (var i = 0; i < COMP_COLS.length; i++) if (COMP_COLS[i].key === key) return COMP_COLS[i];
-  return null;
-}
 
 function loadCompliance() {
   var mo = parseInt(document.getElementById('monthSel').value);
@@ -2065,12 +2323,9 @@ function loadCompliance() {
 }
 
 function renderCompliance(rows) {
-  compAll  = rows || [];
-  compColF = {};
-  compSort = { key: null, dir: 1 };
-  closeColFilter();
-
-  var html = '<div class="comp-filters">'
+  rows = rows || [];
+  document.getElementById('visitsPanel').innerHTML =
+     '<div class="comp-filters">'
     +'<button class="cf-btn active"      data-f="ALL"         onclick="setFilter(this,\'ALL\')">All Stores</button>'
     +'<button class="cf-btn monthly"     data-f="Monthly"     onclick="setFilter(this,\'Monthly\')">Monthly</button>'
     +'<button class="cf-btn quarterly"   data-f="Quarterly"   onclick="setFilter(this,\'Quarterly\')">Quarterly</button>'
@@ -2079,254 +2334,78 @@ function renderCompliance(rows) {
     +'</div>'
     +'<div class="kpi-row" id="compKpis"></div>'
     +'<div id="compBody"></div>';
-  document.getElementById('visitsPanel').innerHTML = html;
-  applyCompFilters();
-}
 
-// Rows surviving every active column filter, in the current sort order.
-function compRows() {
-  var rows = compAll.filter(function(r) {
-    for (var key in compColF) {
-      var f = compColF[key];
-      if (!f) continue;
-      var v = r[key];
-      if (f.type === 'text') {
-        if (f.text && String(v == null ? '' : v).toUpperCase().indexOf(f.text.toUpperCase()) === -1) return false;
-      } else if (f.type === 'set') {
-        if (f.sel && f.sel.length && f.sel.indexOf(String(v == null ? '' : v)) === -1) return false;
-      } else if (f.type === 'num') {
-        var n = (v === null || v === undefined || v === '') ? null : Number(v);
-        if (f.min !== '' && f.min != null && (n === null || n < Number(f.min))) return false;
-        if (f.max !== '' && f.max != null && (n === null || n > Number(f.max))) return false;
-      }
-    }
-    return true;
-  });
-
-  if (compSort.key) {
-    var col  = compCol(compSort.key) || {};
-    var sk   = col.sortBy || compSort.key;
-    var flip = col.sortFlip ? -1 : 1;
-    rows = rows.slice().sort(function(a, b) {
-      var av = a[sk], bv = b[sk];
-      if (col.type === 'num' || col.sortBy) {   // numeric-ish: nulls ("never visited") sort last
-        av = (av === null || av === undefined || av === '') ? -Infinity : Number(av);
-        bv = (bv === null || bv === undefined || bv === '') ? -Infinity : Number(bv);
-        return (av - bv) * compSort.dir * flip;
-      }
-      return String(av == null ? '' : av).localeCompare(String(bv == null ? '' : bv)) * compSort.dir * flip;
-    });
-  }
-  return rows;
-}
-
-function applyCompFilters() {
-  var rows = compRows();
-
-  // KPI cards track what is actually on screen, so they never contradict the table.
-  var monthly   = rows.filter(function(r){ return r.windowLabel === 'Monthly'; }).length;
-  var quarterly = rows.filter(function(r){ return r.windowLabel === 'Quarterly'; }).length;
-  var semi      = rows.filter(function(r){ return r.windowLabel === 'Semi-Annual'; }).length;
-  var filtered  = rows.length !== compAll.length;
-
-  document.getElementById('compKpis').innerHTML =
-     '<div class="ck total"><div class="ck-lbl">TOTAL GAPS</div><div class="ck-val">'+rows.length+'</div>'
-    +'<div class="ck-sub">'+(filtered ? 'filtered of '+compAll.length : 'across all windows')+'</div></div>'
-    +'<div class="ck monthly"><div class="ck-lbl">MONTHLY REQUIRED</div><div class="ck-val">'+monthly+'</div><div class="ck-sub">NCR + Near Provincial</div></div>'
-    +'<div class="ck quarterly"><div class="ck-lbl">QUARTERLY REQUIRED</div><div class="ck-val">'+quarterly+'</div><div class="ck-sub">Far Provincial</div></div>'
-    +'<div class="ck semiannual"><div class="ck-lbl">SEMI-ANNUAL REQUIRED</div><div class="ck-val">'+semi+'</div><div class="ck-sub">Flight Provincial</div></div>';
-
-  var cnt = document.getElementById('cfCount');
-  if (cnt) {
-    cnt.innerHTML = rows.length+' store'+(rows.length!==1?'s':'')
-      + (filtered ? '<span class="comp-active-note">filtered</span>' : '');
-  }
-
-  if (!compAll.length) {
+  if (!rows.length) {          // nothing outstanding at all — say so properly
+    document.getElementById('compKpis').innerHTML = compKpiCards([], []);
+    document.getElementById('cfCount').textContent = '0 stores';
     document.getElementById('compBody').innerHTML =
       stateMsg('✅','All Stores Visited','Every store has met its required visit frequency.');
     return;
   }
 
-  var html = '<div class="tbl-scroll"><table class="data-tbl" id="compTbl"><thead><tr>';
-  COMP_COLS.forEach(function(col) {
-    var arrow = '';
-    if (col.sortable) {
-      var on = compSort.key === col.key;
-      arrow = '<span class="fh-arrow'+(on?' on':'')+'">'+(on && compSort.dir === -1 ? '▼' : '▲')+'</span>';
-    }
-    var lbl = col.sortable
-      ? '<span class="fh-lbl" onclick="compSortBy(\''+col.key+'\')">'+esc(col.label)+arrow+'</span>'
-      : '<span class="fh-lbl" style="cursor:default">'+esc(col.label)+'</span>';
-    var btn = col.type
-      ? '<button class="fh-btn'+(compColF[col.key]?' on':'')+'" title="Filter '+esc(col.label)
-        +'" onclick="openColFilter(event,\''+col.key+'\')">▼</button>'
-      : '';
-    html += '<th class="fh'+(col.center?' c':'')+'"><div class="fh-inner">'+lbl+btn+'</div></th>';
+  ftCreate('comp', {
+    cols:      COMP_COLS,
+    rows:      rows,
+    mount:     'compBody',
+    renderRow: compRenderRow,
+    onRender:  compOnRender,
+    empty:     'Every store has met its required visit frequency.'
   });
-  html += '</tr></thead><tbody>';
+}
 
-  if (!rows.length) {
-    html += '<tr><td colspan="'+COMP_COLS.length+'" style="text-align:center;padding:22px;color:var(--muted);font-style:italic">'
-      +'No rows match the current filters. <span class="store-link" onclick="clearAllCompFilters()">Clear all filters</span></td></tr>';
-  } else {
-    rows.forEach(function(r, i) {
-      html += '<tr class="cr" data-w="'+esc(r.windowLabel)+'">'
-        +'<td class="crn">'+(i+1)+'</td>'
-        +'<td><span class="store-link" data-store="'+esc(r.store)+'" onclick="jumpToStore(this.dataset.store)">'+esc(r.store)+'</span></td>'
-        +'<td>'+esc(r.brand)+'</td>'
-        +'<td>'+esc(r.region)+'</td>'
-        +'<td class="c" style="font-weight:700;color:var(--navy)">'+(r.ytdVisits||0)+'</td>'
-        +'<td><span class="wb wb-'+esc(r.windowLabel)+'">'+esc(r.windowLabel)+'</span></td>'
-        +'<td>'+esc(r.lastVisitDate)+'</td>'
-        +'<td class="c">'+pill(r.daysSince)+'</td>'
-        +'</tr>';
-    });
+function compRenderRow(r, i) {
+  return '<tr class="cr" data-w="'+esc(r.windowLabel)+'">'
+    +'<td class="crn">'+(i+1)+'</td>'
+    +'<td><span class="store-link" data-store="'+esc(r.store)+'" onclick="jumpToStore(this.dataset.store)">'+esc(r.store)+'</span></td>'
+    +'<td>'+esc(r.brand)+'</td>'
+    +'<td>'+esc(r.region)+'</td>'
+    +'<td class="c" style="font-weight:700;color:var(--navy)">'+(r.ytdVisits||0)+'</td>'
+    +'<td><span class="wb wb-'+esc(r.windowLabel)+'">'+esc(r.windowLabel)+'</span></td>'
+    +'<td>'+esc(r.lastVisitDate)+'</td>'
+    +'<td class="c">'+pill(r.daysSince)+'</td>'
+    +'</tr>';
+}
+
+function compKpiCards(rows, allRows) {
+  var monthly   = rows.filter(function(r){ return r.windowLabel === 'Monthly'; }).length;
+  var quarterly = rows.filter(function(r){ return r.windowLabel === 'Quarterly'; }).length;
+  var semi      = rows.filter(function(r){ return r.windowLabel === 'Semi-Annual'; }).length;
+  var filtered  = rows.length !== allRows.length;
+  return '<div class="ck total"><div class="ck-lbl">TOTAL GAPS</div><div class="ck-val">'+rows.length+'</div>'
+    +'<div class="ck-sub">'+(filtered ? 'filtered of '+allRows.length : 'across all windows')+'</div></div>'
+    +'<div class="ck monthly"><div class="ck-lbl">MONTHLY REQUIRED</div><div class="ck-val">'+monthly+'</div><div class="ck-sub">NCR + Near Provincial</div></div>'
+    +'<div class="ck quarterly"><div class="ck-lbl">QUARTERLY REQUIRED</div><div class="ck-val">'+quarterly+'</div><div class="ck-sub">Far Provincial</div></div>'
+    +'<div class="ck semiannual"><div class="ck-lbl">SEMI-ANNUAL REQUIRED</div><div class="ck-val">'+semi+'</div><div class="ck-sub">Flight Provincial</div></div>';
+}
+
+// KPI cards track what is actually on screen, so they never contradict the table.
+function compOnRender(rows, allRows) {
+  document.getElementById('compKpis').innerHTML = compKpiCards(rows, allRows);
+  var cnt = document.getElementById('cfCount');
+  if (cnt) {
+    cnt.innerHTML = rows.length+' store'+(rows.length!==1?'s':'')
+      + (rows.length !== allRows.length ? '<span class="comp-active-note">filtered</span>' : '');
   }
-  html += '</tbody></table></div>';
-  document.getElementById('compBody').innerHTML = html;
 }
 
-function compSortBy(key) {
-  if (compSort.key === key) compSort.dir = compSort.dir === 1 ? -1 : 1;
-  else { compSort.key = key; compSort.dir = 1; }
-  closeColFilter();
-  applyCompFilters();
-}
-
-function clearAllCompFilters() {
-  compColF = {};
-  document.querySelectorAll('.cf-btn').forEach(function(b){ b.classList.remove('active'); });
-  var all = document.querySelector('.cf-btn[data-f="ALL"]');
-  if (all) all.classList.add('active');
-  closeColFilter();
-  applyCompFilters();
-}
-
-// ── Header filter popover ──────────────────────────────────
-function openColFilter(e, key) {
-  e.stopPropagation();
-  var col = compCol(key);
-  if (!col) return;
-  var pop = document.getElementById('colFilterPop');
-
-  // Second click on the same header closes it.
-  if (!pop.hidden && pop.dataset.key === key) { closeColFilter(); return; }
-  pop.dataset.key = key;
-
-  var f = compColF[key];
-  var html = '<div class="colf-hdr">Filter · '+esc(col.label)+'</div>';
-
-  if (col.type === 'text') {
-    html += '<input type="text" id="colfText" placeholder="Contains…" value="'
-      +esc(f && f.text ? f.text : '')+'" oninput="setColFilterText()">';
-  } else if (col.type === 'num') {
-    html += '<div class="colf-range">'
-      +'<input type="number" id="colfMin" placeholder="min" value="'+esc(f && f.min != null ? f.min : '')+'" oninput="setColFilterNum()">'
-      +'<span style="color:var(--muted)">–</span>'
-      +'<input type="number" id="colfMax" placeholder="max" value="'+esc(f && f.max != null ? f.max : '')+'" oninput="setColFilterNum()">'
-      +'</div>';
-  } else {
-    var vals = [];
-    compAll.forEach(function(r) {
-      var v = String(r[key] == null ? '' : r[key]);
-      if (vals.indexOf(v) === -1) vals.push(v);
-    });
-    vals.sort();
-    var sel = f && f.sel ? f.sel : vals.slice();
-    html += '<div class="colf-list">';
-    vals.forEach(function(v, i) {
-      html += '<label class="colf-opt"><input type="checkbox" class="colfBox" value="'+esc(v)+'"'
-        +(sel.indexOf(v) !== -1 ? ' checked' : '')+' onchange="setColFilterSet()">'
-        +'<span>'+esc(v || '—')+'</span></label>';
-    });
-    html += '</div>';
-  }
-
-  html += '<div class="colf-acts">'
-    +'<button class="colf-clear" onclick="clearColFilter()">Clear</button>'
-    +'<button class="colf-done" onclick="closeColFilter()">Done</button>'
-    +'</div>';
-
-  pop.innerHTML = html;
-  pop.hidden = false;
-
-  // Fixed-position so a horizontally scrolling table can never clip it.
-  var r = e.currentTarget.getBoundingClientRect();
-  var w = pop.offsetWidth;
-  var left = Math.max(6, Math.min(r.left, window.innerWidth - w - 6));
-  pop.style.left = left + 'px';
-  pop.style.top  = Math.min(r.bottom + 4, window.innerHeight - pop.offsetHeight - 6) + 'px';
-
-  var first = pop.querySelector('input');
-  if (first && first.type === 'text') first.focus();
-}
-
-function closeColFilter() {
-  var pop = document.getElementById('colFilterPop');
-  if (pop) { pop.hidden = true; pop.dataset.key = ''; }
-}
-
-function setColFilterText() {
-  var key = document.getElementById('colFilterPop').dataset.key;
-  var v = document.getElementById('colfText').value.trim();
-  if (v) compColF[key] = { type: 'text', text: v };
-  else delete compColF[key];
-  applyCompFilters();
-}
-
-function setColFilterNum() {
-  var key = document.getElementById('colFilterPop').dataset.key;
-  var mn = document.getElementById('colfMin').value.trim();
-  var mx = document.getElementById('colfMax').value.trim();
-  if (mn === '' && mx === '') delete compColF[key];
-  else compColF[key] = { type: 'num', min: mn === '' ? null : mn, max: mx === '' ? null : mx };
-  applyCompFilters();
-}
-
-function setColFilterSet() {
-  var pop = document.getElementById('colFilterPop');
-  var key = pop.dataset.key;
-  var boxes = pop.querySelectorAll('.colfBox');
-  var sel = [], total = boxes.length;
-  for (var i = 0; i < boxes.length; i++) if (boxes[i].checked) sel.push(boxes[i].value);
-  if (sel.length === total) delete compColF[key];      // everything ticked == no filter
-  else compColF[key] = { type: 'set', sel: sel };
-  // Keep the window pill buttons honest when Required is filtered by hand.
-  if (key === 'windowLabel') syncWindowButtons();
-  applyCompFilters();
-}
-
-function clearColFilter() {
-  var key = document.getElementById('colFilterPop').dataset.key;
-  delete compColF[key];
-  if (key === 'windowLabel') syncWindowButtons();
-  closeColFilter();
-  applyCompFilters();
-}
-
-// The Monthly/Quarterly/Semi-Annual pills are just a shortcut for the
-// "Required" column filter, so the two always agree.
+// The Monthly/Quarterly/Semi-Annual pills are a shortcut for the "Required"
+// column filter rather than a second, separate mechanism, so the two agree.
 function setFilter(btn, f) {
   document.querySelectorAll('.cf-btn').forEach(function(b){ b.classList.remove('active'); });
   btn.classList.add('active');
-  if (f === 'ALL') delete compColF.windowLabel;
-  else compColF.windowLabel = { type: 'set', sel: [f] };
-  closeColFilter();
-  applyCompFilters();
+  if (f === 'ALL') delete FT.comp.colF.windowLabel;
+  else FT.comp.colF.windowLabel = { type: 'set', sel: [f] };
+  ftClosePop();
+  ftRender('comp');
 }
 
 function syncWindowButtons() {
-  var f = compColF.windowLabel;
+  var f = FT.comp ? FT.comp.colF.windowLabel : null;
   var active = (f && f.sel && f.sel.length === 1) ? f.sel[0] : (f ? null : 'ALL');
   document.querySelectorAll('.cf-btn').forEach(function(b) {
     b.classList.toggle('active', b.dataset.f === active);
   });
 }
-
-// Clicking anywhere else dismisses the popover.
-document.addEventListener('click', function() { closeColFilter(); });
-document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeColFilter(); });
 
 // ═══════════════════════════════════════
 // TAB 4 — SYSTEM TOOLS
