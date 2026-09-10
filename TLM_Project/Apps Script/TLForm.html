@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <style>
+    * { -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 15px;
+      margin: 0;
+      padding: 0 16px calc(24px + env(safe-area-inset-bottom));
+      max-width: 560px;
+      margin-left: auto;
+      margin-right: auto;
+      background: #fff;
+    }
+    h3 { margin: 0; font-size: 17px; }
+    small.hint { color: #666; display: block; margin-top: 2px; }
+    label { display: block; margin-top: 12px; font-weight: bold; font-size: 13px; }
+    input, select {
+      width: 100%; box-sizing: border-box; padding: 11px 10px; margin-top: 4px;
+      font-size: 16px; /* 16px stops iOS Safari auto-zooming on focus */
+      border: 1px solid #ccc; border-radius: 6px; background: #fff;
+    }
+    input:focus, select:focus { outline: 2px solid #1a73e8; border-color: #1a73e8; }
+    .row2 { display: flex; gap: 10px; }
+    .row2 > div { flex: 1; min-width: 0; }
+    @media (max-width: 420px) {
+      .row2 { flex-direction: column; gap: 0; }
+    }
+    button {
+      margin-top: 18px; padding: 13px 14px; background: #1a73e8; color: #fff;
+      border: none; border-radius: 8px; cursor: pointer; font-size: 15px;
+      font-weight: bold; width: 100%; min-height: 46px;
+    }
+    button:disabled { background: #999; cursor: default; }
+    button.linklike { background: none; color: #1a73e8; font-weight: normal; width: auto; padding: 4px 0; margin: 0; min-height: 0; text-decoration: underline; font-size: 12px; }
+    #msg { margin-top: 10px; font-size: 13px; min-height: 16px; }
+    .err { color: #c5221f; }
+    .ok { color: #188038; }
+    .warn { color: #b06000; }
+
+    /* header bar */
+    .topbar { position: sticky; top: 0; background: #fff; padding-top: 14px; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid #eee; margin-bottom: 4px; }
+
+    /* mode switch */
+    .switch { display: flex; flex-wrap: wrap; margin-top: 10px; border: 1px solid #dadce0; border-radius: 8px; overflow: hidden; }
+    .switch button.tab { flex: 1 1 25%; margin: 0; padding: 11px 4px; background: #f1f3f4; color: #333; border-radius: 0; font-weight: bold; font-size: 13px; min-height: 42px; }
+    .switch button.tab.active { background: #1a73e8; color: #fff; }
+    @media (max-width: 420px) {
+      .switch button.tab { flex: 1 1 50%; }
+    }
+
+    .stocktable { margin-top: 10px; border: 1px solid #e8eaed; border-radius: 8px; overflow: hidden; }
+    .stocktable .strow { display: flex; font-size: 13px; padding: 7px 10px; border-bottom: 1px solid #eee; }
+    .stocktable .strow:last-child { border-bottom: none; }
+    .stocktable .strow.head { background: #f8f9fa; font-weight: bold; font-size: 11.5px; text-transform: uppercase; letter-spacing: .03em; color: #666; }
+    .stocktable .strow.total { background: #f8f9fa; font-weight: bold; }
+    .stocktable .strow span { flex: 1; text-align: right; }
+    .stocktable .strow span:first-child { text-align: left; }
+
+    .panel { display: none; padding-bottom: 8px; }
+    .panel.active { display: block; }
+
+    .sectionLabel {
+      font: 700 11px "Arial", sans-serif; text-transform: uppercase; letter-spacing: .04em; color: #1a73e8;
+      margin: 18px 0 2px; padding-top: 12px; border-top: 1px solid #eee;
+    }
+
+    .card { background: #f8f9fa; border: 1px solid #e8eaed; border-radius: 8px; padding: 10px 12px; margin-top: 12px; font-size: 13px; line-height: 1.6; }
+    .card b { color: #202124; }
+    .avgPreview { font-size: 13px; color: #1a73e8; margin-top: 6px; font-weight: bold; }
+
+    .histbox { margin-top: 10px; }
+    .histbox .histtitle { font-size: 11.5px; font-weight: bold; color: #666; text-transform: uppercase; letter-spacing: .03em; margin-bottom: 4px; }
+    .histrow { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; padding: 6px 0; border-bottom: 1px solid #eee; }
+    .histrow:last-child { border-bottom: none; }
+    .histrow .who { color: #333; font-weight: 600; }
+    .histrow .when { color: #999; }
+    .histempty { font-size: 12.5px; color: #999; margin-top: 8px; }
+
+    /* PIN gate */
+    #pinGate {
+      position: fixed; inset: 0; background: #fff; z-index: 50;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 24px; text-align: center;
+    }
+    #pinGate .box { width: 100%; max-width: 280px; }
+    #pinGate h2 { margin: 0 0 6px; }
+    #pinGate input { text-align: center; letter-spacing: 4px; font-size: 20px; }
+    #pinGate button { margin-top: 14px; }
+    #app { display: none; padding-top: 4px; }
+  </style>
+</head>
+<body>
+
+  <!-- ============================= PIN GATE ============================= -->
+  <div id="pinGate">
+    <div class="box">
+      <div style="font-size:36px;">🍕🔒</div>
+      <h2>TL Tracker</h2>
+      <small class="hint">Enter the access PIN to continue.</small>
+      <input type="password" inputmode="numeric" id="pinInput" placeholder="PIN" autofocus>
+      <button id="pinBtn" onclick="tryUnlock()">Unlock</button>
+      <div id="pinMsg" style="margin-top:10px; font-size:13px;"></div>
+    </div>
+  </div>
+
+  <!-- ============================= MAIN APP ============================= -->
+  <div id="app">
+    <div class="topbar">
+      <div>
+        <h3>🍕 TL Tracker</h3>
+        <small class="hint">Choose what you're doing, then fill in the form.</small>
+      </div>
+      <button type="button" class="linklike" onclick="lockApp()">🔒 Lock</button>
+    </div>
+
+    <div class="switch">
+      <button type="button" class="tab active" data-mode="entry" onclick="switchMode('entry')">🆕 New Entry</button>
+      <button type="button" class="tab" data-mode="update" onclick="switchMode('update')">✅ Certify</button>
+      <button type="button" class="tab" data-mode="uniform" onclick="switchMode('uniform')">👕 Uniform</button>
+      <button type="button" class="tab" data-mode="stock" onclick="switchMode('stock')">📦 Stock</button>
+    </div>
+
+    <!-- ============================= NEW ENTRY PANEL ============================= -->
+    <div id="panelEntry" class="panel active">
+      <small class="hint">Saved as PROBATIONARY. Certification deadline is set automatically to entry date + 3 months.</small>
+
+      <label>Date of Entry *</label>
+      <input type="date" id="entryDate">
+
+      <div class="row2">
+        <div>
+          <label>Batch #</label>
+          <input type="text" id="batch" list="batchList" placeholder="e.g. BATCH 11 or SPECIAL">
+          <datalist id="batchList"></datalist>
+        </div>
+        <div>
+          <label>Mother Store *</label>
+          <input type="text" id="motherStore" list="storeList" placeholder="e.g. TAGUM">
+          <datalist id="storeList"></datalist>
+        </div>
+      </div>
+
+      <label>Full Name *</label>
+      <input type="text" id="fullName">
+
+      <div class="row2">
+        <div>
+          <label>Mother Station</label>
+          <input type="text" id="motherStation" list="stationList" placeholder="e.g. FOOD PREP">
+          <datalist id="stationList"></datalist>
+        </div>
+        <div>
+          <label>Support Store</label>
+          <input type="text" id="supportStore" list="storeList">
+        </div>
+      </div>
+
+      <label>Entry By</label>
+      <input type="text" id="entryBy" list="trainerList">
+      <datalist id="trainerList"></datalist>
+
+      <div class="row2">
+        <div>
+          <label>Initial Uniform Size</label>
+          <select id="uniformSize">
+            <option value="">— none yet —</option>
+          </select>
+        </div>
+        <div>
+          <label>Qty</label>
+          <input type="number" id="uniformQty" min="1" value="1">
+        </div>
+      </div>
+      <label>Uniform DR #</label>
+      <input type="text" id="uniformDr" placeholder="optional">
+      <small class="hint" style="margin-top:2px;">Leave size blank if no uniform is being issued yet — you can log it anytime from the 👕 Uniform tab.</small>
+
+      <div class="sectionLabel">Technical Validation</div>
+      <div class="row2">
+        <div>
+          <label>Food Prep (%)</label>
+          <input type="number" inputmode="decimal" id="techValFp" min="0" max="100">
+        </div>
+        <div>
+          <label>Pizza Maker (%)</label>
+          <input type="number" inputmode="decimal" id="techValPm" min="0" max="100">
+        </div>
+      </div>
+
+      <div class="sectionLabel">Exam Grade</div>
+      <div class="row2">
+        <div>
+          <label>Pizza Maker (%)</label>
+          <input type="number" inputmode="decimal" id="entryPizzaMakerExam" min="0" max="100">
+        </div>
+        <div>
+          <label>Food Prep (%)</label>
+          <input type="number" inputmode="decimal" id="entryFoodPrepExam" min="0" max="100">
+        </div>
+      </div>
+      <div class="avgPreview" id="entryAvgPreview"></div>
+
+      <div class="sectionLabel">Store Grade</div>
+      <label>Store Grade (%)</label>
+      <input type="number" inputmode="decimal" id="istvGrade" min="0" max="100">
+
+      <button id="entrySubmitBtn" onclick="submitEntry()">Save Entry</button>
+    </div>
+
+    <!-- ============================= CERTIFY / UPDATE PANEL ============================= -->
+    <div id="panelUpdate" class="panel">
+      <small class="hint">Only trainees currently PROBATIONARY or EXTENDED are listed.</small>
+
+      <label>Trainee *</label>
+      <select id="key" onchange="onTraineeChange()"><option value="">Loading…</option></select>
+
+      <div class="card" id="traineeCard" style="display:none;"></div>
+
+      <label>New Status *</label>
+      <select id="newStatus" onchange="onStatusChange()">
+        <option value="CERTIFIED">CERTIFIED</option>
+        <option value="EXTENDED">EXTENDED (push deadline)</option>
+        <option value="FAILED">FAILED</option>
+        <option value="QUIT">QUIT</option>
+        <option value="DISQUALIFIED">DISQUALIFIED</option>
+        <option value="PROMOTION">PROMOTION</option>
+      </select>
+
+      <div id="deadlineRow" style="display:none;">
+        <label>New Deadline (leave blank to auto +2 months from current deadline)</label>
+        <input type="date" id="deadlineOverride">
+      </div>
+
+      <label>Cert By *</label>
+      <input type="text" id="certBy" list="trainerList2">
+      <datalist id="trainerList2"></datalist>
+      <small class="hint" style="margin-top:2px;">Need to log a uniform for this person? Use the 👕 Uniform tab — it keeps its own history instead of overwriting a single cell.</small>
+
+      <div class="row2">
+        <div>
+          <label>Certification Grade (%)</label>
+          <input type="number" inputmode="decimal" id="certGrade" min="0" max="100">
+        </div>
+        <div>
+          <label>Exam Grade (%)</label>
+          <input type="number" inputmode="decimal" id="examGradeInput" min="0" max="100">
+        </div>
+      </div>
+      <div class="avgPreview" id="updateAvgPreview"></div>
+
+      <label>Final Status Note</label>
+      <select id="finalStatus">
+        <option value="">— none —</option>
+        <option value="SIGNED">SIGNED (appointment letter)</option>
+        <option value="AGENCY">AGENCY</option>
+        <option value="FOR REPORTING">FOR REPORTING</option>
+        <option value="ON-GOING PROMOTION">ON-GOING PROMOTION</option>
+        <option value="NOT RETURNED">NOT RETURNED</option>
+      </select>
+
+      <button id="updateSubmitBtn" onclick="submitUpdate()">Save Update</button>
+    </div>
+
+    <!-- ============================= UNIFORM PANEL ============================= -->
+    <div id="panelUniform" class="panel">
+      <small class="hint">Log every piece handed out — to anyone, any status, any time. Kept in its own UNIFORM_LOG tab.</small>
+
+      <label>Trainee *</label>
+      <select id="uf_key" onchange="onUniformTraineeChange()"><option value="">Loading…</option></select>
+
+      <div id="uf_history"></div>
+
+      <div class="row2">
+        <div>
+          <label>Size *</label>
+          <select id="uf_size">
+            <option value="">— select —</option>
+          </select>
+        </div>
+        <div>
+          <label>Qty</label>
+          <input type="number" id="uf_qty" min="1" value="1">
+        </div>
+      </div>
+
+      <label>DR #</label>
+      <input type="text" id="uf_dr" placeholder="optional">
+
+      <label>Given By *</label>
+      <input type="text" id="uf_givenby" list="trainerList3">
+      <datalist id="trainerList3"></datalist>
+
+      <label>Notes</label>
+      <input type="text" id="uf_notes" placeholder="optional">
+
+      <button id="uniformSubmitBtn" onclick="submitUniform()">Log Uniform</button>
+    </div>
+
+    <!-- ============================= STOCK PANEL ============================= -->
+    <div id="panelStock" class="panel">
+      <small class="hint">Log what comes in from the supplier here. Stock on hand below is Delivered minus what's been issued to trainees.</small>
+
+      <div class="sectionLabel" style="margin-top:8px; padding-top:0; border-top:none;">Log Delivery</div>
+      <div class="row2">
+        <div>
+          <label>Size *</label>
+          <select id="dv_size">
+            <option value="">— select —</option>
+          </select>
+        </div>
+        <div>
+          <label>Qty Received *</label>
+          <input type="number" id="dv_qty" min="1">
+        </div>
+      </div>
+
+      <label>Delivery Ref / Notes</label>
+      <input type="text" id="dv_ref" placeholder="optional">
+
+      <label>Logged By *</label>
+      <input type="text" id="dv_by" list="trainerList4">
+      <datalist id="trainerList4"></datalist>
+
+      <button id="deliverySubmitBtn" onclick="submitDelivery()">Save Delivery</button>
+
+      <div class="sectionLabel">Current Stock</div>
+      <div id="stockTable"></div>
+    </div>
+
+    <div id="msg"></div>
+  </div>
+
+  <script>
+    var openList = [];
+    var UNLOCK_KEY = 'tlTrackerUnlocked';
+
+    // ============================= PIN GATE =============================
+    function showApp() {
+      document.getElementById('pinGate').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      loadFormData();
+    }
+
+    function tryUnlock() {
+      var pin = document.getElementById('pinInput').value.trim();
+      var btn = document.getElementById('pinBtn');
+      var msg = document.getElementById('pinMsg');
+      if (!pin) { msg.textContent = 'Enter the PIN first.'; msg.className = 'err'; return; }
+      btn.disabled = true;
+      msg.textContent = '';
+      google.script.run
+        .withSuccessHandler(function(ok) {
+          btn.disabled = false;
+          if (ok) {
+            try { localStorage.setItem(UNLOCK_KEY, '1'); } catch (e) {}
+            showApp();
+          } else {
+            msg.textContent = 'Incorrect PIN.';
+            msg.className = 'err';
+            document.getElementById('pinInput').value = '';
+            document.getElementById('pinInput').focus();
+          }
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          msg.textContent = err.message;
+          msg.className = 'err';
+        })
+        .verifyPin(pin);
+    }
+
+    document.getElementById('pinInput').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') tryUnlock();
+    });
+
+    function lockApp() {
+      try { localStorage.removeItem(UNLOCK_KEY); } catch (e) {}
+      document.getElementById('app').style.display = 'none';
+      document.getElementById('pinGate').style.display = 'flex';
+      document.getElementById('pinInput').value = '';
+      document.getElementById('pinInput').focus();
+    }
+
+    (function initGate() {
+      var already = false;
+      try { already = localStorage.getItem(UNLOCK_KEY) === '1'; } catch (e) {}
+      if (already) {
+        showApp();
+      }
+    })();
+
+    // ============================= MAIN APP =============================
+    var MODES = ['entry', 'update', 'uniform', 'stock'];
+    var PANEL_ID = { entry: 'panelEntry', update: 'panelUpdate', uniform: 'panelUniform', stock: 'panelStock' };
+
+    function switchMode(mode) {
+      document.querySelectorAll('.switch .tab').forEach(function(btn) {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+      });
+      MODES.forEach(function(m) {
+        document.getElementById(PANEL_ID[m]).classList.toggle('active', m === mode);
+      });
+      document.getElementById('msg').textContent = '';
+    }
+
+    function val(id) { return document.getElementById(id).value.trim(); }
+
+    function fillDatalist(id, items) {
+      var dl = document.getElementById(id);
+      dl.innerHTML = '';
+      items.forEach(function(s) {
+        var opt = document.createElement('option');
+        opt.value = s;
+        dl.appendChild(opt);
+      });
+    }
+
+    function fillSelect(id, items, placeholder) {
+      var sel = document.getElementById(id);
+      sel.innerHTML = '<option value="">' + placeholder + '</option>' +
+        items.map(function(s) { return '<option value="' + s + '">' + s + '</option>'; }).join('');
+    }
+
+    function populateSelectOptions(id, list, emptyLabel) {
+      var sel = document.getElementById(id);
+      sel.innerHTML = '';
+      if (list.length === 0) {
+        sel.innerHTML = '<option value="">' + emptyLabel + '</option>';
+        return;
+      }
+      var placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '— select —';
+      sel.appendChild(placeholder);
+      list.forEach(function(item) {
+        var opt = document.createElement('option');
+        opt.value = item.key;
+        opt.textContent = item.label;
+        sel.appendChild(opt);
+      });
+    }
+
+    function populateOpenList(list) {
+      openList = list;
+      populateSelectOptions('key', list, 'No open PROBATIONARY/EXTENDED records');
+    }
+
+    function loadFormData() {
+      google.script.run.withSuccessHandler(function(data) {
+        fillDatalist('storeList', data.stores);
+        fillDatalist('stationList', data.stations);
+        fillDatalist('batchList', data.batches);
+        fillDatalist('trainerList', data.trainers);
+        fillDatalist('trainerList2', data.trainers);
+        fillDatalist('trainerList3', data.trainers);
+        fillDatalist('trainerList4', data.trainers);
+        fillSelect('uniformSize', data.uniformSizes, '— none yet —');
+        fillSelect('uf_size', data.uniformSizes, '— select —');
+        fillSelect('dv_size', data.uniformSizes, '— select —');
+        populateOpenList(data.openList);
+        populateSelectOptions('uf_key', data.allList, 'No trainees yet');
+        renderStockTable(data.inventorySummary);
+      }).withFailureHandler(function(err) {
+        document.getElementById('msg').textContent = 'Could not load form data: ' + err.message;
+        document.getElementById('msg').className = 'err';
+      }).getFormBootstrapData();
+    }
+
+    // ---------- stock table (Stock tab) ----------
+    function renderStockTable(rows) {
+      var box = document.getElementById('stockTable');
+      if (!box) return;
+      if (!rows || !rows.length) { box.innerHTML = '<div class="histempty">No sizes to show.</div>'; return; }
+      var totalDelivered = 0, totalIssued = 0, totalOnHand = 0;
+      var body = rows.map(function(r) {
+        totalDelivered += r.delivered; totalIssued += r.issued; totalOnHand += r.onHand;
+        return '<div class="strow"><span>' + r.size + '</span><span>' + r.delivered + '</span><span>' + r.issued + '</span><span>' + r.onHand + '</span></div>';
+      }).join('');
+      box.innerHTML =
+        '<div class="stocktable">' +
+        '<div class="strow head"><span>Size</span><span>Delivered</span><span>Issued</span><span>On hand</span></div>' +
+        body +
+        '<div class="strow total"><span>Total</span><span>' + totalDelivered + '</span><span>' + totalIssued + '</span><span>' + totalOnHand + '</span></div>' +
+        '</div>';
+    }
+
+    // ---------- live average preview (New Entry) ----------
+    ['techValFp','techValPm','entryFoodPrepExam','entryPizzaMakerExam'].forEach(function(id) {
+      document.getElementById(id).addEventListener('input', updateEntryAvgPreview);
+    });
+    function updateEntryAvgPreview() {
+      var nums = ['techValFp','techValPm','entryFoodPrepExam','entryPizzaMakerExam']
+        .map(function(id){ return val(id); })
+        .filter(function(v){ return v !== ''; })
+        .map(Number);
+      var out = document.getElementById('entryAvgPreview');
+      if (nums.length === 0) { out.textContent = ''; return; }
+      var avg = nums.reduce(function(a,b){return a+b;}, 0) / nums.length;
+      out.textContent = 'Running average: ' + avg.toFixed(1) + '%';
+    }
+
+    // ---------- live average preview (Certify/Update) ----------
+    ['certGrade','examGradeInput'].forEach(function(id) {
+      document.getElementById(id).addEventListener('input', updateUpdateAvgPreview);
+    });
+    function updateUpdateAvgPreview() {
+      var nums = ['certGrade','examGradeInput']
+        .map(function(id){ return val(id); })
+        .filter(function(v){ return v !== ''; })
+        .map(Number);
+      var out = document.getElementById('updateAvgPreview');
+      if (nums.length === 0) { out.textContent = ''; return; }
+      var avg = nums.reduce(function(a,b){return a+b;}, 0) / nums.length;
+      out.textContent = 'Running average: ' + avg.toFixed(1) + '%';
+    }
+
+    // ---------- show/hide deadline override ----------
+    function onStatusChange() {
+      var status = val('newStatus');
+      document.getElementById('deadlineRow').style.display = (status === 'EXTENDED') ? 'block' : 'none';
+    }
+    onStatusChange();
+
+    // ---------- trainee summary card ----------
+    function onTraineeChange() {
+      var key = val('key');
+      var card = document.getElementById('traineeCard');
+      if (!key) { card.style.display = 'none'; return; }
+      google.script.run.withSuccessHandler(function(d) {
+        card.style.display = 'block';
+        card.innerHTML =
+          '<b>' + d.fullName + '</b> — ' + d.motherStore + (d.motherStation ? ' (' + d.motherStation + ')' : '') + '<br>' +
+          'Current status: <b>' + d.status + '</b><br>' +
+          'Current deadline: <b>' + d.currentDeadline + '</b><br>' +
+          'If EXTENDED again, deadline would default to: <b>' + d.nextExtendedDeadline + '</b>';
+      }).withFailureHandler(function(err) {
+        card.style.display = 'block';
+        card.innerHTML = '<span class="err">' + err.message + '</span>';
+      }).getTLDetails(key);
+    }
+
+    // ---------- submit: New Entry ----------
+    function submitEntry() {
+      var btn = document.getElementById('entrySubmitBtn');
+      var msg = document.getElementById('msg');
+      msg.textContent = ''; msg.className = '';
+
+      if (!val('entryDate') || !val('fullName') || !val('motherStore')) {
+        msg.textContent = 'Date of Entry, Full Name, and Mother Store are required.';
+        msg.className = 'err';
+        return;
+      }
+
+      var form = {
+        entryDate: val('entryDate'),
+        batch: val('batch'),
+        motherStore: val('motherStore'),
+        fullName: val('fullName'),
+        motherStation: val('motherStation'),
+        supportStore: val('supportStore'),
+        entryBy: val('entryBy'),
+        istvGrade: val('istvGrade'),
+        techValFp: val('techValFp'),
+        techValPm: val('techValPm'),
+        entryFoodPrepExam: val('entryFoodPrepExam'),
+        entryPizzaMakerExam: val('entryPizzaMakerExam'),
+        uniformSize: val('uniformSize'),
+        uniformQty: val('uniformQty'),
+        uniformDr: val('uniformDr')
+      };
+
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      google.script.run
+        .withSuccessHandler(function(result) {
+          btn.disabled = false;
+          btn.textContent = 'Save Entry';
+          msg.textContent = result;
+          msg.className = 'ok';
+          ['fullName','istvGrade','techValFp','techValPm','entryFoodPrepExam','entryPizzaMakerExam','uniformDr'].forEach(function(id){
+            document.getElementById(id).value = '';
+          });
+          document.getElementById('uniformSize').value = '';
+          document.getElementById('uniformQty').value = '1';
+          updateEntryAvgPreview();
+          // refresh the trainee lists in the background so Certify/Uniform stay current
+          google.script.run.withSuccessHandler(function(data){
+            populateOpenList(data.openList);
+            populateSelectOptions('uf_key', data.allList, 'No trainees yet');
+          }).getFormBootstrapData();
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          btn.textContent = 'Save Entry';
+          msg.textContent = err.message;
+          msg.className = 'err';
+        })
+        .submitNewEntry(form);
+    }
+
+    // ---------- submit: Certify / Update ----------
+    function submitUpdate() {
+      var btn = document.getElementById('updateSubmitBtn');
+      var msg = document.getElementById('msg');
+      msg.textContent = ''; msg.className = '';
+
+      var form = {
+        key: val('key'),
+        newStatus: val('newStatus'),
+        deadlineOverride: val('deadlineOverride'),
+        certBy: val('certBy'),
+        certGrade: val('certGrade'),
+        examGradeInput: val('examGradeInput'),
+        finalStatus: val('finalStatus')
+      };
+
+      if (!form.key) { msg.textContent = 'Please pick a trainee.'; msg.className = 'err'; return; }
+      if (!form.certBy && form.newStatus !== 'EXTENDED') {
+        msg.textContent = 'Please fill in "Cert By" before saving a final outcome.';
+        msg.className = 'err';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      google.script.run
+        .withSuccessHandler(function(result) {
+          btn.disabled = false;
+          btn.textContent = 'Save Update';
+          msg.textContent = result;
+          msg.className = 'ok';
+          document.getElementById('traineeCard').style.display = 'none';
+          google.script.run.withSuccessHandler(function(data) {
+            populateOpenList(data.openList);
+            populateSelectOptions('uf_key', data.allList, 'No trainees yet');
+          }).getFormBootstrapData();
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          btn.textContent = 'Save Update';
+          msg.textContent = err.message;
+          msg.className = 'err';
+        })
+        .submitCertification(form);
+    }
+
+    // ---------- uniform history card ----------
+    function onUniformTraineeChange() {
+      var key = val('uf_key');
+      var box = document.getElementById('uf_history');
+      if (!key) { box.innerHTML = ''; return; }
+      box.innerHTML = '<div class="histbox"><div class="histtitle">Loading history…</div></div>';
+      google.script.run.withSuccessHandler(function(rows) {
+        if (!rows.length) {
+          box.innerHTML = '<div class="histbox"><div class="histtitle">Uniform History</div><div class="histempty">Nothing logged yet for this person.</div></div>';
+          return;
+        }
+        var items = rows.map(function(r) {
+          return '<div class="histrow"><span class="who">' + r.quantity + ' ' + r.size + (r.drNumber ? ' · DR#' + r.drNumber : '') + '</span><span class="when">' + r.date + (r.givenBy ? ' · ' + r.givenBy : '') + '</span></div>';
+        }).join('');
+        box.innerHTML = '<div class="histbox"><div class="histtitle">Uniform History</div>' + items + '</div>';
+      }).withFailureHandler(function(err) {
+        box.innerHTML = '<div class="histbox"><div class="histempty">' + err.message + '</div></div>';
+      }).getUniformHistory(key);
+    }
+
+    // ---------- submit: Uniform ----------
+    function submitUniform() {
+      var btn = document.getElementById('uniformSubmitBtn');
+      var msg = document.getElementById('msg');
+      msg.textContent = ''; msg.className = '';
+
+      var form = {
+        key: val('uf_key'),
+        size: val('uf_size'),
+        quantity: val('uf_qty'),
+        drNumber: val('uf_dr'),
+        givenBy: val('uf_givenby'),
+        notes: val('uf_notes')
+      };
+
+      if (!form.key) { msg.textContent = 'Please pick a trainee.'; msg.className = 'err'; return; }
+      if (!form.size) { msg.textContent = 'Please pick a size.'; msg.className = 'err'; return; }
+      if (!form.givenBy) { msg.textContent = 'Please fill in "Given By".'; msg.className = 'err'; return; }
+
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      google.script.run
+        .withSuccessHandler(function(result) {
+          btn.disabled = false;
+          btn.textContent = 'Log Uniform';
+          msg.textContent = result;
+          msg.className = 'ok';
+          document.getElementById('uf_dr').value = '';
+          document.getElementById('uf_notes').value = '';
+          document.getElementById('uf_qty').value = '1';
+          document.getElementById('uf_size').value = '';
+          onUniformTraineeChange(); // refresh history for the same trainee
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          btn.textContent = 'Log Uniform';
+          msg.textContent = err.message;
+          msg.className = 'err';
+        })
+        .submitUniformRelease(form);
+    }
+
+    // ---------- submit: Stock delivery ----------
+    function submitDelivery() {
+      var btn = document.getElementById('deliverySubmitBtn');
+      var msg = document.getElementById('msg');
+      msg.textContent = ''; msg.className = '';
+
+      var form = {
+        size: val('dv_size'),
+        quantity: val('dv_qty'),
+        deliveryRef: val('dv_ref'),
+        loggedBy: val('dv_by')
+      };
+
+      if (!form.size) { msg.textContent = 'Please pick a size.'; msg.className = 'err'; return; }
+      if (!form.quantity) { msg.textContent = 'Please enter the quantity received.'; msg.className = 'err'; return; }
+      if (!form.loggedBy) { msg.textContent = 'Please fill in "Logged By".'; msg.className = 'err'; return; }
+
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      google.script.run
+        .withSuccessHandler(function(result) {
+          btn.disabled = false;
+          btn.textContent = 'Save Delivery';
+          msg.textContent = result;
+          msg.className = 'ok';
+          document.getElementById('dv_size').value = '';
+          document.getElementById('dv_qty').value = '';
+          document.getElementById('dv_ref').value = '';
+          // refresh the on-hand table so the new delivery shows up immediately
+          google.script.run.withSuccessHandler(function(data) {
+            renderStockTable(data.inventorySummary);
+          }).getFormBootstrapData();
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          btn.textContent = 'Save Delivery';
+          msg.textContent = err.message;
+          msg.className = 'err';
+        })
+        .submitUniformDelivery(form);
+    }
+  </script>
+</body>
+</html>
