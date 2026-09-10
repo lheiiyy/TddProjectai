@@ -137,14 +137,15 @@ textarea.fi{resize:vertical;min-height:50px}
 .si-side{border-right:1px solid var(--border);overflow-y:auto;padding:12px;background:var(--navy-d)}
 .si-main{overflow-y:auto;padding:12px 14px}
 .si-label{font-size:9px;font-weight:700;color:var(--light);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;margin-top:8px;display:block}
-.si-sel{width:100%;padding:6px 24px 6px 8px;background:var(--navy-c);border:1px solid var(--border-d);
-  border-radius:4px;color:var(--white);font-size:11px;font-family:Arial;outline:none;
-  appearance:none;-webkit-appearance:none;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23C8D8E8'/%3E%3C/svg%3E");
-  background-repeat:no-repeat;background-position:right 8px center;margin-bottom:6px}
-.si-search{width:100%;padding:6px 8px;font-size:11px;background:var(--navy-c);border:1px solid var(--border-d);
-  border-radius:4px;color:var(--white);outline:none;margin-bottom:4px;font-family:Arial}
+.si-search{width:100%;padding:6px 28px 6px 8px;font-size:11px;background:var(--navy-c);
+  border:1px solid var(--border-d);border-radius:4px;color:var(--white);outline:none;font-family:Arial}
 .si-search::placeholder{color:#8A9AB5}
+.si-search:focus{border-color:var(--gold)}
+/* One combobox instead of a filter box + a separate <select>: type to narrow,
+   or just focus it to browse the whole roster. */
+.si-side .ss-wrap{margin-bottom:6px}
+.si-side .field-x{color:var(--light)}
+.si-side .field-x:hover{background:rgba(255,255,255,.12);color:var(--white)}
 .btn-gold{padding:6px 14px;background:var(--gold);color:var(--navy-d);border:none;border-radius:4px;
   font-size:11px;font-weight:700;font-family:Arial;cursor:pointer;width:100%;margin-top:4px}
 .btn-gold:hover{background:#e0a830}
@@ -343,7 +344,7 @@ textarea.fi{padding-right:28px}
   .data-tbl{min-width:620px}
   .dup-card{width:auto;max-width:92vw;margin:0 12px}
   /* 16px inputs stop iOS from auto-zooming on focus; 42px = comfortable tap target */
-  .fi,.ss-input,.si-search,.si-sel,.sel-dark,.vm-input{font-size:16px;min-height:42px}
+  .fi,.ss-input,.si-search,.sel-dark,.vm-input{font-size:16px;min-height:42px}
   textarea.fi{min-height:72px}
   .btn-primary,.btn-clear,.tool-run,.btn-gold,.btn-navy,.cf-btn,.vm-btn,
   .dup-cancel,.dup-submit{min-height:42px}
@@ -494,13 +495,15 @@ textarea.fi{padding-right:28px}
 <div class="tab-content" id="content-Insights">
   <div class="si-layout">
     <div class="si-side">
-      <span class="si-label">Search</span>
-      <input type="text" class="si-search" id="siSearch" placeholder="Filter stores…"
-        oninput="filterSIStores()" autocomplete="off">
-      <span class="si-label">Select Store</span>
-      <select id="siSel" class="si-sel" onchange="">
-        <option value="">⏳ Loading…</option>
-      </select>
+      <span class="si-label">Store</span>
+      <div class="ss-wrap">
+        <input type="text" class="si-search" id="siSearch" placeholder="Search or pick a store…"
+          oninput="filterSIStores()" onfocus="filterSIStores()" onblur="closeDrop('siDrop')"
+          onkeydown="comboKey(event,'siDrop','siSearch',null)" autocomplete="off">
+        <button type="button" class="field-x" id="siX" onclick="clearSIStore()" title="Clear store" hidden>&times;</button>
+        <div class="ss-drop" id="siDrop"></div>
+      </div>
+      <input type="hidden" id="siStore">
       <button class="btn-gold" id="siBtn" onclick="runLookup()" disabled>🔍 View Profile</button>
       <hr style="border-color:#2E4A7A;margin:10px 0">
       <span class="si-label">Monthly Coverage</span>
@@ -511,7 +514,7 @@ textarea.fi{padding-right:28px}
       <div class="state-msg">
         <span class="icon">📋</span>
         <div class="title">Select a Store</div>
-        <div>Choose a store from the left panel.</div>
+        <div>Search or pick a store from the left panel.</div>
       </div>
     </div>
   </div>
@@ -1335,10 +1338,9 @@ function loadBrandList() {
 
 function onBrandChange() {
   gBrand = document.getElementById('gBrand').value;
-  // SI list filter
-  var filtered = gBrand === 'ALL' ? siAllStores
-    : siAllStores.filter(function(s){ return s.brand === gBrand; });
-  renderSIList(filtered);
+  // The Store Insights combobox reads gBrand when it builds its list, so an
+  // open dropdown just needs rebuilding; a closed one picks it up on next open.
+  if (document.getElementById('siDrop').classList.contains('open')) filterSIStores();
   // Compliance tab refresh if active
   if (document.getElementById('content-Visits').classList.contains('active')) {
     loadCompliance();
@@ -1500,7 +1502,17 @@ function closeDrop(id) {
 // Tab moves between fields natively; these add arrow-key walking,
 // Enter to pick-and-advance, and Esc to back out of a dropdown.
 // ═══════════════════════════════════════
-var comboActive = { storeDrop: -1, visDrop: -1, purpDrop: -1 };
+// Each combobox registers how to (re)build its list and how to commit a row,
+// so adding one is a table entry rather than another branch in comboKey().
+var COMBOS = {
+  storeDrop: { refresh: filterStores,   pick: pickStore },
+  visDrop:   { refresh: filterVisitors, pick: pickVisitor },
+  purpDrop:  { refresh: filterPurpose,  pick: pickPurpose },
+  siDrop:    { refresh: filterSIStores, pick: pickSIStore, enterClosed: runLookup }
+};
+
+var comboActive = {};
+function activeIdx(dropId) { return comboActive[dropId] == null ? -1 : comboActive[dropId]; }
 
 function setActiveOpt(dropId, idx) {
   comboActive[dropId] = idx;
@@ -1513,14 +1525,12 @@ function setActiveOpt(dropId, idx) {
 
 function pickActiveOpt(dropId) {
   var opts = document.getElementById(dropId).querySelectorAll('.ss-opt');
-  var idx  = comboActive[dropId];
+  var idx  = activeIdx(dropId);
   // Nothing highlighted but exactly one match left? Take it — that's what was meant.
   if (idx < 0 && opts.length === 1) idx = 0;
   var el = opts[idx];
   if (!el) return false;
-  if (dropId === 'storeDrop')    pickStore(el);
-  else if (dropId === 'visDrop') pickVisitor(el);
-  else                            pickPurpose(el);
+  COMBOS[dropId].pick(el);
   return true;
 }
 
@@ -1537,16 +1547,14 @@ function comboKey(e, dropId, inputId, nextId) {
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault();
     if (!open) {                       // first arrow press opens the list
-      if (dropId === 'storeDrop')    filterStores();
-      else if (dropId === 'visDrop') filterVisitors();
-      else                            filterPurpose();
+      COMBOS[dropId].refresh();
       opts = drop.querySelectorAll('.ss-opt');
       if (!opts.length) return;
       setActiveOpt(dropId, e.key === 'ArrowDown' ? 0 : opts.length - 1);
       return;
     }
     if (!opts.length) return;
-    var idx = comboActive[dropId] + (e.key === 'ArrowDown' ? 1 : -1);
+    var idx = activeIdx(dropId) + (e.key === 'ArrowDown' ? 1 : -1);
     if (idx < 0) idx = opts.length - 1;
     if (idx >= opts.length) idx = 0;
     setActiveOpt(dropId, idx);
@@ -1562,6 +1570,8 @@ function comboKey(e, dropId, inputId, nextId) {
       setActiveOpt(dropId, -1);
       // Visitors are multi-select: stay put so the next name can be typed.
       if (dropId !== 'visDrop') focusNext(nextId);
+    } else if (COMBOS[dropId].enterClosed) {
+      COMBOS[dropId].enterClosed();    // e.g. re-run the lookup for the committed store
     } else {
       focusNext(nextId);
     }
@@ -1575,7 +1585,7 @@ function comboKey(e, dropId, inputId, nextId) {
   }
 
   if (e.key === 'Tab' && open) {       // Tab commits the highlighted row, then moves on normally
-    if (comboActive[dropId] >= 0) pickActiveOpt(dropId);
+    if (activeIdx(dropId) >= 0) pickActiveOpt(dropId);
     drop.classList.remove('open');
     setActiveOpt(dropId, -1);
     return;
@@ -1812,33 +1822,59 @@ function loadSIStores() {
   google.script.run
     .withSuccessHandler(function(stores) {
       siAllStores = stores || [];
-      renderSIList(siAllStores);
-      document.getElementById('siBtn').disabled = false;
     })
     .withFailureHandler(function(){})
     .sl_getStoreList();
 }
 
-function renderSIList(list) {
-  var sel = document.getElementById('siSel'); var prev = sel.value;
-  sel.innerHTML = '<option value="">— Select a store —</option>';
-  list.forEach(function(s) {
-    var o = document.createElement('option');
-    o.value = s.name; o.textContent = s.name + (s.brand ? ' ('+s.brand+')' : '');
-    sel.appendChild(o);
-  });
-  if (prev) sel.value = prev;
+// One control does both jobs: type to narrow the list, or focus it to browse
+// the whole roster. Matches on brand as well as store name, same as the Input tab.
+function filterSIStores() {
+  var q    = document.getElementById('siSearch').value.trim().toUpperCase();
+  var drop = document.getElementById('siDrop');
+  var base = gBrand === 'ALL' ? siAllStores
+           : siAllStores.filter(function(s){ return s.brand === gBrand; });
+  var list = base.filter(function(s) {
+    if (!q) return true;
+    return s.name.indexOf(q) !== -1 || String(s.brand || '').toUpperCase().indexOf(q) !== -1;
+  }).slice(0, 60);
+  if (!list.length) { drop.classList.remove('open'); return; }
+  drop.innerHTML = list.map(function(s) {
+    return '<div class="ss-opt" data-v="'+esc(s.name)+'" onmousedown="pickSIStore(this)">'
+      +'<span class="opt-name">'+esc(s.name)+'</span>'
+      +(s.brand ? '<span class="opt-brand">'+esc(s.brand)+'</span>' : '')
+      +'</div>';
+  }).join('');
+  setActiveOpt('siDrop', -1);
+  drop.classList.add('open');
 }
 
-function filterSIStores() {
-  var q = document.getElementById('siSearch').value.trim().toUpperCase();
-  var base = gBrand === 'ALL' ? siAllStores : siAllStores.filter(function(s){ return s.brand === gBrand; });
-  renderSIList(!q ? base : base.filter(function(s){ return s.name.indexOf(q) !== -1; }));
+function pickSIStore(el) {
+  var name = el.dataset.v;
+  document.getElementById('siSearch').value = name;
+  document.getElementById('siStore').value  = name;
+  document.getElementById('siDrop').classList.remove('open');
+  document.getElementById('siBtn').disabled = false;
+  syncSIClear();
+  runLookup();          // picking IS the action — no second click needed
+}
+
+function clearSIStore() {
+  document.getElementById('siSearch').value = '';
+  document.getElementById('siStore').value  = '';
+  document.getElementById('siBtn').disabled = true;
+  syncSIClear();
+  document.getElementById('siSearch').focus();
+}
+
+function syncSIClear() {
+  var x = document.getElementById('siX');
+  if (x) x.hidden = !document.getElementById('siSearch').value;
 }
 
 function runLookup() {
-  var name = document.getElementById('siSel').value;
-  if (!name) { document.getElementById('siMain').innerHTML = stateMsg('📋','Select a Store','Choose a store from the left.'); return; }
+  var name = document.getElementById('siStore').value;
+  if (!name) { document.getElementById('siMain').innerHTML = stateMsg('📋','Select a Store','Search or pick a store from the left.'); return; }
   document.getElementById('siMain').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading '+esc(name)+'…</div></div>';
   document.getElementById('siBtn').disabled = true;
   google.script.run
@@ -1856,18 +1892,11 @@ function runLookup() {
 
 function jumpToStore(name) {
   switchTab('Insights');
-  var sel = document.getElementById('siSel');
-  var found = false;
-  for (var i = 0; i < sel.options.length; i++) {
-    if (sel.options[i].value === name) { sel.value = name; found = true; break; }
-  }
-  if (!found) {
-    renderSIList(siAllStores);
-    for (var j = 0; j < sel.options.length; j++) {
-      if (sel.options[j].value === name) { sel.value = name; found = true; break; }
-    }
-  }
-  if (found) runLookup();
+  document.getElementById('siSearch').value = name;
+  document.getElementById('siStore').value  = name;
+  document.getElementById('siBtn').disabled = false;
+  syncSIClear();
+  runLookup();
 }
 
 function renderProfile(d) {
