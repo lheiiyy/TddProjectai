@@ -305,6 +305,12 @@ textarea.fi{padding-right:28px}
   text-transform:uppercase;letter-spacing:.3px;margin-bottom:7px}
 .risk-badge.warn{background:var(--orange-l);color:var(--orange)}
 .risk-badge.safe{background:var(--green-l);color:var(--green)}
+.risk-badge.info{background:#EBF8FF;color:#2B6CB0}
+/* Routine refreshes confirm in a neutral tone; only genuinely destructive
+   rebuilds get the amber/red treatment. */
+.dup-list.info{background:#EBF8FF;border-color:#90CDF4;color:#2B6CB0}
+.dup-submit.update{background:#1a56db}
+.dup-submit.update:hover{background:#1441b0}
 .tool-card.primary{border:2px solid var(--gold)}
 
 /* ── Wide tables scroll inside their own box, never the page ── */
@@ -546,7 +552,7 @@ textarea.fi{padding-right:28px}
         <div><div class="tool-title">Store Master Insight</div>
         <div class="tool-desc-hdr">All stores · visits · status · risk</div></div></div>
       <div class="tool-body">
-        <span class="risk-badge warn">⚠ Overwrites sheet</span>
+        <span class="risk-badge info">🔄 Regenerated from MASTER_LOG</span>
         <p>Rebuilds STORE MASTER INSIGHT sheet with per-store visit counts, last visit, risk tier, and compliance status.</p>
         <button class="tool-run" onclick="runTool('rebuildStoreMaster','stat-SMI')">▶ Rebuild Store Master</button>
         <div class="tool-stat idle" id="stat-SMI">Ready</div>
@@ -558,7 +564,7 @@ textarea.fi{padding-right:28px}
         <div><div class="tool-title">Store Health</div>
         <div class="tool-desc-hdr">Risk scores + sheet rebuild</div></div></div>
       <div class="tool-body">
-        <span class="risk-badge warn">⚠ Overwrites sheet</span>
+        <span class="risk-badge info">🔄 Regenerated from MASTER_LOG</span>
         <p>Reads MASTER_LOG, scores all stores by visit frequency and QA/MS history, writes STORE HEALTH sheet.</p>
         <button class="tool-run" onclick="runTool('rebuildStoreHealth','stat-SH')">▶ Rebuild Store Health</button>
         <div class="tool-stat idle" id="stat-SH">Ready</div>
@@ -642,7 +648,7 @@ textarea.fi{padding-right:28px}
 <!-- System Tools confirmation -->
 <div class="dup-ov" id="confirmOv">
   <div class="dup-card">
-    <div style="font-size:20px;margin-bottom:5px">⚠️</div>
+    <div style="font-size:20px;margin-bottom:5px" id="confirmIcon">⚠️</div>
     <div class="dup-title" id="confirmTitle">Rebuild sheet?</div>
     <div class="dup-body" id="confirmBody"></div>
     <div class="dup-list" id="confirmDetail"></div>
@@ -2020,31 +2026,42 @@ var toolMap = {
 
 // Every rebuild overwrites a whole sheet, so it asks first. Validation is
 // read-only and runs straight through.
+// confirm: 'update' = routine refresh of a derived sheet (nothing is authored
+// by hand in it), so it just asks for a nod. 'warn' = genuinely destructive.
+// 'none' = read-only, runs straight through.
 var TOOL_META = {
-  rebuildStoreMaster: { label: 'Store Master Insight', destructive: true,
-    detail: 'Clears the STORE MASTER INSIGHT sheet — contents, formatting and filters — then rewrites every row from MASTER_LOG + SETTINGS.' },
-  rebuildStoreHealth: { label: 'Store Health', destructive: true,
-    detail: 'Clears the STORE HEALTH sheet and rewrites all risk scores, tiers and the Top 5 focus list from MASTER_LOG.' },
-  rebuildExecutiveSummary: { label: 'Executive Summary', destructive: true,
+  rebuildStoreMaster: { label: 'Store Master Insight', confirm: 'update',
+    detail: 'Every row is regenerated from MASTER_LOG + SETTINGS, so this only replaces derived output — nothing you typed into that sheet by hand.' },
+  rebuildStoreHealth: { label: 'Store Health', confirm: 'update',
+    detail: 'Risk scores, tiers and the Top 5 focus list are recalculated from MASTER_LOG — this sheet holds derived output only.' },
+  rebuildExecutiveSummary: { label: 'Executive Summary', confirm: 'warn',
     detail: 'Clears EXECUTIVE SUMMARY including all formatting, then rebuilds the layout and every live formula. Manual edits on that sheet are lost.' },
-  rebuildKPI2026: { label: 'KPI 2026', destructive: true,
+  rebuildKPI2026: { label: 'KPI 2026', confirm: 'warn',
     detail: 'Clears the KPI 2026 sheet and rebuilds the weekly tracker from the SETTINGS!F visitor roster.' },
-  validateMasterLog: { label: 'Validate MASTER_LOG', destructive: false, detail: '' },
-  rebuildDataHeaders: { label: 'Data Sheet Headers', destructive: true,
+  validateMasterLog: { label: 'Validate MASTER_LOG', confirm: 'none', detail: '' },
+  rebuildDataHeaders: { label: 'Data Sheet Headers', confirm: 'warn',
     detail: 'Rewrites row 1 headers, column widths and conditional formatting on MASTER_LOG and SETTINGS, and regenerates the SETTINGS column D helper formula. Data rows are not touched.' }
 };
 
 var pendingTool = null;
 
 function runTool(key, statId) {
-  var meta = TOOL_META[key] || {};
-  if (!meta.destructive) { execTool(key, statId); return; }
+  var meta  = TOOL_META[key] || {};
+  var label = meta.label || key;
+  if (meta.confirm === 'none' || !meta.confirm) { execTool(key, statId); return; }
+
+  var soft = meta.confirm === 'update';
   pendingTool = { key: key, statId: statId };
-  document.getElementById('confirmTitle').textContent  = 'Rebuild ' + (meta.label || key) + '?';
-  document.getElementById('confirmBody').textContent   =
-    'This overwrites a whole sheet in the workbook and cannot be undone from here — recovering it would mean File → Version history in Google Sheets.';
+
+  document.getElementById('confirmIcon').textContent  = soft ? '🔄' : '⚠️';
+  document.getElementById('confirmTitle').textContent = (soft ? 'Update ' : 'Rebuild ') + label + '?';
+  document.getElementById('confirmBody').textContent  = soft
+    ? 'This refreshes the sheet from the latest MASTER_LOG data. Confirm to update.'
+    : 'This overwrites a whole sheet in the workbook and cannot be undone from here — recovering it would mean File → Version history in Google Sheets.';
   document.getElementById('confirmDetail').textContent = meta.detail || '';
-  document.getElementById('confirmGo').textContent     = 'Rebuild ' + (meta.label || key);
+  document.getElementById('confirmDetail').className   = 'dup-list' + (soft ? ' info' : '');
+  document.getElementById('confirmGo').textContent     = (soft ? 'Update ' : 'Rebuild ') + label;
+  document.getElementById('confirmGo').className       = 'dup-submit' + (soft ? ' update' : '');
   document.getElementById('confirmOv').classList.add('show');
 }
 
