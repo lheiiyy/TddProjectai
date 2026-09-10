@@ -439,7 +439,7 @@ textarea.fi{padding-right:28px}
         </div>
         <div class="ss-wrap">
           <input type="text" id="storeSearch" class="ss-input" placeholder="Search store or brand…"
-            oninput="filterStores()" onfocus="filterStores()" onblur="closeDrop('storeDrop')"
+            oninput="filterStores()" onfocus="filterStores()" onblur="comboBlur('storeDrop')"
             onkeydown="comboKey(event,'storeDrop','storeSearch','dateVisited')"
             autocomplete="off">
           <button type="button" class="field-x" id="storeX" onclick="clearField('store')" title="Clear store" hidden>&times;</button>
@@ -472,7 +472,7 @@ textarea.fi{padding-right:28px}
           <div class="token-box" id="chipArea" onclick="focusVisitors(event)">
             <span id="chipHolder"></span>
             <input type="text" id="visSearch" class="token-input" placeholder="Search or pick visitors…"
-              oninput="filterVisitors()" onfocus="filterVisitors()" onblur="closeDrop('visDrop')"
+              oninput="filterVisitors()" onfocus="filterVisitors()" onblur="comboBlur('visDrop')"
               onkeydown="comboKey(event,'visDrop','visSearch','purpSearch')"
               autocomplete="off">
           </div>
@@ -500,7 +500,7 @@ textarea.fi{padding-right:28px}
         </div>
         <div class="ss-wrap">
           <input type="text" id="purpSearch" class="ss-input" placeholder="Type or pick a purpose…"
-            oninput="filterPurpose()" onfocus="filterPurpose()" onblur="closeDrop('purpDrop');syncPurposeText()"
+            oninput="filterPurpose()" onfocus="filterPurpose()" onblur="comboBlur('purpDrop')"
             onkeydown="comboKey(event,'purpDrop','purpSearch','remarks')"
             autocomplete="off">
           <button type="button" class="field-x" id="purpX" onclick="clearField('purpose')" title="Clear purpose" hidden>&times;</button>
@@ -550,7 +550,7 @@ textarea.fi{padding-right:28px}
       <span class="si-label">Store</span>
       <div class="ss-wrap">
         <input type="text" class="si-search" id="siSearch" placeholder="Search or pick a store…"
-          oninput="filterSIStores()" onfocus="filterSIStores()" onblur="closeDrop('siDrop')"
+          oninput="filterSIStores()" onfocus="filterSIStores()" onblur="comboBlur('siDrop')"
           onkeydown="comboKey(event,'siDrop','siSearch',null)" autocomplete="off">
         <button type="button" class="field-x" id="siX" onclick="clearSIStore()" title="Clear store" hidden>&times;</button>
         <button type="button" class="combo-caret" title="Show all stores"
@@ -826,7 +826,7 @@ function filterStores() {
   }).slice(0, 40);
   if (!list.length) { drop.classList.remove('open'); return; }
   drop.innerHTML = list.map(function(s) {
-    return '<div class="ss-opt" data-v="'+esc(s.store)+'" onmousedown="pickStore(this)">'
+    return '<div class="ss-opt" data-v="'+esc(s.store)+'" data-m="'+esc(s.store+' '+(s.brand||''))+'" onmousedown="pickStore(this)">'
       +'<span class="opt-name">'+esc(s.store)+'</span>'
       +(s.brand ? '<span class="opt-brand">'+esc(s.brand)+'</span>' : '')
       +'</div>';
@@ -859,7 +859,7 @@ function filterVisitors() {
   });
   if (!list.length) { drop.classList.remove('open'); return; }
   drop.innerHTML = list.map(function(v) {
-    return '<div class="ss-opt" data-v="'+esc(v.name)+'" data-c="'+esc(v.color)+'" onmousedown="pickVisitor(this)">'
+    return '<div class="ss-opt" data-v="'+esc(v.name)+'" data-m="'+esc(v.name)+'" data-c="'+esc(v.color)+'" onmousedown="pickVisitor(this)">'
       +'<span class="opt-name">'
       +'<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+v.color+';margin-right:6px;vertical-align:middle"></span>'
       +esc(v.name)+'</span></div>';
@@ -913,7 +913,7 @@ function filterPurpose() {
   if (!list.length) list = allPurposes.slice();   // no match? offer the full list rather than a dead end
   if (!list.length) { drop.classList.remove('open'); return; }
   drop.innerHTML = list.map(function(p) {
-    return '<div class="ss-opt" data-v="'+esc(p)+'" onmousedown="pickPurpose(this)">'
+    return '<div class="ss-opt" data-v="'+esc(p)+'" data-m="'+esc(p)+'" onmousedown="pickPurpose(this)">'
       +'<span class="opt-name">'+esc(p)+'</span></div>';
   }).join('');
   setActiveOpt('purpDrop', -1);
@@ -928,23 +928,7 @@ function pickPurpose(el) {
   syncFieldClears();
 }
 
-// Free text that never matched an approved purpose is not a selection —
-// snap the box back to whatever is actually committed in purpVal.
-function syncPurposeText() {
-  setTimeout(function() {
-    var box = document.getElementById('purpSearch');
-    var committed = document.getElementById('purpVal').value;
-    if (box.value !== committed) box.value = committed;
-    syncFieldClears();
-  }, 210);
-}
 
-function closeDrop(id) {
-  setTimeout(function(){
-    document.getElementById(id).classList.remove('open');
-    setActiveOpt(id, -1);
-  }, 200);
-}
 
 // ═══════════════════════════════════════
 // KEYBOARD NAVIGATION
@@ -954,10 +938,28 @@ function closeDrop(id) {
 // Each combobox registers how to (re)build its list and how to commit a row,
 // so adding one is a table entry rather than another branch in comboKey().
 var COMBOS = {
-  storeDrop: { refresh: filterStores,   pick: pickStore },
-  visDrop:   { refresh: filterVisitors, pick: pickVisitor },
-  purpDrop:  { refresh: filterPurpose,  pick: pickPurpose },
-  siDrop:    { refresh: filterSIStores, pick: pickSIStore, enterClosed: runLookup }
+  storeDrop: {
+    refresh: filterStores, pick: pickStore, input: 'storeSearch', value: 'storeVal',
+    clear: function() {
+      document.getElementById('storeVal').value = '';
+      document.getElementById('storeInfo').classList.remove('visible');
+      syncFieldClears();
+    }
+  },
+  visDrop:  { refresh: filterVisitors, pick: pickVisitor, input: 'visSearch', multi: true },
+  purpDrop: {
+    refresh: filterPurpose, pick: pickPurpose, input: 'purpSearch', value: 'purpVal',
+    clear: function() { document.getElementById('purpVal').value = ''; syncFieldClears(); }
+  },
+  siDrop: {
+    refresh: filterSIStores, pick: pickSIStore, input: 'siSearch', value: 'siStore',
+    enterClosed: runLookup,
+    clear: function() {
+      document.getElementById('siStore').value = '';
+      document.getElementById('siBtn').disabled = true;
+      syncSIClear();
+    }
+  }
 };
 
 var comboActive = {};
@@ -972,15 +974,68 @@ function setActiveOpt(dropId, idx) {
   }
 }
 
-function pickActiveOpt(dropId) {
+// What should the typed text commit to?
+//   - an exact match always wins
+//   - otherwise the options that genuinely contain the text (data-m, which is
+//     what the row was matched on — store name AND brand for the store lists)
+//   - `takeTop` picks the best of several; without it an ambiguous text
+//     commits nothing, which is what we want on a blur rather than a keypress
+// Returns null when the text matches nothing, so a fallback listing (e.g. the
+// full purpose list shown when a search finds nothing) can never be committed
+// by accident.
+function comboBestMatch(dropId, text, takeTop) {
+  var opts = document.getElementById(dropId).querySelectorAll('.ss-opt');
+  var t = String(text || '').trim().toUpperCase();
+  if (!t || !opts.length) return null;
+  var hits = [];
+  for (var i = 0; i < opts.length; i++) {
+    if (String(opts[i].dataset.v || '').toUpperCase() === t) return opts[i];
+    var m = String(opts[i].dataset.m || opts[i].dataset.v || '').toUpperCase();
+    if (m.indexOf(t) !== -1) hits.push(opts[i]);
+  }
+  if (!hits.length) return null;
+  return takeTop ? hits[0] : (hits.length === 1 ? hits[0] : null);
+}
+
+// Commit the highlighted row, or — when the user just typed and hit Enter
+// without arrowing down — the best match for what they typed. Previously this
+// only fired when exactly one option remained, so typing something that matched
+// several rows advanced the form with the field silently left empty.
+function pickActiveOpt(dropId, typedText, takeTop) {
   var opts = document.getElementById(dropId).querySelectorAll('.ss-opt');
   var idx  = activeIdx(dropId);
-  // Nothing highlighted but exactly one match left? Take it — that's what was meant.
-  if (idx < 0 && opts.length === 1) idx = 0;
-  var el = opts[idx];
+  var el   = idx >= 0 ? opts[idx] : comboBestMatch(dropId, typedText, takeTop !== false);
   if (!el) return false;
   COMBOS[dropId].pick(el);
   return true;
+}
+
+// Keep the visible box and the committed value honest with each other:
+// never leave text showing that was never selected, and never silently throw
+// away text that unambiguously matches something.
+function comboBlur(dropId) {
+  var c = COMBOS[dropId];
+  setTimeout(function() {
+    var drop  = document.getElementById(dropId);
+    var input = document.getElementById(c.input);
+
+    if (c.multi) {
+      input.value = '';                       // leftover search text is not a selection
+    } else {
+      var committed = document.getElementById(c.value).value;
+      var typed     = input.value.trim();
+      if (!typed) {
+        if (committed) c.clear();             // box emptied by hand — drop the value too
+      } else if (typed.toUpperCase() !== committed.toUpperCase()) {
+        var el = comboBestMatch(dropId, typed, false);   // blur only commits the unambiguous
+        if (el) c.pick(el);
+        else input.value = committed;         // ambiguous — don't leave a phantom value showing
+      }
+    }
+
+    drop.classList.remove('open');
+    setActiveOpt(dropId, -1);
+  }, 200);
 }
 
 // Caret click: open the full list, or close it if it is already showing.
@@ -1025,7 +1080,7 @@ function comboKey(e, dropId, inputId, nextId) {
   if (e.key === 'Enter') {
     if (e.ctrlKey || e.metaKey) { e.preventDefault(); submitForm(); return; }
     e.preventDefault();
-    var picked = open ? pickActiveOpt(dropId) : false;
+    var picked = open ? pickActiveOpt(dropId, document.getElementById(inputId).value, true) : false;
     if (picked) {
       drop.classList.remove('open');
       setActiveOpt(dropId, -1);
@@ -1045,8 +1100,8 @@ function comboKey(e, dropId, inputId, nextId) {
     return;
   }
 
-  if (e.key === 'Tab' && open) {       // Tab commits the highlighted row, then moves on normally
-    if (activeIdx(dropId) >= 0) pickActiveOpt(dropId);
+  if (e.key === 'Tab' && open) {       // Tab commits what is highlighted or typed, then moves on
+    pickActiveOpt(dropId, document.getElementById(inputId).value, true);
     drop.classList.remove('open');
     setActiveOpt(dropId, -1);
     return;
@@ -1301,7 +1356,7 @@ function filterSIStores() {
   }).slice(0, 60);
   if (!list.length) { drop.classList.remove('open'); return; }
   drop.innerHTML = list.map(function(s) {
-    return '<div class="ss-opt" data-v="'+esc(s.name)+'" onmousedown="pickSIStore(this)">'
+    return '<div class="ss-opt" data-v="'+esc(s.name)+'" data-m="'+esc(s.name+' '+(s.brand||''))+'" onmousedown="pickSIStore(this)">'
       +'<span class="opt-name">'+esc(s.name)+'</span>'
       +(s.brand ? '<span class="opt-brand">'+esc(s.brand)+'</span>' : '')
       +'</div>';
