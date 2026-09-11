@@ -1,0 +1,2639 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SVMI Command Center — Live Demo</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --navy:#243F60;--navy-d:#1A2F4A;--navy-c:#1E3A58;
+  --gold:#F4B942;--blue:#4A9EE0;--green:#1A7A52;--green-l:#E8F5EE;
+  --orange:#D46A1A;--orange-l:#FEF3E2;--purple:#7030A0;--purple-l:#F3EBF9;
+  --red:#C0392B;--red-l:#FDECEA;
+  --text:#1A1A2E;--muted:#6B7A90;--white:#FFFFFF;--light:#C8D8E8;
+  --border:#D5E3F0;--border-d:#2E4A7A;--bg:#F4F7FB;--card:#FFFFFF;
+}
+body{font-family:Arial,sans-serif;font-size:12px;background:var(--bg);color:var(--text);
+  height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── Top bar ── */
+.top-bar{background:var(--navy);padding:6px 16px;display:flex;align-items:center;gap:14px;
+  flex-shrink:0;border-bottom:2px solid var(--gold)}
+.top-bar h1{font-size:13px;font-weight:700;color:var(--white);white-space:nowrap}
+.top-bar .sub{font-size:10px;color:var(--light)}
+.brand-wrap{margin-left:auto;display:flex;align-items:center;gap:8px}
+.brand-wrap label{font-size:10px;color:var(--light);font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+.sel-dark{padding:4px 24px 4px 8px;background:var(--navy-c);border:1px solid var(--border-d);
+  border-radius:4px;color:var(--white);font-size:11px;font-family:Arial;outline:none;
+  appearance:none;-webkit-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23C8D8E8'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 7px center;min-width:130px}
+.sel-dark option{background:var(--navy-d)}
+
+/* ── Tabs ── */
+.tab-bar{background:var(--navy-d);display:flex;flex-shrink:0;border-bottom:2px solid var(--border-d)}
+.tab{padding:8px 18px;font-size:11px;font-weight:700;color:var(--light);cursor:pointer;
+  letter-spacing:.3px;text-transform:uppercase;border-bottom:3px solid transparent;transition:all .15s;user-select:none}
+.tab:hover{color:var(--white);background:rgba(255,255,255,.05)}
+.tab.active{color:var(--gold);border-bottom-color:var(--gold);background:rgba(244,185,66,.08)}
+.tab-content{display:none;flex:1;overflow:hidden}
+.tab-content.active{display:flex;flex-direction:column}
+
+/* ── Shared form ── */
+.fg{margin-bottom:9px}
+.fg label{display:block;font-size:10px;font-weight:700;color:var(--muted);margin-bottom:3px;
+  text-transform:uppercase;letter-spacing:.4px}
+.fg label .req{color:var(--red);margin-left:2px}
+.fi{width:100%;padding:6px 8px;font-size:12px;border:1px solid #cbd5e0;border-radius:4px;
+  background:var(--card);color:var(--text);outline:none;font-family:Arial}
+.fi:focus{border-color:#1a56db;box-shadow:0 0 0 2px rgba(26,86,219,.12)}
+textarea.fi{resize:vertical;min-height:50px}
+.divider{border:none;border-top:1px solid #e2e8f0;margin:8px 0}
+.btn-primary{display:block;width:100%;padding:9px;background:#1a56db;color:var(--white);
+  font-size:13px;font-weight:700;border:none;border-radius:5px;cursor:pointer;transition:background .15s;font-family:Arial}
+.btn-primary:hover:not(:disabled){background:#1441b0}
+.btn-primary:disabled{background:#a0aec0;cursor:not-allowed}
+.btn-clear{display:block;width:100%;padding:6px;background:transparent;color:#718096;
+  font-size:11px;font-weight:500;border:1px solid #e2e8f0;border-radius:5px;cursor:pointer;margin-top:5px;font-family:Arial}
+.status-line{border-radius:4px;padding:5px 10px;font-size:11px;margin-top:5px;display:none}
+.status-line.loading{background:#ebf8ff;border:1px solid #90cdf4;color:#2b6cb0;display:block}
+.status-line.error{background:#fff5f5;border:1px solid #fc8181;color:#c53030;display:block}
+
+/* ── Type-to-search ── */
+.ss-wrap{position:relative;margin-bottom:4px}
+.ss-input{width:100%;padding:6px 8px;font-size:12px;border:1px solid #cbd5e0;border-radius:4px;
+  background:var(--card);color:var(--text);outline:none;font-family:Arial}
+.ss-input:focus{border-color:#1a56db;box-shadow:0 0 0 2px rgba(26,86,219,.12)}
+.ss-drop{position:absolute;left:0;right:0;top:calc(100% + 2px);background:var(--card);
+  border:1px solid #cbd5e0;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.12);
+  z-index:200;max-height:180px;overflow-y:auto;display:none}
+.ss-drop.open{display:block}
+.ss-opt{padding:7px 10px;font-size:11px;cursor:pointer;color:var(--text)}
+.ss-opt:hover{background:#ebf4ff;color:#1a56db}
+
+/* ── Visitor chips ── */
+/* Selected visitors sit inside the same box you type in — one control, not a
+   chip panel stacked on top of a separate search field. */
+.token-box{display:flex;flex-wrap:wrap;align-items:center;gap:5px;min-height:30px;
+  padding:4px 30px 4px 6px;border:1px solid #cbd5e0;border-radius:4px;background:var(--card);cursor:text}
+.token-box:focus-within{border-color:#1a56db;box-shadow:0 0 0 2px rgba(26,86,219,.12)}
+.token-input{flex:1;min-width:120px;border:none;outline:none;background:none;
+  font-size:12px;font-family:Arial;color:var(--text);padding:3px 2px}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;
+  border-radius:12px;font-size:11px;font-weight:700;color:#fff}
+.chip-x{cursor:pointer;font-size:13px;opacity:.85;line-height:1;border:none;background:none;color:#fff;padding:0}
+.chip-x:hover{opacity:1}
+
+/* ── Store info panel ── */
+.store-info{background:#ebf4ff;border:1px solid #bee3f8;border-radius:4px;padding:6px 10px;
+  font-size:11px;color:#2b6cb0;display:none;margin-top:5px}
+.store-info.visible{display:block}
+.store-info span{font-weight:700}
+
+/* ── Visitor manager ── */
+.vm-toggle{font-size:10px;color:#1a56db;background:none;border:none;cursor:pointer;
+  padding:0;margin-top:4px;text-decoration:underline;font-family:Arial}
+.vm-panel{background:#f7fafc;border:1px solid #e2e8f0;border-radius:4px;padding:8px;margin-top:5px;display:none}
+.vm-panel.open{display:block}
+.vm-row{display:flex;gap:5px;margin-bottom:5px}
+.vm-input{flex:1;padding:5px 7px;font-size:11px;border:1px solid #cbd5e0;border-radius:4px;background:var(--card);font-family:Arial;outline:none}
+.vm-btn{padding:5px 9px;font-size:11px;font-weight:700;border:none;border-radius:4px;cursor:pointer;white-space:nowrap;font-family:Arial}
+.vm-add{background:#ebf4ff;color:#1a56db}
+.vm-rem{background:#fff5f5;color:#c53030}
+.vm-msg{font-size:10px;margin-top:4px}
+.vm-msg.ok{color:#276749}.vm-msg.err{color:#c53030}
+
+/* ── Queue ── */
+.queue-hdr{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.4px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.queue-clr{font-size:9px;color:var(--muted);background:none;border:none;cursor:pointer;text-decoration:underline;font-family:Arial}
+.qi{display:flex;align-items:flex-start;gap:8px;padding:7px 10px;border-bottom:1px solid #f0f0f0;
+  background:var(--card);border-radius:4px;margin-bottom:5px;animation:qfade .25s ease}
+@keyframes qfade{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.qi-icon{font-size:14px;flex-shrink:0;line-height:1.3}
+.qi-body{flex:1;min-width:0}
+.qi-store{font-size:11px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qi-meta{font-size:10px;color:var(--muted);margin-top:1px}
+.qi-stat{font-size:10px;font-weight:500;margin-top:2px}
+.qi-stat.pending{color:#2b6cb0}.qi-stat.done{color:#276749}.qi-stat.failed{color:#c53030}
+.queue-empty{text-align:center;padding:30px 20px;color:var(--muted);font-size:11px;font-style:italic}
+
+/* ── Dup overlay ── */
+.dup-ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:300;align-items:center;justify-content:center}
+.dup-ov.show{display:flex}
+.dup-card{background:var(--card);border-radius:7px;padding:16px 14px 12px;width:320px;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.dup-title{font-size:13px;font-weight:700;margin-bottom:4px}
+.dup-body{font-size:11px;color:#4a5568;margin-bottom:8px}
+.dup-list{background:#fffbeb;border:1px solid #f6e05e;border-radius:4px;padding:6px 8px;
+  font-size:10px;color:#744210;margin-bottom:8px;max-height:80px;overflow-y:auto}
+.dup-acts{display:flex;gap:6px}
+.dup-cancel{flex:1;padding:7px;background:#edf2f7;color:#4a5568;font-size:11px;font-weight:700;border:none;border-radius:4px;cursor:pointer;font-family:Arial}
+.dup-submit{flex:1;padding:7px;background:#c53030;color:#fff;font-size:11px;font-weight:700;border:none;border-radius:4px;cursor:pointer;font-family:Arial}
+
+/* ── Portal layout ── */
+.portal-layout{display:grid;grid-template-columns:360px 1fr;flex:1;overflow:hidden}
+.portal-form{border-right:1px solid var(--border);overflow-y:auto;padding:12px}
+.portal-queue{overflow-y:auto;padding:12px}
+
+/* ── Store Insights ── */
+.si-layout{display:grid;grid-template-columns:240px 1fr;flex:1;overflow:hidden}
+.si-side{border-right:1px solid var(--border);overflow-y:auto;padding:12px;background:var(--navy-d)}
+.si-main{overflow-y:auto;padding:12px 14px}
+.si-label{font-size:9px;font-weight:700;color:var(--light);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;margin-top:8px;display:block}
+.si-search{width:100%;padding:6px 48px 6px 8px;font-size:11px;background:var(--navy-c);
+  border:1px solid var(--border-d);border-radius:4px;color:var(--white);outline:none;font-family:Arial}
+.si-search::placeholder{color:#8A9AB5}
+.si-search:focus{border-color:var(--gold)}
+/* One combobox instead of a filter box + a separate <select>: type to narrow,
+   or just focus it to browse the whole roster. */
+.si-side .ss-wrap{margin-bottom:6px}
+.si-side .field-x{color:var(--light)}
+.si-side .field-x:hover{background:rgba(255,255,255,.12);color:var(--white)}
+.btn-gold{padding:6px 14px;background:var(--gold);color:var(--navy-d);border:none;border-radius:4px;
+  font-size:11px;font-weight:700;font-family:Arial;cursor:pointer;width:100%;margin-top:4px}
+.btn-gold:hover{background:#e0a830}
+.btn-gold:disabled{background:#8a7540;cursor:not-allowed;opacity:.6}
+.btn-navy{padding:5px 12px;background:transparent;border:1px solid var(--gold);color:var(--gold);
+  border-radius:4px;font-size:10px;font-weight:700;font-family:Arial;cursor:pointer;width:100%;margin-top:4px}
+.btn-navy:hover{background:var(--gold);color:var(--navy-d)}
+
+/* Profile cards */
+.store-banner{background:var(--navy-d);border-radius:6px;padding:10px 14px;margin-bottom:10px;border-left:4px solid var(--gold)}
+.banner-name{font-size:15px;font-weight:700;color:var(--white)}
+.banner-tags{display:flex;gap:6px;margin-top:5px;flex-wrap:wrap}
+.tag{font-size:9px;font-weight:700;padding:2px 8px;border-radius:10px;text-transform:uppercase}
+.tag-brand{background:var(--gold);color:var(--navy-d)}
+.tag-region{background:var(--blue);color:#fff}
+.profile-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.profile-full{grid-column:1/-1}
+.p-card{background:var(--card);border-radius:5px;border:1px solid var(--border);overflow:hidden}
+.p-card-hdr{background:var(--navy);padding:5px 10px;font-size:10px;font-weight:700;color:var(--white);text-transform:uppercase;letter-spacing:.5px}
+.p-card-body{padding:8px 10px}
+.kpi2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.kpi-item{background:var(--bg);border-radius:4px;padding:7px 8px;border:1px solid var(--border)}
+.kpi-lbl{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px}
+.kpi-val{font-size:14px;font-weight:700;color:var(--navy)}
+.kpi-val.sm{font-size:11px}
+.purpose-row{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)}
+.purpose-row:last-child{border-bottom:none}
+.purpose-lbl{font-size:10px;font-weight:600;flex:1}
+.purpose-bar-wrap{flex:2;height:8px;background:var(--bg);border-radius:4px;overflow:hidden;border:1px solid var(--border)}
+.purpose-bar{height:100%;border-radius:4px}
+.purpose-ct{font-size:10px;font-weight:700;color:var(--navy);width:24px;text-align:right}
+.purpose-pct{font-size:9px;color:var(--muted);width:36px;text-align:right}
+.vis-row{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)}
+.vis-row:last-child{border-bottom:none}
+.vis-rank{width:22px;font-size:9px;font-weight:700;color:var(--muted);text-align:center;flex-shrink:0}
+.vis-rank.g{color:#C9A84C}.vis-rank.s{color:#7A7A7A}.vis-rank.b{color:#A0673A}
+.vis-name{font-size:10px;font-weight:600;flex:1}
+.vis-ct{font-size:10px;font-weight:700;color:var(--navy)}
+.recent-tbl{width:100%;border-collapse:collapse;font-size:10px}
+.recent-tbl th{background:var(--bg);padding:4px 6px;text-align:left;font-size:9px;font-weight:700;
+  color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)}
+.recent-tbl td{padding:4px 6px;border-bottom:1px solid var(--border);vertical-align:top}
+.recent-tbl tr:last-child td{border-bottom:none}
+.recent-tbl tr:nth-child(even) td{background:var(--bg)}
+.badge{display:inline-block;font-size:8px;font-weight:700;padding:1px 5px;border-radius:8px}
+.badge-sv{background:#DEEAF1;color:#1A5276}.badge-tltc{background:var(--green-l);color:#1A5E3A}
+.badge-failed{background:var(--red-l);color:#922B21}.badge-curing{background:var(--purple-l);color:#5B2C8A}
+.badge-other{background:var(--bg);color:var(--muted)}
+
+/* ── Unvisited This Month ── */
+.toolbar{background:var(--navy-c);padding:7px 14px;display:flex;align-items:center;gap:10px;flex-shrink:0;border-bottom:1px solid var(--border-d)}
+.toolbar-title{font-size:11px;font-weight:700;color:var(--white)}
+.scroll-panel{flex:1;overflow-y:auto;padding:12px 14px 20px}
+.comp-filters{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
+.cf-btn{padding:5px 14px;border-radius:20px;font-size:10px;font-weight:700;border:1.5px solid var(--border);
+  background:var(--card);color:var(--muted);cursor:pointer;transition:all .15s;white-space:nowrap;font-family:Arial;text-transform:uppercase}
+.cf-btn:hover{border-color:var(--navy);color:var(--navy)}
+.cf-btn.active{background:var(--navy);color:var(--white);border-color:var(--navy)}
+.cf-btn.monthly.active{background:var(--blue);border-color:var(--blue)}
+.cf-btn.quarterly.active{background:var(--orange);border-color:var(--orange)}
+.cf-btn.semiannual.active{background:var(--purple);border-color:var(--purple)}
+.cf-count{font-size:10px;color:var(--muted);margin-left:auto}
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+.ck{background:var(--card);border:1px solid var(--border);border-radius:5px;padding:10px 12px;border-left:4px solid var(--navy)}
+.ck.total{border-left-color:var(--red)}.ck.monthly{border-left-color:var(--blue)}
+.ck.quarterly{border-left-color:var(--orange)}.ck.semiannual{border-left-color:var(--purple)}
+.ck-lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px}
+.ck-val{font-size:22px;font-weight:700;color:var(--navy)}
+.ck-sub{font-size:10px;color:var(--muted);margin-top:2px}
+.data-tbl{width:100%;border-collapse:collapse;font-size:11px;background:var(--card);border-radius:6px;overflow:hidden}
+.data-tbl thead th{background:var(--navy);color:var(--white);padding:8px 10px;text-align:left;
+  font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid var(--gold)}
+.data-tbl thead th.c{text-align:center}
+.data-tbl tbody tr{border-bottom:1px solid var(--border)}
+.data-tbl tbody tr:last-child{border-bottom:none}
+.data-tbl tbody tr:hover td{background:#EDF2FB}
+.data-tbl tbody tr:nth-child(even) td{background:var(--bg)}
+.data-tbl td{padding:8px 10px;vertical-align:middle}
+.data-tbl td.c{text-align:center}
+.store-link{cursor:pointer;color:var(--navy);font-weight:700;text-decoration:underline;text-decoration-style:dotted}
+.store-link:hover{color:var(--blue)}
+.wb{display:inline-block;font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px}
+.wb-Monthly{background:#DEEAF1;color:#1A5276}
+.wb-Quarterly{background:var(--orange-l);color:var(--orange)}
+.wb-Semi-Annual{background:var(--purple-l);color:var(--purple)}
+.pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700}
+.pill-critical{background:var(--red-l);color:var(--red)}
+.pill-warning{background:var(--orange-l);color:var(--orange)}
+.pill-mild{background:#EBF8FF;color:#2B6CB0}
+.pill-never{background:var(--bg);color:var(--muted);font-style:italic}
+
+/* ── Filterable / sortable table headers ── */
+.data-tbl thead th.fh{padding:0}
+.fh-inner{display:flex;align-items:center;gap:4px;padding:8px 8px 8px 10px}
+.fh-lbl{flex:1;cursor:pointer;user-select:none;white-space:nowrap;display:flex;align-items:center;gap:4px}
+.fh-lbl:hover{color:var(--gold)}
+.fh-arrow{font-size:8px;opacity:.35}
+.fh-arrow.on{opacity:1;color:var(--gold)}
+.fh-btn{border:none;background:rgba(255,255,255,.12);color:var(--white);font-size:9px;line-height:1;
+  cursor:pointer;padding:4px 5px;border-radius:3px;font-family:Arial;flex-shrink:0}
+.fh-btn:hover{background:rgba(255,255,255,.28)}
+.fh-btn.on{background:var(--gold);color:var(--navy-d)}
+.data-tbl thead th.c .fh-inner{justify-content:center}
+
+/* Filter popover — fixed position so a scrolling table can't clip it */
+.colf{position:fixed;z-index:400;background:var(--card);border:1px solid #cbd5e0;border-radius:6px;
+  box-shadow:0 8px 24px rgba(0,0,0,.18);padding:8px;width:210px;font-size:11px;color:var(--text)}
+.colf[hidden]{display:none}
+.colf-hdr{font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.4px;margin-bottom:6px}
+.colf input[type=text],.colf input[type=number]{width:100%;padding:5px 7px;font-size:11px;
+  border:1px solid #cbd5e0;border-radius:4px;font-family:Arial;outline:none;color:var(--text);background:var(--card)}
+.colf input:focus{border-color:#1a56db}
+.colf-range{display:flex;gap:5px;align-items:center}
+.colf-list{max-height:170px;overflow-y:auto;margin-top:6px;border-top:1px solid var(--border);padding-top:5px}
+.colf-opt{display:flex;align-items:center;gap:6px;padding:3px 2px;cursor:pointer;border-radius:3px}
+.colf-opt:hover{background:#EDF2F7}
+.colf-opt input{margin:0;flex-shrink:0}
+.colf-opt span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.colf-acts{display:flex;gap:5px;margin-top:7px}
+.colf-acts button{flex:1;padding:5px;font-size:10px;font-weight:700;border:none;border-radius:4px;
+  cursor:pointer;font-family:Arial}
+.colf-clear{background:#EDF2F7;color:#4a5568}
+.colf-done{background:#1a56db;color:#fff}
+.comp-active-note{font-size:10px;color:var(--orange);font-weight:700;margin-left:8px}
+@media (max-width:820px){ .colf{width:min(260px,86vw)} }
+
+/* ── System Tools ── */
+.tools-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px 14px;overflow-y:auto;flex:1}
+.tool-card{background:var(--card);border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.tool-hdr{background:var(--navy);padding:8px 12px;display:flex;align-items:center;gap:8px}
+.tool-icon{font-size:16px}
+.tool-title{font-size:11px;font-weight:700;color:var(--white)}
+.tool-desc-hdr{font-size:9px;color:var(--light);margin-top:1px}
+.tool-body{padding:10px 12px}
+.tool-body p{font-size:10px;color:var(--muted);margin-bottom:8px;line-height:1.5}
+.tool-run{padding:7px 14px;background:var(--gold);color:var(--navy-d);border:none;border-radius:4px;
+  font-size:11px;font-weight:700;font-family:Arial;cursor:pointer;width:100%}
+.tool-run:hover{background:#e0a830}
+.tool-stat{font-size:10px;padding:6px 8px;border-radius:4px;margin-top:6px;min-height:26px}
+.tool-stat.idle{background:var(--bg);color:var(--muted)}
+.tool-stat.running{background:#EBF8FF;color:#2B6CB0}
+.tool-stat.success{background:var(--green-l);color:var(--green)}
+.tool-stat.error{background:var(--red-l);color:var(--red)}
+.log-panel{background:var(--card);border:1px solid var(--border);border-radius:6px;grid-column:1/-1}
+.log-hdr{background:var(--navy-d);padding:7px 12px;display:flex;justify-content:space-between;align-items:center}
+.log-hdr span{font-size:11px;font-weight:700;color:var(--white)}
+.log-clr{font-size:9px;color:var(--light);background:none;border:none;cursor:pointer;font-family:Arial;text-decoration:underline}
+.log-body{padding:8px 12px;max-height:160px;overflow-y:auto;font-family:monospace;font-size:10px}
+.log-entry{padding:2px 0;border-bottom:1px solid #f0f0f0}
+.log-entry.ok{color:#276749}.log-entry.err{color:#c53030}.log-entry.info{color:#2b6cb0}
+.tools-note{grid-column:1/-1;background:#EBF8FF;border:1px solid #90CDF4;border-radius:6px;
+  padding:8px 12px;font-size:10.5px;color:#2B6CB0;line-height:1.5}
+
+/* ── Shared ── */
+.state-msg{text-align:center;padding:40px 20px;color:var(--muted)}
+.state-msg .icon{font-size:28px;display:block;margin-bottom:8px}
+.state-msg .title{font-weight:700;color:var(--text);margin-bottom:4px;font-size:13px}
+.spinner{display:inline-block;width:18px;height:18px;border:2px solid var(--border);
+  border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite;margin-bottom:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin-sm{display:inline-block;width:10px;height:10px;border:2px solid #90cdf4;border-top-color:#2b6cb0;
+  border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:5px}
+.no-data{text-align:center;padding:12px;color:var(--muted);font-size:10px;font-style:italic}
+
+/* ── Per-field clear (×) controls ── */
+.field-x{position:absolute;right:26px;top:50%;transform:translateY(-50%);border:none;background:none;
+  color:var(--muted);font-size:15px;line-height:1;cursor:pointer;padding:2px 5px;border-radius:3px;font-family:Arial}
+.field-x:hover{background:#EDF2F7;color:var(--red)}
+.field-x[hidden]{display:none}
+.ss-input{padding-right:48px}
+/* Caret makes a type-to-search box read as a dropdown: click it to browse the
+   whole list, or just start typing to narrow it. */
+.combo-caret{position:absolute;right:4px;top:50%;transform:translateY(-50%);border:none;background:none;
+  color:var(--muted);font-size:10px;line-height:1;cursor:pointer;padding:5px 6px;border-radius:3px;font-family:Arial}
+.combo-caret:hover{background:#EDF2F7;color:var(--navy)}
+.si-side .combo-caret{color:var(--light)}
+.si-side .combo-caret:hover{background:rgba(255,255,255,.12);color:var(--white)}
+.fg-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px}
+.fg-head label{margin-bottom:0}
+.mini-x{font-size:9px;color:var(--muted);background:none;border:none;cursor:pointer;
+  text-decoration:underline;font-family:Arial;padding:0;white-space:nowrap}
+.mini-x:hover{color:var(--red)}
+.mini-x[hidden]{display:none}
+.ta-wrap{position:relative}
+.ta-wrap .field-x{top:8px;right:6px;transform:none}
+textarea.fi{padding-right:28px}
+.hint{font-size:9px;color:var(--muted);margin-top:4px;line-height:1.5}
+.hint kbd{background:#EDF2F7;border:1px solid #cbd5e0;border-bottom-width:2px;border-radius:3px;
+  padding:0 4px;font-family:monospace;font-size:9px;color:#4A5568}
+
+/* ── Combo rows: store name + brand, keyboard highlight ── */
+.ss-opt{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.ss-opt.active{background:#ebf4ff;color:#1a56db}
+.opt-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.opt-brand{font-size:8.5px;font-weight:700;padding:1px 6px;border-radius:8px;background:#EDF2F7;
+  color:#4A5568;white-space:nowrap;flex-shrink:0;text-transform:uppercase}
+
+/* ── System Tools: risk badges + priority cards ── */
+.risk-badge{display:inline-block;font-size:8.5px;font-weight:700;padding:2px 7px;border-radius:9px;
+  text-transform:uppercase;letter-spacing:.3px;margin-bottom:7px}
+.risk-badge.warn{background:var(--orange-l);color:var(--orange)}
+.risk-badge.safe{background:var(--green-l);color:var(--green)}
+.risk-badge.info{background:#EBF8FF;color:#2B6CB0}
+/* Routine refreshes confirm in a neutral tone; only genuinely destructive
+   rebuilds get the amber/red treatment. */
+.dup-list.info{background:#EBF8FF;border-color:#90CDF4;color:#2B6CB0}
+.dup-submit.update{background:#1a56db}
+.dup-submit.update:hover{background:#1441b0}
+.tool-card.primary{border:2px solid var(--gold)}
+
+/* ── Wide tables scroll inside their own box, never the page ── */
+.tbl-scroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+/* ══ PHONE / SMALL SCREEN ══════════════════════════════════════
+   Desktop keeps its fixed-height 2-pane layout; below 820px the
+   whole thing becomes one scrolling column with touch-sized targets. */
+@media (max-width:820px){
+  body{height:auto;min-height:100dvh;overflow-y:auto;-webkit-text-size-adjust:100%}
+  .top-bar{flex-wrap:wrap;gap:8px;padding:8px 12px}
+  .top-bar h1{font-size:14px}
+  .top-bar .sub{font-size:9.5px}
+  .brand-wrap{margin-left:0;width:100%}
+  .brand-wrap .sel-dark{flex:1;min-width:0}
+  .tab-bar{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .tab{padding:11px 14px;flex-shrink:0;white-space:nowrap}
+  .tab-content.active{display:block}
+  .portal-layout,.si-layout{display:block;overflow:visible}
+  .portal-form,.portal-queue,.si-main{overflow:visible;border-right:none}
+  .portal-form{border-bottom:8px solid var(--bg)}
+  .si-side{overflow:visible;border-right:none;border-bottom:3px solid var(--gold)}
+  .tools-grid{grid-template-columns:1fr;overflow:visible}
+  .kpi-row{grid-template-columns:1fr 1fr}
+  .profile-grid,.kpi2{grid-template-columns:1fr 1fr}
+  .profile-grid{grid-template-columns:1fr}
+  .scroll-panel{overflow:visible}
+  .toolbar{flex-wrap:wrap;gap:8px}
+  .toolbar .btn-gold{margin-left:0}
+  .data-tbl{min-width:620px}
+  .dup-card{width:auto;max-width:92vw;margin:0 12px}
+  /* 16px inputs stop iOS from auto-zooming on focus; 42px = comfortable tap target */
+  .fi,.ss-input,.si-search,.sel-dark,.vm-input{font-size:16px;min-height:42px}
+  textarea.fi{min-height:72px}
+  .btn-primary,.btn-clear,.tool-run,.btn-gold,.btn-navy,.cf-btn,.vm-btn,
+  .dup-cancel,.dup-submit{min-height:42px}
+  .ss-opt{padding:11px 12px;font-size:13px}
+  .ss-drop{max-height:240px}
+  .chip{font-size:12px;padding:4px 10px}
+  .chip-x{font-size:17px;padding:0 3px}
+  .token-box{min-height:42px}
+  .token-input{font-size:16px}
+  .field-x{font-size:19px;padding:4px 7px}
+  .log-body{max-height:220px}
+}
+</style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div class="top-bar">
+  <div>
+    <h1>🏪 SVMI Command Center</h1>
+    <div class="sub">Store Visit Monitoring Initiative · 2026 · Interactive Preview (Sample Data)</div>
+  </div>
+  <div class="brand-wrap">
+    <label>Brand:</label>
+    <select class="sel-dark" id="gBrand" onchange="onBrandChange()">
+      <option value="ALL">All Brands</option>
+    </select>
+  </div>
+</div>
+
+<!-- Tab Bar -->
+<div class="tab-bar">
+  <div class="tab active" id="tab-Input"   onclick="switchTab('Input')">📋 Input Portal</div>
+  <div class="tab"        id="tab-Insights" onclick="switchTab('Insights')">🔍 Store Insights</div>
+  <div class="tab"        id="tab-Visits"   onclick="switchTab('Visits')">📅 Unvisited This Month</div>
+  <div class="tab"        id="tab-Tools"    onclick="switchTab('Tools')">⚙ System Tools</div>
+</div>
+
+<!-- TAB 1: INPUT PORTAL -->
+<div class="tab-content active" id="content-Input">
+  <div class="portal-layout">
+    <div class="portal-form">
+
+      <div class="fg">
+        <div class="fg-head">
+          <label>Store <span class="req">*</span></label>
+          <button type="button" class="mini-x" id="storeClear" onclick="clearField('store')" hidden>clear</button>
+        </div>
+        <div class="ss-wrap">
+          <input type="text" id="storeSearch" class="ss-input" placeholder="Search store or brand…"
+            oninput="filterStores()" onfocus="filterStores()" onblur="comboBlur('storeDrop')"
+            onkeydown="comboKey(event,'storeDrop','storeSearch','dateVisited')"
+            autocomplete="off">
+          <button type="button" class="field-x" id="storeX" onclick="clearField('store')" title="Clear store" hidden>&times;</button>
+          <button type="button" class="combo-caret" title="Show all stores"
+            onmousedown="event.preventDefault();toggleCombo('storeDrop','storeSearch')">▼</button>
+          <div class="ss-drop" id="storeDrop"></div>
+        </div>
+        <input type="hidden" id="storeVal">
+        <div class="store-info" id="storeInfo">
+          Brand: <span id="iBrand">—</span> &nbsp;|&nbsp;
+          Region: <span id="iRegion">—</span> &nbsp;|&nbsp;
+          Category: <span id="iCat">—</span>
+        </div>
+      </div>
+
+      <div class="fg">
+        <div class="fg-head">
+          <label>Date Visited <span class="req">*</span></label>
+          <button type="button" class="mini-x" onclick="clearField('date')">reset to today</button>
+        </div>
+        <input type="date" id="dateVisited" class="fi" onkeydown="fieldKey(event,'visSearch')">
+      </div>
+
+      <div class="fg">
+        <div class="fg-head">
+          <label>Visited By <span class="req">*</span></label>
+          <button type="button" class="mini-x" id="visClear" onclick="clearField('visitors')" hidden>clear all</button>
+        </div>
+        <div class="ss-wrap">
+          <div class="token-box" id="chipArea" onclick="focusVisitors(event)">
+            <span id="chipHolder"></span>
+            <input type="text" id="visSearch" class="token-input" placeholder="Search or pick visitors…"
+              oninput="filterVisitors()" onfocus="filterVisitors()" onblur="comboBlur('visDrop')"
+              onkeydown="comboKey(event,'visDrop','visSearch','purpSearch')"
+              autocomplete="off">
+          </div>
+          <button type="button" class="combo-caret" title="Show all visitors"
+            onmousedown="event.preventDefault();toggleCombo('visDrop','visSearch')">▼</button>
+          <div class="ss-drop" id="visDrop"></div>
+        </div>
+        <button class="vm-toggle" onclick="toggleVM()">⚙ Manage Roster</button>
+        <div class="vm-panel" id="vmPanel">
+          <div style="font-size:10px;font-weight:700;color:#4a5568;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px">Visitor Roster</div>
+          <div class="vm-row">
+            <input type="text" id="vmInput" class="vm-input" placeholder="Visitor name…"
+              onkeydown="if(event.key==='Enter')doAddVisitor()" autocomplete="off">
+            <button class="vm-btn vm-add" onclick="doAddVisitor()">+ Add</button>
+            <button class="vm-btn vm-rem" onclick="doRemoveVisitor()">− Remove</button>
+          </div>
+          <div class="vm-msg" id="vmMsg"></div>
+        </div>
+      </div>
+
+      <div class="fg">
+        <div class="fg-head">
+          <label>Purpose <span class="req">*</span></label>
+          <button type="button" class="mini-x" id="purpClear" onclick="clearField('purpose')" hidden>clear</button>
+        </div>
+        <div class="ss-wrap">
+          <input type="text" id="purpSearch" class="ss-input" placeholder="Type or pick a purpose…"
+            oninput="filterPurpose()" onfocus="filterPurpose()" onblur="comboBlur('purpDrop')"
+            onkeydown="comboKey(event,'purpDrop','purpSearch','remarks')"
+            autocomplete="off">
+          <button type="button" class="field-x" id="purpX" onclick="clearField('purpose')" title="Clear purpose" hidden>&times;</button>
+          <button type="button" class="combo-caret" title="Show all purposes"
+            onmousedown="event.preventDefault();toggleCombo('purpDrop','purpSearch')">▼</button>
+          <div class="ss-drop" id="purpDrop"></div>
+        </div>
+        <input type="hidden" id="purpVal">
+      </div>
+
+      <hr class="divider">
+      <div class="fg">
+        <div class="fg-head">
+          <label>Remarks</label>
+          <button type="button" class="mini-x" id="remClear" onclick="clearField('remarks')" hidden>clear</button>
+        </div>
+        <div class="ta-wrap">
+          <textarea id="remarks" class="fi" placeholder="Optional notes…"
+            oninput="syncFieldClears()" onkeydown="remarksKey(event)"></textarea>
+          <button type="button" class="field-x" id="remX" onclick="clearField('remarks')" title="Clear remarks" hidden>&times;</button>
+        </div>
+      </div>
+
+      <button class="btn-primary" id="btnSubmit" onclick="submitForm()">Log Visit</button>
+      <button class="btn-clear" onclick="clearForm()">Clear All Fields</button>
+      <div class="hint"><kbd>Tab</kbd> moves between fields · <kbd>↑</kbd><kbd>↓</kbd> walk a dropdown ·
+        <kbd>Enter</kbd> picks and advances · <kbd>Esc</kbd> closes · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> logs the visit.</div>
+      <div class="status-line" id="statusLine"></div>
+    </div>
+
+    <div class="portal-queue">
+      <div class="queue-hdr">
+        <span>📋 Submission Queue</span>
+        <button class="queue-clr" onclick="clearQueue()">clear all</button>
+      </div>
+      <div id="queueList">
+        <div class="queue-empty" id="queueEmpty">No submissions yet this session.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TAB 2: STORE INSIGHTS -->
+<div class="tab-content" id="content-Insights">
+  <div class="si-layout">
+    <div class="si-side">
+      <span class="si-label">Store</span>
+      <div class="ss-wrap">
+        <input type="text" class="si-search" id="siSearch" placeholder="Search or pick a store…"
+          oninput="filterSIStores()" onfocus="filterSIStores()" onblur="comboBlur('siDrop')"
+          onkeydown="comboKey(event,'siDrop','siSearch',null)" autocomplete="off">
+        <button type="button" class="field-x" id="siX" onclick="clearSIStore()" title="Clear store" hidden>&times;</button>
+        <button type="button" class="combo-caret" title="Show all stores"
+          onmousedown="event.preventDefault();toggleCombo('siDrop','siSearch')">▼</button>
+        <div class="ss-drop" id="siDrop"></div>
+      </div>
+      <input type="hidden" id="siStore">
+      <button class="btn-gold" id="siBtn" onclick="runLookup()" disabled>🔍 View Profile</button>
+      <hr style="border-color:#2E4A7A;margin:10px 0">
+      <span class="si-label">Monthly Coverage</span>
+      <button class="btn-navy" onclick="loadVisited()">✅ Visited This Month</button>
+      <div id="coverageHint" style="font-size:10px;color:var(--light);margin-top:6px"></div>
+    </div>
+    <div class="si-main" id="siMain">
+      <div class="state-msg">
+        <span class="icon">📋</span>
+        <div class="title">Select a Store</div>
+        <div>Search or pick a store from the left panel.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TAB 3: UNVISITED THIS MONTH -->
+<div class="tab-content" id="content-Visits">
+  <div class="toolbar">
+    <div class="toolbar-title">Not Yet Visited —</div>
+    <select class="sel-dark" id="monthSel" onchange="loadCompliance()" style="min-width:130px">
+      <option value="0">Current Month</option>
+      <option value="1">January</option><option value="2">February</option>
+      <option value="3">March</option><option value="4">April</option>
+      <option value="5">May</option><option value="6">June</option>
+      <option value="7">July</option><option value="8">August</option>
+      <option value="9">September</option><option value="10">October</option>
+      <option value="11">November</option><option value="12">December</option>
+    </select>
+    <span id="monthLbl" style="font-size:11px;color:var(--light)"></span>
+    <button class="btn-gold" onclick="loadCompliance()" style="width:auto;margin-top:0;padding:5px 12px;margin-left:auto">↻ Refresh</button>
+  </div>
+  <div class="scroll-panel" id="visitsPanel">
+    <div class="state-msg">
+      <div class="spinner"></div>
+      <div class="title">Loading…</div>
+    </div>
+  </div>
+</div>
+
+<!-- TAB 4: SYSTEM TOOLS -->
+<div class="tab-content" id="content-Tools">
+  <div class="tools-grid">
+
+    <div class="tools-note">ℹ️ This is a stand-alone preview running on local sample data, not a live spreadsheet. <b>Validate MASTER_LOG</b> runs its real check against the sample log below; the other five tools simulate what they'd do to the actual Google Sheet.</div>
+
+    <div class="tool-card primary">
+      <div class="tool-hdr"><span class="tool-icon">📋</span>
+        <div><div class="tool-title">Store Master Insight</div>
+        <div class="tool-desc-hdr">All stores · visits · status · risk</div></div></div>
+      <div class="tool-body">
+        <span class="risk-badge info">🔄 Regenerated from MASTER_LOG</span>
+        <p>Rebuilds STORE MASTER INSIGHT sheet with per-store visit counts, last visit, risk tier, and compliance status.</p>
+        <button class="tool-run" onclick="runTool('rebuildStoreMaster','stat-SMI')">▶ Rebuild Store Master</button>
+        <div class="tool-stat idle" id="stat-SMI">Ready</div>
+      </div>
+    </div>
+
+    <div class="tool-card primary">
+      <div class="tool-hdr"><span class="tool-icon">🏥</span>
+        <div><div class="tool-title">Store Health</div>
+        <div class="tool-desc-hdr">Risk scores + sheet rebuild</div></div></div>
+      <div class="tool-body">
+        <span class="risk-badge info">🔄 Regenerated from MASTER_LOG</span>
+        <p>Reads MASTER_LOG, scores all stores by visit frequency and QA/MS history, writes STORE HEALTH sheet.</p>
+        <button class="tool-run" onclick="runTool('rebuildStoreHealth','stat-SH')">▶ Rebuild Store Health</button>
+        <div class="tool-stat idle" id="stat-SH">Ready</div>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-hdr"><span class="tool-icon">📊</span>
+        <div><div class="tool-title">Executive Summary</div>
+        <div class="tool-desc-hdr">Layout + live GS formulas</div></div></div>
+      <div class="tool-body">
+        <span class="risk-badge warn">⚠ Clears formatting too</span>
+        <p>Rebuilds EXECUTIVE SUMMARY with COUNTIF/COUNTIFS/QUERY formulas that auto-update from MASTER_LOG.</p>
+        <button class="tool-run" onclick="runTool('rebuildExecutiveSummary','stat-ES')">▶ Rebuild Executive Summary</button>
+        <div class="tool-stat idle" id="stat-ES">Ready</div>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-hdr"><span class="tool-icon">📈</span>
+        <div><div class="tool-title">KPI 2026</div>
+        <div class="tool-desc-hdr">SUMPRODUCT formulas from SETTINGS!F</div></div></div>
+      <div class="tool-body">
+        <span class="risk-badge warn">⚠ Overwrites sheet</span>
+        <p>Rebuilds KPI 2026 weekly tracker. Reads visitor roster from SETTINGS!F and writes pipe-aware SUMPRODUCT formulas.</p>
+        <button class="tool-run" onclick="runTool('rebuildKPI2026','stat-KPI')">▶ Rebuild KPI 2026</button>
+        <div class="tool-stat idle" id="stat-KPI">Ready</div>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-hdr"><span class="tool-icon">✅</span>
+        <div><div class="tool-title">Validate MASTER_LOG</div>
+        <div class="tool-desc-hdr">Check for missing or invalid data</div></div></div>
+      <div class="tool-body">
+        <span class="risk-badge safe">✓ Read-only · safe</span>
+        <p>Scans MASTER_LOG for rows with missing required fields, invalid dates, or unrecognized brand names. Changes nothing.</p>
+        <button class="tool-run" onclick="runTool('validateMasterLog','stat-VAL')">▶ Run Validation</button>
+        <div class="tool-stat idle" id="stat-VAL">Ready</div>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-hdr"><span class="tool-icon">🗂</span>
+        <div><div class="tool-title">Data Sheet Headers</div>
+        <div class="tool-desc-hdr">MASTER_LOG + SETTINGS headers</div></div></div>
+      <div class="tool-body">
+        <span class="risk-badge warn">⚠ Rewrites headers</span>
+        <p>Restores MASTER_LOG row 1 headers with brand color rules. Restores SETTINGS headers and rebuilds col D formula. Data rows untouched.</p>
+        <button class="tool-run" onclick="runTool('rebuildDataHeaders','stat-DH')">▶ Rebuild Data Headers</button>
+        <div class="tool-stat idle" id="stat-DH">Ready</div>
+      </div>
+    </div>
+
+    <div class="log-panel">
+      <div class="log-hdr">
+        <span>📟 Activity Log</span>
+        <button class="log-clr" onclick="clearLog()">clear</button>
+      </div>
+      <div class="log-body" id="actLog">
+        <div class="log-entry info">System ready.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Duplicate overlay -->
+<div class="dup-ov" id="dupOv">
+  <div class="dup-card">
+    <div style="font-size:20px;margin-bottom:5px">⚠️</div>
+    <div class="dup-title">Recent Visit Detected</div>
+    <div class="dup-body">This store was visited within the last 7 days:</div>
+    <div class="dup-list" id="dupList"></div>
+    <div class="dup-acts">
+      <button class="dup-cancel" onclick="closeDup()">Cancel</button>
+      <button class="dup-submit" onclick="confirmSubmit()">Proceed Anyway</button>
+    </div>
+  </div>
+</div>
+
+<!-- Column filter popover (Unvisited This Month) -->
+<div class="colf" id="colFilterPop" hidden onclick="event.stopPropagation()"></div>
+
+<!-- System Tools confirmation -->
+<div class="dup-ov" id="confirmOv">
+  <div class="dup-card">
+    <div style="font-size:20px;margin-bottom:5px" id="confirmIcon">⚠️</div>
+    <div class="dup-title" id="confirmTitle">Rebuild sheet?</div>
+    <div class="dup-body" id="confirmBody"></div>
+    <div class="dup-list" id="confirmDetail"></div>
+    <div class="dup-acts">
+      <button class="dup-cancel" onclick="closeConfirm()">Cancel</button>
+      <button class="dup-submit" id="confirmGo" onclick="confirmProceed()">Proceed</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   SVMI COMMAND CENTER — LIVE DEMO DATA LAYER
+   Stands in for the Google Apps Script backend (INPUT_PORTAL.gs,
+   SVMKPI_STORE_LOOKUP.gs, portal_* handlers in SVMKPI_ADMIN.gs, and
+   validateMasterLog() from SVMKPI_CORE.gs) so this portal can run
+   stand-alone, in a browser, with realistic sample data in place of
+   a live MASTER_LOG / SETTINGS spreadsheet.
+
+   Everything below this block, starting at "GLOBAL STATE", is the
+   original portal script, unmodified — it talks to google.script.run
+   exactly as it would inside Google Sheets. Only the google.script.run
+   shim (bottom of this block) intercepts those calls.
+   ============================================================ */
+(function () {
+  'use strict';
+
+  // ---- Deterministic RNG (Lehmer / Park-Miller) so the sample
+  //      dataset is stable across reloads ----
+  const RNG = (function (seed) {
+    let s = seed % 2147483647;
+    if (s <= 0) s += 2147483646;
+    function next() {
+      s = (s * 16807) % 2147483647;
+      return (s - 1) / 2147483646;
+    }
+    return {
+      next,
+      int(min, max) { return Math.floor(next() * (max - min + 1)) + min; },
+      pick(arr) { return arr[Math.floor(next() * arr.length)]; },
+      weighted(pairs) {
+        const total = pairs.reduce((sum, p) => sum + p[1], 0);
+        let r = next() * total;
+        for (const [value, weight] of pairs) {
+          r -= weight;
+          if (r <= 0) return value;
+        }
+        return pairs[pairs.length - 1][0];
+      },
+    };
+  })(20260805);
+
+  // ---- Approved enums (mirrors SVMKPI_CORE.gs) ----
+  const APPROVED_BRANDS = ["ANGEL'S PIZZA", 'APEX', 'FIGARO', "TIEN MA'S", 'KOOBIDEH'];
+  const APPROVED_REGIONS = ['NCR', 'PROVINCIAL', 'FRANCHISE'];
+  const APPROVED_PURPOSES = ['STORE VISIT', 'TLTC', 'FAILED QA/MS', 'CURING/SUPPORT'];
+
+  // ---- Sample store roster (mirrors SETTINGS cols A,B,C,E) ----
+  const STORES_SEED = [
+    ['MAKATI - AYALA AVENUE',    "ANGEL'S PIZZA", 'NCR',        'NCR'],
+    ['BGC - HIGH STREET',        'FIGARO',        'NCR',        'NCR'],
+    ['QUEZON CITY - TRINOMA',    'APEX',          'NCR',        'NCR'],
+    ['MANILA - ROBINSONS PLACE', "TIEN MA'S",     'NCR',        'NCR'],
+    ['PASIG - ORTIGAS',          'KOOBIDEH',      'NCR',        'NCR'],
+    ['STA. ROSA - LAGUNA',       "ANGEL'S PIZZA", 'PROVINCIAL', 'NEAR PROVINCIAL'],
+    ['ANTIPOLO - MASINAG',       'APEX',          'PROVINCIAL', 'NEAR PROVINCIAL'],
+    ['CAVITE - IMUS',            'FIGARO',        'PROVINCIAL', 'NEAR PROVINCIAL'],
+    ['BULACAN - MALOLOS',        'KOOBIDEH',      'PROVINCIAL', 'NEAR PROVINCIAL'],
+    ['NAGA CITY',                "ANGEL'S PIZZA", 'PROVINCIAL', 'FAR PROVINCIAL'],
+    ['ILOILO CITY',              'APEX',          'PROVINCIAL', 'FAR PROVINCIAL'],
+    ['DAVAO - MATINA',           'FIGARO',        'PROVINCIAL', 'FAR PROVINCIAL'],
+    ['CEBU - IT PARK',           "TIEN MA'S",     'PROVINCIAL', 'FAR PROVINCIAL'],
+    ['BACOLOD CITY',             'KOOBIDEH',      'PROVINCIAL', 'FAR PROVINCIAL'],
+    ['TAGAYTAY',                 'FIGARO',        'FRANCHISE',  'FAR PROVINCIAL'],
+    ['ZAMBOANGA CITY',           'APEX',          'PROVINCIAL', 'FLIGHT PROVINCIAL'],
+    ['CAGAYAN DE ORO',           'FIGARO',        'PROVINCIAL', 'FLIGHT PROVINCIAL'],
+    ['GENERAL SANTOS',           "ANGEL'S PIZZA", 'PROVINCIAL', 'FLIGHT PROVINCIAL'],
+    ['PUERTO PRINCESA',          'KOOBIDEH',      'PROVINCIAL', 'FLIGHT PROVINCIAL'],
+    ['BAGUIO CITY',              "TIEN MA'S",     'FRANCHISE',  'FLIGHT PROVINCIAL'],
+    ['TACLOBAN CITY',            'KOOBIDEH',      'PROVINCIAL', 'FLIGHT PROVINCIAL'],
+  ];
+
+  const VISITOR_SEED = ['LEO','YANA','JOSH','GIO','RICE','JAMES','MARK','TINA','CARLO','BEA'];
+
+  const REMARKS_POOL = [
+    'Store clean and organized; staff well-groomed.',
+    'Minor stockout on toppings — reported to supply team.',
+    'POS system running slow; IT ticket filed.',
+    'Strong customer engagement observed during visit.',
+    'Staffing shortage during peak hours noted.',
+    'Signage needs replacement — faded branding.',
+    'Compliant with all SOP checklist items.',
+    'Coaching session held with shift supervisor.',
+    'Walked through new menu rollout with team.',
+    'Freezer temperature logs reviewed and verified.',
+    'Follow-up needed on previous action items.',
+    '', '', '',
+  ];
+
+  const PROBLEM_STORES = new Set(['CEBU - IT PARK', 'ZAMBOANGA CITY']);
+
+  const CATEGORY_INTERVAL = {
+    'NCR':               [22, 34],
+    'NEAR PROVINCIAL':   [26, 40],
+    'FAR PROVINCIAL':    [70, 100],
+    'FLIGHT PROVINCIAL': [145, 185],
+  };
+
+  const GEN_START = new Date(2026, 0, 1);
+  // Runs to "today" rather than a frozen snapshot date, so the current month
+  // always has visits in it — otherwise views scoped to this month (Store
+  // Insights → Visited This Month, and the Unvisited tab's monthly window)
+  // look broken whenever the demo is opened after the snapshot month.
+  const GEN_END   = new Date();
+
+  function generateMasterLog() {
+    const log = [];
+    STORES_SEED.forEach(([name, brand, region, category]) => {
+      if (name === 'TACLOBAN CITY') return; // deliberately zero visits — newly onboarded store
+
+      const [lo, hi] = CATEGORY_INTERVAL[category];
+      const isProblem = PROBLEM_STORES.has(name);
+
+      let cursor = new Date(GEN_START.getTime() + RNG.int(0, lo) * 86400000);
+      const dates = [];
+      while (cursor <= GEN_END) {
+        dates.push(new Date(cursor));
+        cursor = new Date(cursor.getTime() + RNG.int(lo, hi) * 86400000);
+      }
+      if (dates.length > 1 && RNG.next() < 0.4) dates.pop(); // some stores fall behind schedule
+
+      dates.forEach((date, i) => {
+        const forceFailed = isProblem && i >= Math.max(0, dates.length - 2);
+        const purpose = forceFailed ? 'FAILED QA/MS' : RNG.weighted([
+          ['STORE VISIT',    isProblem ? 52 : 74],
+          ['TLTC',           12],
+          ['CURING/SUPPORT', isProblem ? 10 : 8],
+          ['FAILED QA/MS',   isProblem ? 26 : 6],
+        ]);
+        const numVisitors = RNG.next() < 0.3 ? 2 : 1;
+        const visitors = [];
+        while (visitors.length < numVisitors) {
+          const v = RNG.pick(VISITOR_SEED);
+          if (!visitors.includes(v)) visitors.push(v);
+        }
+        log.push({
+          timestamp: new Date(date.getTime() + 9 * 3600000 + RNG.int(0, 180) * 60000),
+          date, store: name, brand, region,
+          visitedBy: visitors.join(' | '),
+          purpose, remarks: RNG.pick(REMARKS_POOL),
+        });
+      });
+    });
+
+    // Visit from 2 days ago so the duplicate-visit warning has something to
+    // catch when a visit is logged for today. Anchored to the current date so
+    // it keeps working whenever the demo is opened.
+    const dupSeed = new Date(GEN_END.getFullYear(), GEN_END.getMonth(), GEN_END.getDate() - 2);
+    log.push({ timestamp: new Date(dupSeed.getTime() + 10 * 3600000 + 15 * 60000), date: dupSeed,
+      store: 'MAKATI - AYALA AVENUE', brand: "ANGEL'S PIZZA", region: 'NCR',
+      visitedBy: 'LEO', purpose: 'STORE VISIT', remarks: 'Quarterly brand audit walkthrough completed.' });
+
+    // A few real-world data slips so "Validate MASTER_LOG" has something to find
+    log.push({ timestamp: new Date(2026, 3, 14, 11, 0), date: new Date(2026, 3, 14),
+      store: 'BULACAN - MALOLOS', brand: 'KOOBIDEH', region: 'PROVINCIAL',
+      visitedBy: '', purpose: 'STORE VISIT', remarks: 'Legacy entry migrated from paper log — visitor name illegible.' });
+    log.push({ timestamp: new Date(2026, 4, 22, 14, 30), date: new Date(2026, 4, 22),
+      store: 'ILOILO CITY', brand: 'APEXX', region: 'PROVINCIAL',
+      visitedBy: 'RICE', purpose: 'STORE VISIT', remarks: '' });
+    log.push({ timestamp: new Date(2026, 5, 9, 9, 45), date: new Date(2026, 5, 9),
+      store: 'CEBU - IT PARK', brand: "TIEN MA'S", region: 'PROVINCIAL',
+      visitedBy: 'JOSH', purpose: 'STORE-VISIT', remarks: 'Entered by relief admin; purpose code typo.' });
+
+    log.sort((a, b) => a.date - b.date);
+    return log;
+  }
+
+  const DB = {
+    stores: STORES_SEED.map(([name, brand, region, category]) => ({ name, brand, region, category })),
+    visitors: VISITOR_SEED.slice(),
+    purposes: APPROVED_PURPOSES.slice(),
+    log: generateMasterLog(),
+  };
+
+  // ---- Shared helpers (mirror SVMKPI_STORE_LOOKUP.gs) ----
+  function normUp(v) { return String(v == null ? '' : v).trim().toUpperCase(); }
+
+  function parseYMD(s) {
+    const p = String(s).split('-');
+    return new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
+  }
+
+  function fmtYMD(d) {
+    const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+  }
+
+  function slFormatDate(date) {
+    if (!(date instanceof Date) || isNaN(date)) return '—';
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const d = String(date.getDate()).padStart(2, '0');
+    return months[date.getMonth()] + ' ' + d + ', ' + date.getFullYear();
+  }
+
+  function slGetMeta(name) {
+    const s = DB.stores.find(x => x.name === name);
+    return s ? { name, brand: s.brand, region: s.region } : { name, brand: '—', region: '—' };
+  }
+
+  function slComputeHealth(totalVisits, failedCount, lastDate) {
+    const now = new Date();
+    const daysSince = lastDate instanceof Date ? Math.max(0, Math.floor((now - lastDate) / 86400000)) : 999;
+    const failedPart = (failedCount || 0) * 3;
+    const daysPart = parseFloat((daysSince / 30).toFixed(2));
+    const lowVisitPen = totalVisits < 3 ? 5 : 0;
+    const score = parseFloat((failedPart + daysPart + lowVisitPen).toFixed(2));
+    const label = score >= 8 ? 'HIGH' : score >= 4 ? 'MEDIUM' : 'LOW';
+    return { score, label, components: { failedPart, daysPart, lowVisitPen, daysSince } };
+  }
+
+  function slTitleCase(str) {
+    return str.toLowerCase().replace(/\b(\w)/g, c => c.toUpperCase());
+  }
+
+  function slEmptyResult(name) {
+    return {
+      meta: slGetMeta(name),
+      summary: { totalVisits: 0, lastVisitDate: '—', lastVisitor: '—', lastPurpose: '—' },
+      purposes: APPROVED_PURPOSES.map(label => ({ label, count: 0, pct: '0.0' })),
+      topVisitors: [], recentVisits: [],
+      health: slComputeHealth(0, 0, null),
+      insight: 'No visit records found for ' + name + '. Schedule an initial store visit.',
+    };
+  }
+
+  function slGenerateInsight(p) {
+    const { meta, totalVisits, purposes, topVisitors, health, failedCount } = p;
+    const lines = [];
+
+    if (totalVisits === 0) return 'No visit records found for ' + meta.name + '. Schedule an initial store visit to establish baseline data.';
+    else if (totalVisits >= 20) lines.push(meta.name + ' has ' + totalVisits + ' visits on record — well-monitored store.');
+    else if (totalVisits >= 10) lines.push(meta.name + ' has ' + totalVisits + ' visits on record — moderate monitoring coverage.');
+    else if (totalVisits >= 3) lines.push(meta.name + ' has ' + totalVisits + ' visits on record — monitoring is active but limited.');
+    else lines.push(meta.name + ' has only ' + totalVisits + ' visit(s) on record — insufficient monitoring coverage.');
+
+    const sortedP = [...purposes].sort((a, b) => b.count - a.count);
+    const top = sortedP[0];
+    if (top && top.count > 0) {
+      lines.push('Most common activity is ' + slTitleCase(top.label) + ' (' + top.count + ' occurrence' + (top.count > 1 ? 's' : '') + ', ' + top.pct + '% of visits).');
+    }
+
+    if (failedCount === 0) lines.push('No Failed QA/MS visits recorded — store is currently compliant.');
+    else if (failedCount === 1) lines.push('1 Failed QA/MS visit recorded. Monitor closely for recurrence.');
+    else if (failedCount <= 3) lines.push(failedCount + ' Failed QA/MS visits recorded. Coaching intervention is recommended.');
+    else lines.push(failedCount + ' Failed QA/MS visits recorded — this store requires immediate coaching attention.');
+
+    if (topVisitors.length > 0) {
+      const v = topVisitors[0];
+      lines.push('Most active visitor is ' + v.name + ' with ' + v.count + ' visit' + (v.count > 1 ? 's' : '') + '.');
+    }
+
+    const daysSince = health.components.daysSince;
+    if (daysSince === 999) lines.push('Last visit date is unavailable.');
+    else if (daysSince === 0) lines.push('Last visit was today.');
+    else if (daysSince <= 7) lines.push('Last visit was ' + daysSince + ' day' + (daysSince > 1 ? 's' : '') + ' ago — recently monitored.');
+    else if (daysSince <= 30) lines.push('Last visit was ' + daysSince + ' days ago — within normal monitoring cycle.');
+    else if (daysSince <= 60) lines.push('Last visit was ' + daysSince + ' days ago — approaching overdue status.');
+    else lines.push('Last visit was ' + daysSince + ' days ago — store is overdue for a visit.');
+
+    if (health.label === 'HIGH') lines.push('Risk level is HIGH. Prioritize this store for immediate visit and coaching.');
+    else if (health.label === 'MEDIUM') lines.push('Risk level is MEDIUM. Schedule a visit within the next two weeks.');
+    else lines.push('Risk level is LOW. Maintain current monitoring frequency.');
+
+    return lines.join(' ');
+  }
+
+  // ---- BACKEND: mirrors the google.script.run-callable functions ----
+  const BACKEND = {
+
+    getSidebarData() {
+      const stores = DB.stores
+        .map(s => ({ store: s.name, brand: s.brand, region: s.region, category: s.category }))
+        .sort((a, b) => a.store.localeCompare(b.store));
+      return { stores, visitors: DB.visitors.slice().sort(), purposes: DB.purposes.slice() };
+    },
+
+    sl_getBrandList() {
+      return Array.from(new Set(DB.stores.map(s => s.brand))).sort();
+    },
+
+    manageVisitor(action, visitorName) {
+      const name = normUp(visitorName);
+      if (!name) return { success: false, message: 'Visitor name cannot be blank.' };
+      const idx = DB.visitors.indexOf(name);
+      if (action === 'add') {
+        if (idx !== -1) return { success: false, message: '"' + name + '" is already in the visitor roster.' };
+        DB.visitors.push(name);
+      } else if (action === 'remove') {
+        if (idx === -1) return { success: false, message: '"' + name + '" was not found in the visitor roster.' };
+        DB.visitors.splice(idx, 1);
+      } else {
+        return { success: false, message: 'Unknown action: ' + action };
+      }
+      return { success: true, visitors: DB.visitors.slice().sort() };
+    },
+
+    checkDuplicateVisit(payload) {
+      const store = normUp(payload.store);
+      const submitDate = parseYMD(payload.dateVisited);
+      const submitMs = submitDate.getTime();
+      const WINDOW_DAYS = 7, MS_PER_DAY = 86400000;
+      const matches = [];
+      DB.log.forEach(row => {
+        if (row.store !== store) return;
+        const rowDate = new Date(row.date.getFullYear(), row.date.getMonth(), row.date.getDate());
+        const daysSince = Math.round((submitMs - rowDate.getTime()) / MS_PER_DAY);
+        if (daysSince >= 0 && daysSince <= WINDOW_DAYS) {
+          matches.push({ lastVisitDate: fmtYMD(rowDate), visitor: row.visitedBy, purpose: row.purpose, daysSince });
+        }
+      });
+      if (!matches.length) return { duplicate: false };
+      matches.sort((a, b) => a.daysSince - b.daysSince);
+      return { duplicate: true, rows: matches };
+    },
+
+    processSubmissionAsync(payload) {
+      const required = ['store', 'dateVisited', 'visitedBy', 'purpose'];
+      for (const f of required) {
+        const v = payload[f];
+        if (!v || (Array.isArray(v) ? v.length === 0 : String(v).trim() === '')) {
+          return { success: false, message: 'Missing required field: ' + f };
+        }
+      }
+      let brand = normUp(payload.brand), region = normUp(payload.region);
+      if (!brand || !region) {
+        const s = DB.stores.find(x => x.name === normUp(payload.store));
+        brand = brand || (s ? s.brand : '');
+        region = region || (s ? s.region : '');
+      }
+      let visitedByStr;
+      if (Array.isArray(payload.visitedBy)) {
+        visitedByStr = payload.visitedBy.map(v => normUp(v)).filter(Boolean).join(' | ');
+      } else {
+        visitedByStr = normUp(payload.visitedBy);
+      }
+      if (!visitedByStr) return { success: false, message: 'Missing required field: visitedBy' };
+
+      DB.log.push({
+        timestamp: new Date(),
+        date: parseYMD(payload.dateVisited),
+        store: normUp(payload.store), brand, region,
+        visitedBy: visitedByStr,
+        purpose: normUp(payload.purpose),
+        remarks: String(payload.remarks || '').trim(),
+      });
+      return { success: true };
+    },
+
+    sl_getStoreList() {
+      return DB.stores.map(s => ({ name: s.name, brand: s.brand, region: s.region }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    },
+
+    sl_getStoreData(storeName) {
+      if (!storeName || !String(storeName).trim()) return null;
+      const target = normUp(storeName);
+      let rows = DB.log.filter(r => r.store === target);
+      if (!rows.length) return slEmptyResult(target);
+      rows = rows.slice().sort((a, b) => b.date - a.date);
+
+      const meta = slGetMeta(target);
+      const totalVisits = rows.length;
+      const last = rows[0];
+      const lastVisitor = last.visitedBy || '—';
+      const lastPurpose = last.purpose || '—';
+      const lastVisitStr = slFormatDate(last.date);
+
+      const purposeCounts = {};
+      APPROVED_PURPOSES.forEach(p => { purposeCounts[p] = 0; });
+      rows.forEach(r => { if (purposeCounts.hasOwnProperty(r.purpose)) purposeCounts[r.purpose]++; });
+      const purposes = APPROVED_PURPOSES.map(label => {
+        const count = purposeCounts[label];
+        const pct = totalVisits > 0 ? ((count / totalVisits) * 100).toFixed(1) : '0.0';
+        return { label, count, pct };
+      });
+
+      const visitorMap = {};
+      rows.forEach(r => {
+        String(r.visitedBy || '').split('|').map(v => v.trim()).filter(Boolean).forEach(name => {
+          visitorMap[name] = (visitorMap[name] || 0) + 1;
+        });
+      });
+      const topVisitors = Object.entries(visitorMap)
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+        .slice(0, 10);
+
+      const recentVisits = rows.slice(0, 10).map(r => ({
+        date: slFormatDate(r.date), visitor: r.visitedBy || '—', purpose: r.purpose || '—', remarks: r.remarks || '—',
+      }));
+
+      const health = slComputeHealth(totalVisits, purposeCounts['FAILED QA/MS'], last.date);
+      const insight = slGenerateInsight({ meta, totalVisits, lastVisitStr, lastPurpose, purposes, topVisitors, health, failedCount: purposeCounts['FAILED QA/MS'] });
+
+      return {
+        meta,
+        summary: { totalVisits, lastVisitDate: lastVisitStr, lastVisitor, lastPurpose },
+        purposes, topVisitors, recentVisits, health, insight,
+      };
+    },
+
+    sl_getUnvisitedThisMonth(brandFilter) {
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      const stores = DB.stores.filter(s => !brandFilter || brandFilter === 'ALL' || s.brand === brandFilter);
+
+      const visitedThisMonth = new Set();
+      const lastVisitByStore = new Map();
+      DB.log.forEach(r => {
+        if (r.date >= monthStart && r.date <= monthEnd) visitedThisMonth.add(r.store);
+        const ex = lastVisitByStore.get(r.store);
+        if (!ex || r.date > ex) lastVisitByStore.set(r.store, r.date);
+      });
+
+      const result = [];
+      stores.forEach(s => {
+        if (visitedThisMonth.has(s.name)) return;
+        const lv = lastVisitByStore.get(s.name);
+        result.push({
+          name: s.name, brand: s.brand, region: s.region,
+          lastVisitDate: lv ? slFormatDate(lv) : '—',
+          daysSince: lv ? Math.floor((now - lv) / 86400000) : null,
+        });
+      });
+
+      result.sort((a, b) => {
+        const ad = a.daysSince === null ? -1 : a.daysSince, bd = b.daysSince === null ? -1 : b.daysSince;
+        if (bd !== ad) return bd - ad;
+        return a.name.localeCompare(b.name);
+      });
+      return result;
+    },
+
+    sl_getVisitedThisMonth(brandFilter) {
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      const stores = DB.stores.filter(s => !brandFilter || brandFilter === 'ALL' || s.brand === brandFilter);
+      const byName = new Map(stores.map(s => [s.name, s]));
+
+      const acc = new Map();
+      DB.log.forEach(r => {
+        if (!byName.has(r.store)) return;
+        if (!(r.date >= monthStart && r.date <= monthEnd)) return;
+        let a = acc.get(r.store);
+        if (!a) { a = { visits: 0, lastDate: null, lastPurpose: '', visitors: new Set() }; acc.set(r.store, a); }
+        a.visits++;
+        if (!a.lastDate || r.date > a.lastDate) { a.lastDate = r.date; a.lastPurpose = r.purpose; }
+        String(r.visitedBy || '').split('|').map(v => v.trim()).filter(Boolean).forEach(v => a.visitors.add(v));
+      });
+
+      const result = [];
+      acc.forEach((a, name) => {
+        const s = byName.get(name);
+        result.push({
+          name, brand: s.brand, region: s.region,
+          visits: a.visits,
+          lastVisitDate: a.lastDate ? slFormatDate(a.lastDate) : '—',
+          lastPurpose: a.lastPurpose || '—',
+          visitors: Array.from(a.visitors).sort().join(', '),
+          // Sortable companion to lastVisitDate — the display string alone
+          // would only sort alphabetically.
+          daysSince: a.lastDate ? Math.floor((now - a.lastDate) / 86400000) : null,
+        });
+      });
+
+      // Most recently visited first; same-day ties fall back to store name.
+      result.sort((a, b) => (a.daysSince - b.daysSince) || a.name.localeCompare(b.name));
+      return result;
+    },
+
+    sl_getComplianceGaps(brandFilter, monthNumber) {
+      const now = new Date();
+      const DATA_YEAR = 2026;
+      const refMonthIdx = (monthNumber && monthNumber >= 1 && monthNumber <= 12) ? monthNumber - 1 : now.getMonth();
+      const monthStart = new Date(DATA_YEAR, refMonthIdx, 1);
+      const monthEnd = new Date(DATA_YEAR, refMonthIdx + 1, 0, 23, 59, 59, 999);
+      const qStart = new Date(DATA_YEAR, Math.floor(refMonthIdx / 3) * 3, 1);
+      const qEnd = new Date(DATA_YEAR, Math.floor(refMonthIdx / 3) * 3 + 3, 0, 23, 59, 59, 999);
+      const sixMonthsAgo = new Date(DATA_YEAR, refMonthIdx - 5, 1);
+
+      const stores = DB.stores.filter(s => !brandFilter || brandFilter === 'ALL' || s.brand === brandFilter);
+      const storeNames = new Set(stores.map(s => s.name));
+
+      const visitedInMonth = new Set(), visitedInQuarter = new Set(), visitedInSixMonths = new Set();
+      const lastVisitByStore = new Map(), ytdByStore = new Map();
+
+      DB.log.forEach(r => {
+        if (!storeNames.has(r.store)) return;
+        const date = r.date;
+        if (date.getFullYear() === DATA_YEAR) ytdByStore.set(r.store, (ytdByStore.get(r.store) || 0) + 1);
+        const ex = lastVisitByStore.get(r.store);
+        if (!ex || date > ex) lastVisitByStore.set(r.store, date);
+        if (date >= monthStart && date <= monthEnd) visitedInMonth.add(r.store);
+        if (date >= qStart && date <= qEnd) visitedInQuarter.add(r.store);
+        if (date >= sixMonthsAgo && date <= monthEnd) visitedInSixMonths.add(r.store);
+      });
+
+      const gaps = [];
+      stores.forEach(s => {
+        const last = lastVisitByStore.get(s.name) || null;
+        const daysSince = last ? Math.floor((now - last) / 86400000) : null;
+        const ytd = ytdByStore.get(s.name) || 0;
+        let compliant = false, windowLabel = '';
+        if (s.category === 'NCR' || s.category === 'NEAR PROVINCIAL') { windowLabel = 'Monthly'; compliant = visitedInMonth.has(s.name); }
+        else if (s.category === 'FAR PROVINCIAL') { windowLabel = 'Quarterly'; compliant = visitedInQuarter.has(s.name); }
+        else if (s.category === 'FLIGHT PROVINCIAL') { windowLabel = 'Semi-Annual'; compliant = visitedInSixMonths.has(s.name); }
+        else return;
+        if (!compliant) {
+          gaps.push({ store: s.name, brand: s.brand, region: s.region, category: s.category,
+            lastVisitDate: last ? slFormatDate(last) : '—', daysSince, windowLabel, ytdVisits: ytd });
+        }
+      });
+      gaps.sort((a, b) => a.store.localeCompare(b.store));
+      return gaps;
+    },
+
+    portal_validateMasterLog() {
+      const errors = [];
+      DB.log.forEach((row, idx) => {
+        const r = idx + 2;
+        const err = (col, field, value, rule, message) => errors.push({ row: r, col, field, value: String(value), rule, message });
+
+        if (!row.timestamp) err('A', 'Timestamp', row.timestamp, 'BLANK_TIMESTAMP', 'Timestamp is blank. Row may be corrupt.');
+
+        if (!row.date) err('B', 'Date Visited', row.date, 'BLANK_DATE', 'Date Visited is required.');
+        else if (!(row.date instanceof Date) || isNaN(row.date.getTime())) err('B', 'Date Visited', row.date, 'INVALID_DATE', 'Date Visited is not a valid date.');
+
+        if (!String(row.store).trim()) err('C', 'Store', row.store, 'BLANK_STORE', 'Store name is required.');
+
+        const normBrand = normUp(row.brand);
+        if (!normBrand) err('D', 'Brand', row.brand, 'BLANK_BRAND', 'Brand is required.');
+        else if (!APPROVED_BRANDS.includes(normBrand)) err('D', 'Brand', row.brand, 'INVALID_BRAND', 'Brand value "' + normBrand + '" is not in the approved list.');
+
+        const normRegion = normUp(row.region);
+        if (!normRegion) err('E', 'Region', row.region, 'BLANK_REGION', 'Region is required.');
+        else if (!APPROVED_REGIONS.includes(normRegion)) err('E', 'Region', row.region, 'INVALID_REGION', 'Region value "' + normRegion + '" is not in the approved list.');
+
+        const normVisitor = normUp(row.visitedBy);
+        if (!normVisitor) err('F', 'Visited By', row.visitedBy, 'BLANK_VISITOR', 'Visited By is required.');
+
+        const normPurpose = normUp(row.purpose);
+        if (!normPurpose) err('G', 'Purpose', row.purpose, 'BLANK_PURPOSE', 'Purpose is required.');
+        else if (!APPROVED_PURPOSES.includes(normPurpose)) err('G', 'Purpose', row.purpose, 'INVALID_PURPOSE', 'Purpose value "' + normPurpose + '" is not in the approved list.');
+      });
+
+      const valid = errors.length === 0;
+      const summary = valid
+        ? 'Validation passed. ' + DB.log.length + ' rows checked. No errors found.'
+        : 'Validation failed. ' + errors.length + ' error(s) found across ' + DB.log.length + ' rows.';
+      return { success: valid, message: summary, errors: errors.slice(0, 20) };
+    },
+
+    portal_rebuildExecutiveSummary() {
+      return { success: true, message: 'Executive Summary rebuilt with live formulas. (Demo mode — no live spreadsheet attached.)' };
+    },
+    portal_rebuildStoreHealth() {
+      return { success: true, message: 'Store Health sheet refreshed. ' + DB.log.length + ' MASTER_LOG rows scanned. (Demo mode)' };
+    },
+    portal_rebuildKPI2026() {
+      return { success: true, message: 'KPI 2026 rebuilt. ' + DB.visitors.length + ' visitors, SUMPRODUCT formulas written. (Demo mode)' };
+    },
+    portal_rebuildDataHeaders() {
+      return { success: true, message: '✅ MASTER_LOG  |  ✅ SETTINGS (Demo mode — headers simulated)' };
+    },
+    portal_rebuildStoreMaster() {
+      return { success: true, message: 'Store Master Insight rebuilt. ' + DB.stores.length + ' stores written. (Demo mode)' };
+    },
+  };
+
+  // ---- google.script.run shim ----
+  function simulateCall(fnName, args, onSuccess, onFailure) {
+    const delay = 260 + Math.random() * 420;
+    setTimeout(() => {
+      let result;
+      try {
+        const fn = BACKEND[fnName];
+        if (typeof fn !== 'function') throw new Error('Backend function not found: ' + fnName);
+        result = fn.apply(null, args);
+      } catch (e) {
+        if (typeof onFailure === 'function') onFailure(e);
+        return;
+      }
+      if (typeof onSuccess === 'function') onSuccess(result);
+    }, delay);
+  }
+
+  window.google = {
+    script: {
+      get run() {
+        let onSuccess = null, onFailure = null;
+        const handler = {
+          withSuccessHandler(fn) { onSuccess = fn; return proxy; },
+          withFailureHandler(fn) { onFailure = fn; return proxy; },
+        };
+        const proxy = new Proxy(handler, {
+          get(target, prop) {
+            if (prop in target) return target[prop];
+            if (typeof prop !== 'string') return undefined;
+            return function (...args) { simulateCall(prop, args, onSuccess, onFailure); };
+          },
+        });
+        return proxy;
+      },
+    },
+  };
+})();
+
+// ═══════════════════════════════════════
+// GLOBAL STATE
+// ═══════════════════════════════════════
+var VCOLS = ['#4472C4','#1F1F1F','#00B050','#E36C09','#938953','#7F7F7F',
+             '#002060','#17B169','#FF0000','#632523','#7030A0','#215868'];
+var MONTHS = ['January','February','March','April','May','June',
+              'July','August','September','October','November','December'];
+
+var gBrand       = 'ALL';
+var allStores    = [];
+var storeData    = {};
+var allVisitors  = [];
+var allPurposes  = [];
+var selVisitors  = [];
+var pending      = null;
+var qSeq         = 0;
+var qItems       = [];
+var siAllStores  = [];
+
+// ═══════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════
+window.onload = function() {
+  setToday();
+  loadPortalData();
+  loadBrandList();
+  loadSIStores();
+  syncFieldClears();
+};
+
+function setToday() {
+  var d = new Date();
+  var m = String(d.getMonth()+1).padStart(2,'0');
+  var day = String(d.getDate()).padStart(2,'0');
+  document.getElementById('dateVisited').value = d.getFullYear()+'-'+m+'-'+day;
+}
+
+// ═══════════════════════════════════════
+// TAB SWITCHING
+// ═══════════════════════════════════════
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(function(t){ t.classList.remove('active'); });
+  document.querySelectorAll('.tab-content').forEach(function(c){ c.classList.remove('active'); });
+  document.getElementById('tab-'+name).classList.add('active');
+  document.getElementById('content-'+name).classList.add('active');
+  if (name === 'Visits') loadCompliance();
+}
+
+// ═══════════════════════════════════════
+// BRAND FILTER
+// ═══════════════════════════════════════
+function loadBrandList() {
+  google.script.run
+    .withSuccessHandler(function(brands) {
+      var sel = document.getElementById('gBrand');
+      (brands||[]).forEach(function(b) {
+        var o = document.createElement('option');
+        o.value = b; o.textContent = b; sel.appendChild(o);
+      });
+    })
+    .withFailureHandler(function(){})
+    .sl_getBrandList();
+}
+
+function onBrandChange() {
+  gBrand = document.getElementById('gBrand').value;
+  // The Store Insights combobox reads gBrand when it builds its list, so an
+  // open dropdown just needs rebuilding; a closed one picks it up on next open.
+  if (document.getElementById('siDrop').classList.contains('open')) filterSIStores();
+  // Compliance tab refresh if active
+  if (document.getElementById('content-Visits').classList.contains('active')) {
+    loadCompliance();
+  }
+}
+
+// ═══════════════════════════════════════
+// TAB 1 — INPUT PORTAL
+// ═══════════════════════════════════════
+function loadPortalData() {
+  google.script.run
+    .withSuccessHandler(function(data) {
+      allStores = data.stores || [];
+      storeData = {};
+      allStores.forEach(function(s) {
+        storeData[s.store] = { brand: s.brand, region: s.region, category: s.category||'' };
+      });
+      allVisitors = (data.visitors||[]).map(function(n, i) {
+        return { name: n, color: VCOLS[i % VCOLS.length] };
+      });
+      allPurposes = data.purposes || [];
+    })
+    .withFailureHandler(function(err) {
+      showStatus('Could not load data: '+(err.message||err), 'error');
+    })
+    .getSidebarData();
+}
+
+// Store search — matches store name OR brand, and shows the brand on every
+// row so the right branch is identifiable without selecting it first.
+function filterStores() {
+  var q = document.getElementById('storeSearch').value.trim().toUpperCase();
+  var drop = document.getElementById('storeDrop');
+  var list = allStores.filter(function(s) {
+    if (!q) return true;                       // empty box on focus = browse the whole roster
+    return s.store.indexOf(q) !== -1 || String(s.brand || '').toUpperCase().indexOf(q) !== -1;
+  }).slice(0, 40);
+  if (!list.length) { drop.classList.remove('open'); return; }
+  drop.innerHTML = list.map(function(s) {
+    return '<div class="ss-opt" data-v="'+esc(s.store)+'" data-m="'+esc(s.store+' '+(s.brand||''))+'" onmousedown="pickStore(this)">'
+      +'<span class="opt-name">'+esc(s.store)+'</span>'
+      +(s.brand ? '<span class="opt-brand">'+esc(s.brand)+'</span>' : '')
+      +'</div>';
+  }).join('');
+  setActiveOpt('storeDrop', -1);
+  drop.classList.add('open');
+}
+
+function pickStore(el) {
+  var name = el.dataset.v;
+  document.getElementById('storeSearch').value = name;
+  document.getElementById('storeVal').value = name;
+  document.getElementById('storeDrop').classList.remove('open');
+  var info = storeData[name];
+  if (info) {
+    document.getElementById('iBrand').textContent  = info.brand    || '—';
+    document.getElementById('iRegion').textContent = info.region   || '—';
+    document.getElementById('iCat').textContent    = info.category || '—';
+    document.getElementById('storeInfo').classList.add('visible');
+  }
+  syncFieldClears();
+}
+
+// Visitor chips
+function filterVisitors() {
+  var q = document.getElementById('visSearch').value.trim().toUpperCase();
+  var drop = document.getElementById('visDrop');
+  var list = allVisitors.filter(function(v){
+    return v.name.indexOf(q) !== -1 && selVisitors.indexOf(v.name) === -1;
+  });
+  if (!list.length) { drop.classList.remove('open'); return; }
+  drop.innerHTML = list.map(function(v) {
+    return '<div class="ss-opt" data-v="'+esc(v.name)+'" data-m="'+esc(v.name)+'" data-c="'+esc(v.color)+'" onmousedown="pickVisitor(this)">'
+      +'<span class="opt-name">'
+      +'<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+v.color+';margin-right:6px;vertical-align:middle"></span>'
+      +esc(v.name)+'</span></div>';
+  }).join('');
+  setActiveOpt('visDrop', -1);
+  drop.classList.add('open');
+}
+
+function pickVisitor(el) {
+  var name = el.dataset.v;
+  if (selVisitors.indexOf(name) !== -1) return;
+  selVisitors.push(name);
+  document.getElementById('visSearch').value = '';
+  document.getElementById('visDrop').classList.remove('open');
+  renderChips();
+  syncFieldClears();
+}
+
+// Chips go into their own holder so re-rendering them never blows away the
+// input sitting next to them (which would drop focus mid-typing).
+function focusVisitors(e) {
+  if (e.target.classList.contains('chip-x')) return;   // let the × do its job
+  document.getElementById('visSearch').focus();
+}
+
+function renderChips() {
+  var area = document.getElementById('chipHolder');
+  area.innerHTML = selVisitors.map(function(name) {
+    var v = allVisitors.find(function(x){ return x.name === name; });
+    var col = v ? v.color : '#555';
+    return '<span class="chip" style="background:'+col+'" data-n="'+esc(name)+'">'
+      +esc(name)
+      +'<button class="chip-x" data-n="'+esc(name)+'" onmousedown="removeChip(this)">&times;</button>'
+      +'</span>';
+  }).join('');
+}
+
+function removeChip(btn) {
+  var name = btn.dataset.n;
+  selVisitors = selVisitors.filter(function(v){ return v !== name; });
+  renderChips();
+  syncFieldClears();
+}
+
+// Purpose search — typeable (was read-only), so a wrong pick can be
+// corrected by typing over it instead of clearing the whole form.
+function filterPurpose() {
+  var q = document.getElementById('purpSearch').value.trim().toUpperCase();
+  var drop = document.getElementById('purpDrop');
+  var list = allPurposes.filter(function(p){ return p.toUpperCase().indexOf(q) !== -1; });
+  if (!list.length) list = allPurposes.slice();   // no match? offer the full list rather than a dead end
+  if (!list.length) { drop.classList.remove('open'); return; }
+  drop.innerHTML = list.map(function(p) {
+    return '<div class="ss-opt" data-v="'+esc(p)+'" data-m="'+esc(p)+'" onmousedown="pickPurpose(this)">'
+      +'<span class="opt-name">'+esc(p)+'</span></div>';
+  }).join('');
+  setActiveOpt('purpDrop', -1);
+  drop.classList.add('open');
+}
+
+function pickPurpose(el) {
+  var val = el.dataset.v;
+  document.getElementById('purpSearch').value = val;
+  document.getElementById('purpVal').value = val;
+  document.getElementById('purpDrop').classList.remove('open');
+  syncFieldClears();
+}
+
+
+
+// ═══════════════════════════════════════
+// KEYBOARD NAVIGATION
+// Tab moves between fields natively; these add arrow-key walking,
+// Enter to pick-and-advance, and Esc to back out of a dropdown.
+// ═══════════════════════════════════════
+// Each combobox registers how to (re)build its list and how to commit a row,
+// so adding one is a table entry rather than another branch in comboKey().
+var COMBOS = {
+  storeDrop: {
+    refresh: filterStores, pick: pickStore, input: 'storeSearch', value: 'storeVal',
+    clear: function() {
+      document.getElementById('storeVal').value = '';
+      document.getElementById('storeInfo').classList.remove('visible');
+      syncFieldClears();
+    }
+  },
+  visDrop:  { refresh: filterVisitors, pick: pickVisitor, input: 'visSearch', multi: true },
+  purpDrop: {
+    refresh: filterPurpose, pick: pickPurpose, input: 'purpSearch', value: 'purpVal',
+    clear: function() { document.getElementById('purpVal').value = ''; syncFieldClears(); }
+  },
+  siDrop: {
+    refresh: filterSIStores, pick: pickSIStore, input: 'siSearch', value: 'siStore',
+    enterClosed: runLookup,
+    clear: function() {
+      document.getElementById('siStore').value = '';
+      document.getElementById('siBtn').disabled = true;
+      syncSIClear();
+    }
+  }
+};
+
+var comboActive = {};
+function activeIdx(dropId) { return comboActive[dropId] == null ? -1 : comboActive[dropId]; }
+
+function setActiveOpt(dropId, idx) {
+  comboActive[dropId] = idx;
+  var opts = document.getElementById(dropId).querySelectorAll('.ss-opt');
+  for (var i = 0; i < opts.length; i++) {
+    if (i === idx) { opts[i].classList.add('active'); opts[i].scrollIntoView({ block: 'nearest' }); }
+    else opts[i].classList.remove('active');
+  }
+}
+
+// What should the typed text commit to?
+//   - an exact match always wins
+//   - otherwise the options that genuinely contain the text (data-m, which is
+//     what the row was matched on — store name AND brand for the store lists)
+//   - `takeTop` picks the best of several; without it an ambiguous text
+//     commits nothing, which is what we want on a blur rather than a keypress
+// Returns null when the text matches nothing, so a fallback listing (e.g. the
+// full purpose list shown when a search finds nothing) can never be committed
+// by accident.
+function comboBestMatch(dropId, text, takeTop) {
+  var opts = document.getElementById(dropId).querySelectorAll('.ss-opt');
+  var t = String(text || '').trim().toUpperCase();
+  if (!t || !opts.length) return null;
+  var hits = [];
+  for (var i = 0; i < opts.length; i++) {
+    if (String(opts[i].dataset.v || '').toUpperCase() === t) return opts[i];
+    var m = String(opts[i].dataset.m || opts[i].dataset.v || '').toUpperCase();
+    if (m.indexOf(t) !== -1) hits.push(opts[i]);
+  }
+  if (!hits.length) return null;
+  return takeTop ? hits[0] : (hits.length === 1 ? hits[0] : null);
+}
+
+// Commit the highlighted row, or — when the user just typed and hit Enter
+// without arrowing down — the best match for what they typed. Previously this
+// only fired when exactly one option remained, so typing something that matched
+// several rows advanced the form with the field silently left empty.
+function pickActiveOpt(dropId, typedText, takeTop) {
+  var opts = document.getElementById(dropId).querySelectorAll('.ss-opt');
+  var idx  = activeIdx(dropId);
+  var el   = idx >= 0 ? opts[idx] : comboBestMatch(dropId, typedText, takeTop !== false);
+  if (!el) return false;
+  COMBOS[dropId].pick(el);
+  return true;
+}
+
+// Keep the visible box and the committed value honest with each other:
+// never leave text showing that was never selected, and never silently throw
+// away text that unambiguously matches something.
+function comboBlur(dropId) {
+  var c = COMBOS[dropId];
+  setTimeout(function() {
+    var drop  = document.getElementById(dropId);
+    var input = document.getElementById(c.input);
+
+    if (c.multi) {
+      input.value = '';                       // leftover search text is not a selection
+    } else {
+      var committed = document.getElementById(c.value).value;
+      var typed     = input.value.trim();
+      if (!typed) {
+        if (committed) c.clear();             // box emptied by hand — drop the value too
+      } else if (typed.toUpperCase() !== committed.toUpperCase()) {
+        var el = comboBestMatch(dropId, typed, false);   // blur only commits the unambiguous
+        if (el) c.pick(el);
+        else input.value = committed;         // ambiguous — don't leave a phantom value showing
+      }
+    }
+
+    drop.classList.remove('open');
+    setActiveOpt(dropId, -1);
+  }, 200);
+}
+
+// Caret click: open the full list, or close it if it is already showing.
+function toggleCombo(dropId, inputId) {
+  var drop = document.getElementById(dropId);
+  if (drop.classList.contains('open')) {
+    drop.classList.remove('open');
+    setActiveOpt(dropId, -1);
+    return;
+  }
+  document.getElementById(inputId).focus();
+  COMBOS[dropId].refresh();
+}
+
+function focusNext(nextId) {
+  var el = document.getElementById(nextId);
+  if (el) el.focus();
+}
+
+function comboKey(e, dropId, inputId, nextId) {
+  var drop = document.getElementById(dropId);
+  var open = drop.classList.contains('open');
+  var opts = drop.querySelectorAll('.ss-opt');
+
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (!open) {                       // first arrow press opens the list
+      COMBOS[dropId].refresh();
+      opts = drop.querySelectorAll('.ss-opt');
+      if (!opts.length) return;
+      setActiveOpt(dropId, e.key === 'ArrowDown' ? 0 : opts.length - 1);
+      return;
+    }
+    if (!opts.length) return;
+    var idx = activeIdx(dropId) + (e.key === 'ArrowDown' ? 1 : -1);
+    if (idx < 0) idx = opts.length - 1;
+    if (idx >= opts.length) idx = 0;
+    setActiveOpt(dropId, idx);
+    return;
+  }
+
+  if (e.key === 'Enter') {
+    if (e.ctrlKey || e.metaKey) { e.preventDefault(); submitForm(); return; }
+    e.preventDefault();
+    var picked = open ? pickActiveOpt(dropId, document.getElementById(inputId).value, true) : false;
+    if (picked) {
+      drop.classList.remove('open');
+      setActiveOpt(dropId, -1);
+      // Visitors are multi-select: stay put so the next name can be typed.
+      if (dropId !== 'visDrop') focusNext(nextId);
+    } else if (COMBOS[dropId].enterClosed) {
+      COMBOS[dropId].enterClosed();    // e.g. re-run the lookup for the committed store
+    } else {
+      focusNext(nextId);
+    }
+    return;
+  }
+
+  if (e.key === 'Escape') {
+    drop.classList.remove('open');
+    setActiveOpt(dropId, -1);
+    return;
+  }
+
+  if (e.key === 'Tab' && open) {       // Tab commits what is highlighted or typed, then moves on
+    pickActiveOpt(dropId, document.getElementById(inputId).value, true);
+    drop.classList.remove('open');
+    setActiveOpt(dropId, -1);
+    return;
+  }
+
+  // Backspace in an empty visitor box drops the last chip.
+  if (e.key === 'Backspace' && dropId === 'visDrop'
+      && !document.getElementById(inputId).value && selVisitors.length) {
+    e.preventDefault();
+    selVisitors.pop();
+    renderChips();
+    syncFieldClears();
+  }
+}
+
+// Plain (non-combo) fields: Enter advances, Ctrl+Enter submits.
+function fieldKey(e, nextId) {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  if (e.ctrlKey || e.metaKey) { submitForm(); return; }
+  focusNext(nextId);
+}
+
+// Remarks is a textarea, so plain Enter must stay a newline.
+function remarksKey(e) {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submitForm(); }
+}
+
+// ═══════════════════════════════════════
+// PER-FIELD CLEAR
+// Each field can be undone on its own — a wrong pick no longer means
+// wiping the whole form and starting over.
+// ═══════════════════════════════════════
+function clearField(which) {
+  if (which === 'store') {
+    document.getElementById('storeSearch').value = '';
+    document.getElementById('storeVal').value = '';
+    document.getElementById('storeInfo').classList.remove('visible');
+    document.getElementById('storeSearch').focus();
+  } else if (which === 'purpose') {
+    document.getElementById('purpSearch').value = '';
+    document.getElementById('purpVal').value = '';
+    document.getElementById('purpSearch').focus();
+  } else if (which === 'visitors') {
+    selVisitors = [];
+    renderChips();
+    document.getElementById('visSearch').focus();
+  } else if (which === 'remarks') {
+    document.getElementById('remarks').value = '';
+    document.getElementById('remarks').focus();
+  } else if (which === 'date') {
+    setToday();
+  }
+  clearStatus();
+  syncFieldClears();
+}
+
+// Show each field's clear control only when that field actually holds something.
+function syncFieldClears() {
+  var pairs = [
+    ['storeX',     document.getElementById('storeSearch').value || document.getElementById('storeVal').value],
+    ['storeClear', document.getElementById('storeSearch').value || document.getElementById('storeVal').value],
+    ['purpX',      document.getElementById('purpSearch').value  || document.getElementById('purpVal').value],
+    ['purpClear',  document.getElementById('purpSearch').value  || document.getElementById('purpVal').value],
+    ['remX',       document.getElementById('remarks').value],
+    ['remClear',   document.getElementById('remarks').value],
+    ['visClear',   selVisitors.length ? '1' : '']
+  ];
+  pairs.forEach(function(p) {
+    var el = document.getElementById(p[0]);
+    if (el) el.hidden = !p[1];
+  });
+}
+
+// Visitor roster management
+function toggleVM() { document.getElementById('vmPanel').classList.toggle('open'); document.getElementById('vmMsg').textContent = ''; }
+
+function doAddVisitor() {
+  var n = document.getElementById('vmInput').value.trim();
+  if (!n) { setVMMsg('Enter a visitor name.','err'); return; }
+  setVMMsg('Adding…','');
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r.success) {
+        allVisitors = (r.visitors||[]).map(function(x,i){ return { name: x, color: VCOLS[i%VCOLS.length] }; });
+        document.getElementById('vmInput').value = '';
+        setVMMsg('"'+n.toUpperCase()+'" added.','ok');
+      } else { setVMMsg(r.message,'err'); }
+    })
+    .withFailureHandler(function(e){ setVMMsg(e.message,'err'); })
+    .manageVisitor('add', n);
+}
+
+function doRemoveVisitor() {
+  var n = document.getElementById('vmInput').value.trim();
+  if (!n) { setVMMsg('Enter the name to remove.','err'); return; }
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r.success) {
+        allVisitors = (r.visitors||[]).map(function(x,i){ return { name: x, color: VCOLS[i%VCOLS.length] }; });
+        selVisitors = selVisitors.filter(function(v){ return v !== n.toUpperCase(); });
+        renderChips();
+        document.getElementById('vmInput').value = '';
+        setVMMsg('"'+n.toUpperCase()+'" removed.','ok');
+      } else { setVMMsg(r.message,'err'); }
+    })
+    .withFailureHandler(function(e){ setVMMsg(e.message,'err'); })
+    .manageVisitor('remove', n);
+}
+
+function setVMMsg(msg, type) {
+  var el = document.getElementById('vmMsg');
+  el.textContent = msg;
+  el.className = 'vm-msg' + (type ? ' '+type : '');
+}
+
+// Submit
+function submitForm() {
+  clearStatus();
+  var store   = document.getElementById('storeVal').value.trim();
+  var date    = document.getElementById('dateVisited').value.trim();
+  var purpose = document.getElementById('purpVal').value.trim();
+  var remarks = document.getElementById('remarks').value.trim();
+  if (!store)             return showStatus('Please select a Store.','error');
+  if (!date)              return showStatus('Please enter a Date Visited.','error');
+  if (!selVisitors.length) return showStatus('Please add at least one Visitor.','error');
+  if (!purpose)           return showStatus('Please select a Purpose.','error');
+  pending = {
+    store: store,
+    brand:  (storeData[store] && storeData[store].brand)  || '',
+    region: (storeData[store] && storeData[store].region) || '',
+    dateVisited: date,
+    visitedBy:   selVisitors.slice(),
+    purpose:     purpose,
+    remarks:     remarks
+  };
+  setBtnLoading(true);
+  showStatus('<span class="spin-sm"></span>Checking…','loading');
+  google.script.run
+    .withSuccessHandler(onDupCheck)
+    .withFailureHandler(function(){ setBtnLoading(false); clearStatus(); execSubmit(pending); })
+    .checkDuplicateVisit({ store: store, dateVisited: date });
+}
+
+function onDupCheck(r) {
+  setBtnLoading(false); clearStatus();
+  if (r && r.duplicate) {
+    var box = document.getElementById('dupList'); box.innerHTML = '';
+    r.rows.forEach(function(x) {
+      var d = document.createElement('div');
+      d.textContent = x.lastVisitDate+' · '+x.visitor+' · '+x.purpose+' ('+(x.daysSince===0?'same day':x.daysSince+'d ago')+')';
+      box.appendChild(d);
+    });
+    document.getElementById('dupOv').classList.add('show');
+  } else { execSubmit(pending); }
+}
+
+function closeDup(){ document.getElementById('dupOv').classList.remove('show'); pending = null; }
+function confirmSubmit(){ document.getElementById('dupOv').classList.remove('show'); if(pending) execSubmit(pending); }
+
+function execSubmit(p) {
+  if (!p) return;
+  var id = addQueueItem(p);
+  clearForm(true); clearStatus(); pending = null;
+  google.script.run
+    .withSuccessHandler(function(r){ updateQueueItem(id, r&&r.success?'done':'failed', r?r.message||'Saved ✓':'Unknown error'); })
+    .withFailureHandler(function(e){ updateQueueItem(id,'failed',e.message||'Server error'); })
+    .processSubmissionAsync(p);
+}
+
+function addQueueItem(p) {
+  var id = ++qSeq;
+  document.getElementById('queueEmpty').style.display = 'none';
+  var item = document.createElement('div'); item.className = 'qi'; item.id = 'qi'+id;
+  var icon = document.createElement('div'); icon.className = 'qi-icon'; icon.textContent = '⏳';
+  var body = document.createElement('div'); body.className = 'qi-body';
+  var s = document.createElement('div'); s.className = 'qi-store'; s.textContent = p.store;
+  var vis = Array.isArray(p.visitedBy) ? p.visitedBy.join(', ') : p.visitedBy;
+  var m = document.createElement('div'); m.className = 'qi-meta'; m.textContent = p.dateVisited+' · '+p.purpose+' · '+vis;
+  var st = document.createElement('div'); st.className = 'qi-stat pending'; st.textContent = 'Saving…';
+  body.appendChild(s); body.appendChild(m); body.appendChild(st);
+  item.appendChild(icon); item.appendChild(body);
+  var list = document.getElementById('queueList');
+  list.insertBefore(item, list.firstChild);
+  qItems.push({ id: id, icon: icon, stat: st });
+  var all = list.querySelectorAll('.qi');
+  if (all.length > 10) list.removeChild(all[all.length-1]);
+  return id;
+}
+
+function updateQueueItem(id, status, msg) {
+  var q = qItems.find(function(x){ return x.id === id; });
+  if (!q) return;
+  q.icon.textContent = status === 'done' ? '✅' : '❌';
+  q.stat.textContent = msg;
+  q.stat.className = 'qi-stat ' + status;
+}
+
+function clearQueue() {
+  document.getElementById('queueList').querySelectorAll('.qi').forEach(function(el){ el.parentNode.removeChild(el); });
+  qItems = []; document.getElementById('queueEmpty').style.display = '';
+}
+
+function clearForm(keepDate) {
+  document.getElementById('storeSearch').value = '';
+  document.getElementById('storeVal').value = '';
+  document.getElementById('purpSearch').value = '';
+  document.getElementById('purpVal').value = '';
+  document.getElementById('remarks').value = '';
+  document.getElementById('storeInfo').classList.remove('visible');
+  selVisitors = []; renderChips();
+  if (!keepDate) setToday();
+  clearStatus();
+  syncFieldClears();
+}
+
+function showStatus(msg, type) {
+  var el = document.getElementById('statusLine');
+  el.innerHTML = msg; el.className = 'status-line ' + type;
+}
+function clearStatus() {
+  var el = document.getElementById('statusLine');
+  el.innerHTML = ''; el.className = 'status-line';
+}
+function setBtnLoading(on) {
+  var btn = document.getElementById('btnSubmit');
+  btn.disabled = on; btn.textContent = on ? 'Checking…' : 'Log Visit';
+}
+
+// ═══════════════════════════════════════
+// TAB 2 — STORE INSIGHTS
+// ═══════════════════════════════════════
+function loadSIStores() {
+  google.script.run
+    .withSuccessHandler(function(stores) {
+      siAllStores = stores || [];
+    })
+    .withFailureHandler(function(){})
+    .sl_getStoreList();
+}
+
+// One control does both jobs: type to narrow the list, or focus it to browse
+// the whole roster. Matches on brand as well as store name, same as the Input tab.
+function filterSIStores() {
+  var q    = document.getElementById('siSearch').value.trim().toUpperCase();
+  var drop = document.getElementById('siDrop');
+  var base = gBrand === 'ALL' ? siAllStores
+           : siAllStores.filter(function(s){ return s.brand === gBrand; });
+  var list = base.filter(function(s) {
+    if (!q) return true;
+    return s.name.indexOf(q) !== -1 || String(s.brand || '').toUpperCase().indexOf(q) !== -1;
+  }).slice(0, 60);
+  if (!list.length) { drop.classList.remove('open'); return; }
+  drop.innerHTML = list.map(function(s) {
+    return '<div class="ss-opt" data-v="'+esc(s.name)+'" data-m="'+esc(s.name+' '+(s.brand||''))+'" onmousedown="pickSIStore(this)">'
+      +'<span class="opt-name">'+esc(s.name)+'</span>'
+      +(s.brand ? '<span class="opt-brand">'+esc(s.brand)+'</span>' : '')
+      +'</div>';
+  }).join('');
+  setActiveOpt('siDrop', -1);
+  drop.classList.add('open');
+}
+
+function pickSIStore(el) {
+  var name = el.dataset.v;
+  document.getElementById('siSearch').value = name;
+  document.getElementById('siStore').value  = name;
+  document.getElementById('siDrop').classList.remove('open');
+  document.getElementById('siBtn').disabled = false;
+  syncSIClear();
+  runLookup();          // picking IS the action — no second click needed
+}
+
+function clearSIStore() {
+  document.getElementById('siSearch').value = '';
+  document.getElementById('siStore').value  = '';
+  document.getElementById('siBtn').disabled = true;
+  syncSIClear();
+  document.getElementById('siSearch').focus();
+}
+
+function syncSIClear() {
+  var x = document.getElementById('siX');
+  if (x) x.hidden = !document.getElementById('siSearch').value;
+}
+
+function runLookup() {
+  var name = document.getElementById('siStore').value;
+  if (!name) { document.getElementById('siMain').innerHTML = stateMsg('📋','Select a Store','Search or pick a store from the left.'); return; }
+  document.getElementById('siMain').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading '+esc(name)+'…</div></div>';
+  document.getElementById('siBtn').disabled = true;
+  google.script.run
+    .withSuccessHandler(function(data) {
+      document.getElementById('siBtn').disabled = false;
+      if (!data) { document.getElementById('siMain').innerHTML = stateMsg('❌','No Data','No records found.'); return; }
+      renderProfile(data);
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('siBtn').disabled = false;
+      document.getElementById('siMain').innerHTML = stateMsg('⚠️','Error',esc(err.message||String(err)));
+    })
+    .sl_getStoreData(name);
+}
+
+function jumpToStore(name) {
+  switchTab('Insights');
+  document.getElementById('siSearch').value = name;
+  document.getElementById('siStore').value  = name;
+  document.getElementById('siBtn').disabled = false;
+  syncSIClear();
+  runLookup();
+}
+
+function renderProfile(d) {
+  var html = '<div class="store-banner"><div class="banner-name">'+esc(d.meta.name||'—')+'</div>'
+    +'<div class="banner-tags"><span class="tag tag-brand">'+esc(d.meta.brand||'—')+'</span>'
+    +'<span class="tag tag-region">'+esc(d.meta.region||'—')+'</span></div></div>';
+  html += '<div class="profile-grid">';
+  html += '<div class="profile-full">'+pCard('💡 Insight', '<div style="font-size:11.5px;line-height:1.65;color:var(--text)">'+esc(d.insight)+'</div>')+'</div>';
+  html += pCard('📊 Visit Summary',
+    '<div class="kpi2">'+pKpi('Total Visits',d.summary.totalVisits,false)+pKpi('Last Visit',d.summary.lastVisitDate,true)
+    +pKpi('Last Visitor',d.summary.lastVisitor,true)+pKpi('Last Purpose',d.summary.lastPurpose,true)+'</div>');
+  html += pCard('🏥 Store Health', renderHealth(d.health));
+  html += '<div class="profile-full">'+pCard('🎯 Purpose Breakdown',renderPurposes(d.purposes))+'</div>';
+  html += pCard('👥 Top Visitors',renderTopVis(d.topVisitors));
+  html += '<div class="profile-full">'+pCard('🕒 Recent Visits',renderRecent(d.recentVisits))+'</div>';
+  html += '</div>';
+  document.getElementById('siMain').innerHTML = html;
+}
+
+// Store Insights shows what HAS been covered this month; the stores still
+// outstanding live in the "Unvisited This Month" tab.
+var VIS_COLS = [
+  { key:'_n',            label:'#',            type:null,   sortable:false },
+  { key:'name',          label:'Store',        type:'text', sortable:true },
+  { key:'brand',         label:'Brand',        type:'set',  sortable:true },
+  { key:'region',        label:'Region',       type:'set',  sortable:true },
+  { key:'visits',        label:'Visits',       type:'num',  sortable:true, center:true },
+  { key:'lastVisitDate', label:'Last Visit',   type:'text', sortable:true, sortBy:'daysSince', sortFlip:true },
+  { key:'lastPurpose',   label:'Last Purpose', type:'set',  sortable:true },
+  { key:'visitors',      label:'Visited By',   type:'text', sortable:true }
+];
+
+function visRenderRow(r, i) {
+  return '<tr>'
+    +'<td class="crn">'+(i+1)+'</td>'
+    +'<td><span class="store-link" data-store="'+esc(r.name)+'" onclick="jumpToStore(this.dataset.store)">'+esc(r.name)+'</span></td>'
+    +'<td>'+esc(r.brand)+'</td>'
+    +'<td>'+esc(r.region)+'</td>'
+    +'<td class="c" style="font-weight:700;color:var(--navy)">'+(r.visits||0)+'</td>'
+    +'<td>'+esc(r.lastVisitDate)+'</td>'
+    +'<td>'+badge(r.lastPurpose)+'</td>'
+    +'<td>'+esc(r.visitors||'—')+'</td>'
+    +'</tr>';
+}
+
+function visOnRender(rows, allRows) {
+  var visits = rows.reduce(function(n, r){ return n + (r.visits || 0); }, 0);
+  var el = document.getElementById('visSummary');
+  if (el) {
+    el.innerHTML = visits+' visit'+(visits!==1?'s':'')+' logged · tap a store name to open its full profile'
+      + (rows.length !== allRows.length
+          ? '<span class="comp-active-note">filtered to '+rows.length+' of '+allRows.length+'</span>' : '');
+  }
+  var hint = document.getElementById('coverageHint');
+  if (hint) {
+    hint.textContent = rows.length+' store'+(rows.length!==1?'s':'')+' visited this month'
+      + (rows.length !== allRows.length ? ' (filtered)' : '');
+  }
+}
+
+function loadVisited() {
+  var brand = gBrand === 'ALL' ? '' : gBrand;
+  document.getElementById('coverageHint').textContent = 'Loading…';
+  document.getElementById('siMain').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
+  google.script.run
+    .withSuccessHandler(function(rows) {
+      rows = rows || [];
+      document.getElementById('coverageHint').textContent =
+        rows.length+' store'+(rows.length!==1?'s':'')+' visited this month';
+      if (!rows.length) {
+        document.getElementById('siMain').innerHTML = stateMsg('📭','No Visits Logged','No stores have been visited yet this month.');
+        return;
+      }
+      document.getElementById('siMain').innerHTML =
+        '<div style="padding:12px 14px 20px">'
+        +'<h3 style="margin-bottom:3px;color:var(--navy);font-size:13px">Stores Visited This Month ('+rows.length+')</h3>'
+        +'<div id="visSummary" style="font-size:10px;color:var(--muted);margin-bottom:10px"></div>'
+        +'<div id="visBody"></div></div>';
+      // Same filter/sort engine as the Unvisited tab — headers filter and sort here too.
+      ftCreate('vis', {
+        cols:      VIS_COLS,
+        rows:      rows,
+        mount:     'visBody',
+        renderRow: visRenderRow,
+        onRender:  visOnRender,
+        empty:     'No stores have been visited yet this month.'
+      });
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('coverageHint').textContent = '';
+      document.getElementById('siMain').innerHTML = stateMsg('⚠️','Error',esc(err.message||String(err)));
+    })
+    .sl_getVisitedThisMonth(brand);
+}
+
+// ═══════════════════════════════════════
+// FILTERABLE / SORTABLE TABLE ENGINE
+// Shared by the Unvisited This Month gaps table and the Store Insights
+// visited-this-month table, so header filtering behaves identically in both
+// and only exists once. Column types:
+//   text = contains-match · set = tick the values to keep · num = min/max
+// ═══════════════════════════════════════
+var FT = {};   // table id -> { cols, rows, colF, sort, mount, renderRow, onRender, empty }
+
+function ftCreate(id, opts) {
+  FT[id] = {
+    cols:      opts.cols,
+    rows:      opts.rows || [],
+    mount:     opts.mount,
+    renderRow: opts.renderRow,
+    onRender:  opts.onRender || null,
+    empty:     opts.empty || 'No rows to show.',
+    colF:      {},
+    sort:      { key: null, dir: 1 }
+  };
+  ftClosePop();
+  ftRender(id);
+}
+
+function ftCol(id, key) {
+  var cols = FT[id].cols;
+  for (var i = 0; i < cols.length; i++) if (cols[i].key === key) return cols[i];
+  return null;
+}
+
+function ftIsFiltered(id) {
+  for (var k in FT[id].colF) if (FT[id].colF[k]) return true;
+  return false;
+}
+
+// Rows surviving every active column filter, in the current sort order.
+function ftRows(id) {
+  var t = FT[id];
+  var rows = t.rows.filter(function(r) {
+    for (var key in t.colF) {
+      var f = t.colF[key];
+      if (!f) continue;
+      var v = r[key];
+      if (f.type === 'text') {
+        if (f.text && String(v == null ? '' : v).toUpperCase().indexOf(f.text.toUpperCase()) === -1) return false;
+      } else if (f.type === 'set') {
+        if (f.sel && f.sel.indexOf(String(v == null ? '' : v)) === -1) return false;
+      } else if (f.type === 'num') {
+        var n = (v === null || v === undefined || v === '') ? null : Number(v);
+        if (f.min != null && f.min !== '' && (n === null || n < Number(f.min))) return false;
+        if (f.max != null && f.max !== '' && (n === null || n > Number(f.max))) return false;
+      }
+    }
+    return true;
+  });
+
+  if (t.sort.key) {
+    var col  = ftCol(id, t.sort.key) || {};
+    var sk   = col.sortBy || t.sort.key;
+    var flip = col.sortFlip ? -1 : 1;
+    rows = rows.slice().sort(function(a, b) {
+      var av = a[sk], bv = b[sk];
+      if (col.type === 'num' || col.sortBy) {   // numeric: blanks ("never visited") sort last
+        av = (av === null || av === undefined || av === '') ? -Infinity : Number(av);
+        bv = (bv === null || bv === undefined || bv === '') ? -Infinity : Number(bv);
+        return (av - bv) * t.sort.dir * flip;
+      }
+      return String(av == null ? '' : av).localeCompare(String(bv == null ? '' : bv)) * t.sort.dir * flip;
+    });
+  }
+  return rows;
+}
+
+function ftRender(id) {
+  var t = FT[id];
+  var rows = ftRows(id);
+
+  var html = '<div class="tbl-scroll"><table class="data-tbl" id="ftTbl-'+id+'"><thead><tr>';
+  t.cols.forEach(function(col) {
+    var arrow = '';
+    if (col.sortable) {
+      var on = t.sort.key === col.key;
+      arrow = '<span class="fh-arrow'+(on?' on':'')+'">'+(on && t.sort.dir === -1 ? '▼' : '▲')+'</span>';
+    }
+    var lbl = col.sortable
+      ? '<span class="fh-lbl" onclick="ftSortBy(\''+id+'\',\''+col.key+'\')">'+esc(col.label)+arrow+'</span>'
+      : '<span class="fh-lbl" style="cursor:default">'+esc(col.label)+'</span>';
+    var btn = col.type
+      ? '<button class="fh-btn'+(t.colF[col.key]?' on':'')+'" title="Filter '+esc(col.label)
+        +'" onclick="ftOpenPop(event,\''+id+'\',\''+col.key+'\')">▼</button>'
+      : '';
+    html += '<th class="fh'+(col.center?' c':'')+'"><div class="fh-inner">'+lbl+btn+'</div></th>';
+  });
+  html += '</tr></thead><tbody>';
+
+  if (!rows.length) {
+    html += '<tr><td colspan="'+t.cols.length+'" style="text-align:center;padding:22px;color:var(--muted);font-style:italic">'
+      + (ftIsFiltered(id)
+          ? 'No rows match the current filters. <span class="store-link" onclick="ftClearAll(\''+id+'\')">Clear all filters</span>'
+          : esc(t.empty))
+      + '</td></tr>';
+  } else {
+    rows.forEach(function(r, i) { html += t.renderRow(r, i); });
+  }
+  html += '</tbody></table></div>';
+  document.getElementById(t.mount).innerHTML = html;
+
+  if (t.onRender) t.onRender(rows, t.rows);
+}
+
+function ftSortBy(id, key) {
+  var t = FT[id];
+  if (t.sort.key === key) t.sort.dir = t.sort.dir === 1 ? -1 : 1;
+  else { t.sort.key = key; t.sort.dir = 1; }
+  ftClosePop();
+  ftRender(id);
+}
+
+function ftClearAll(id) {
+  FT[id].colF = {};
+  if (id === 'comp') syncWindowButtons();
+  ftClosePop();
+  ftRender(id);
+}
+
+// ── Header filter popover (one element, shared by every table) ──
+function ftOpenPop(e, id, key) {
+  e.stopPropagation();
+  var t = FT[id], col = ftCol(id, key);
+  if (!col) return;
+  var pop = document.getElementById('colFilterPop');
+
+  // Second click on the same header closes it.
+  if (!pop.hidden && pop.dataset.table === id && pop.dataset.key === key) { ftClosePop(); return; }
+  pop.dataset.table = id;
+  pop.dataset.key   = key;
+
+  var f = t.colF[key];
+  var html = '<div class="colf-hdr">Filter · '+esc(col.label)+'</div>';
+
+  if (col.type === 'text') {
+    html += '<input type="text" id="colfText" placeholder="Contains…" value="'
+      +esc(f && f.text ? f.text : '')+'" oninput="ftSetText()">';
+  } else if (col.type === 'num') {
+    html += '<div class="colf-range">'
+      +'<input type="number" id="colfMin" placeholder="min" value="'+esc(f && f.min != null ? f.min : '')+'" oninput="ftSetNum()">'
+      +'<span style="color:var(--muted)">–</span>'
+      +'<input type="number" id="colfMax" placeholder="max" value="'+esc(f && f.max != null ? f.max : '')+'" oninput="ftSetNum()">'
+      +'</div>';
+  } else {
+    var vals = [];
+    t.rows.forEach(function(r) {
+      var v = String(r[key] == null ? '' : r[key]);
+      if (vals.indexOf(v) === -1) vals.push(v);
+    });
+    vals.sort();
+    var sel = f && f.sel ? f.sel : vals.slice();
+    html += '<div class="colf-list">';
+    vals.forEach(function(v) {
+      html += '<label class="colf-opt"><input type="checkbox" class="colfBox" value="'+esc(v)+'"'
+        +(sel.indexOf(v) !== -1 ? ' checked' : '')+' onchange="ftSetSet()">'
+        +'<span>'+esc(v || '—')+'</span></label>';
+    });
+    html += '</div>';
+  }
+
+  html += '<div class="colf-acts">'
+    +'<button class="colf-clear" onclick="ftClearCol()">Clear</button>'
+    +'<button class="colf-done" onclick="ftClosePop()">Done</button>'
+    +'</div>';
+
+  pop.innerHTML = html;
+  pop.hidden = false;
+
+  // Fixed-position so a horizontally scrolling table can never clip it.
+  var r = e.currentTarget.getBoundingClientRect();
+  var left = Math.max(6, Math.min(r.left, window.innerWidth - pop.offsetWidth - 6));
+  pop.style.left = left + 'px';
+  pop.style.top  = Math.min(r.bottom + 4, window.innerHeight - pop.offsetHeight - 6) + 'px';
+
+  var first = pop.querySelector('input');
+  if (first && first.type === 'text') first.focus();
+}
+
+function ftClosePop() {
+  var pop = document.getElementById('colFilterPop');
+  if (pop) { pop.hidden = true; pop.dataset.table = ''; pop.dataset.key = ''; }
+}
+
+function ftPopTarget() {
+  var pop = document.getElementById('colFilterPop');
+  return { id: pop.dataset.table, key: pop.dataset.key };
+}
+
+function ftSetText() {
+  var p = ftPopTarget();
+  var v = document.getElementById('colfText').value.trim();
+  if (v) FT[p.id].colF[p.key] = { type: 'text', text: v };
+  else delete FT[p.id].colF[p.key];
+  ftRender(p.id);
+}
+
+function ftSetNum() {
+  var p  = ftPopTarget();
+  var mn = document.getElementById('colfMin').value.trim();
+  var mx = document.getElementById('colfMax').value.trim();
+  if (mn === '' && mx === '') delete FT[p.id].colF[p.key];
+  else FT[p.id].colF[p.key] = { type: 'num', min: mn === '' ? null : mn, max: mx === '' ? null : mx };
+  ftRender(p.id);
+}
+
+function ftSetSet() {
+  var p     = ftPopTarget();
+  var boxes = document.getElementById('colFilterPop').querySelectorAll('.colfBox');
+  var sel = [];
+  for (var i = 0; i < boxes.length; i++) if (boxes[i].checked) sel.push(boxes[i].value);
+  if (sel.length === boxes.length) delete FT[p.id].colF[p.key];   // everything ticked == no filter
+  else FT[p.id].colF[p.key] = { type: 'set', sel: sel };
+  // Keep the window pill buttons honest when Required is filtered by hand.
+  if (p.id === 'comp' && p.key === 'windowLabel') syncWindowButtons();
+  ftRender(p.id);
+}
+
+function ftClearCol() {
+  var p = ftPopTarget();
+  delete FT[p.id].colF[p.key];
+  if (p.id === 'comp' && p.key === 'windowLabel') syncWindowButtons();
+  ftClosePop();
+  ftRender(p.id);
+}
+
+// Clicking anywhere else dismisses the popover.
+document.addEventListener('click', function() { ftClosePop(); });
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') ftClosePop(); });
+
+
+// ═══════════════════════════════════════
+// TAB 3 — UNVISITED THIS MONTH
+// ═══════════════════════════════════════
+var COMP_COLS = [
+  { key:'_n',            label:'#',          type:null,   sortable:false },
+  { key:'store',         label:'Store Name', type:'text', sortable:true },
+  { key:'brand',         label:'Brand',      type:'set',  sortable:true },
+  { key:'region',        label:'Region',     type:'set',  sortable:true },
+  { key:'ytdVisits',     label:'YTD Visits', type:'num',  sortable:true, center:true },
+  { key:'windowLabel',   label:'Required',   type:'set',  sortable:true },
+  { key:'lastVisitDate', label:'Last Visit', type:'text', sortable:true, sortBy:'daysSince', sortFlip:true },
+  { key:'daysSince',     label:'Days Since', type:'num',  sortable:true, center:true }
+];
+
+function loadCompliance() {
+  var mo = parseInt(document.getElementById('monthSel').value);
+  var lbl = document.getElementById('monthLbl');
+  var now = new Date();
+  lbl.textContent = (!mo ? MONTHS[now.getMonth()]+' '+now.getFullYear() : MONTHS[mo-1]+' 2026');
+  var brand = gBrand === 'ALL' ? '' : gBrand;
+  document.getElementById('visitsPanel').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
+  google.script.run
+    .withSuccessHandler(renderCompliance)
+    .withFailureHandler(function(err) {
+      document.getElementById('visitsPanel').innerHTML = stateMsg('⚠️','Error',esc(err.message||String(err)));
+    })
+    .sl_getComplianceGaps(brand, mo);
+}
+
+function renderCompliance(rows) {
+  rows = rows || [];
+  document.getElementById('visitsPanel').innerHTML =
+     '<div class="comp-filters">'
+    +'<button class="cf-btn active"      data-f="ALL"         onclick="setFilter(this,\'ALL\')">All Stores</button>'
+    +'<button class="cf-btn monthly"     data-f="Monthly"     onclick="setFilter(this,\'Monthly\')">Monthly</button>'
+    +'<button class="cf-btn quarterly"   data-f="Quarterly"   onclick="setFilter(this,\'Quarterly\')">Quarterly</button>'
+    +'<button class="cf-btn semiannual"  data-f="Semi-Annual" onclick="setFilter(this,\'Semi-Annual\')">Semi-Annual</button>'
+    +'<span class="cf-count" id="cfCount"></span>'
+    +'</div>'
+    +'<div class="kpi-row" id="compKpis"></div>'
+    +'<div id="compBody"></div>';
+
+  if (!rows.length) {          // nothing outstanding at all — say so properly
+    document.getElementById('compKpis').innerHTML = compKpiCards([], []);
+    document.getElementById('cfCount').textContent = '0 stores';
+    document.getElementById('compBody').innerHTML =
+      stateMsg('✅','All Stores Visited','Every store has met its required visit frequency.');
+    return;
+  }
+
+  ftCreate('comp', {
+    cols:      COMP_COLS,
+    rows:      rows,
+    mount:     'compBody',
+    renderRow: compRenderRow,
+    onRender:  compOnRender,
+    empty:     'Every store has met its required visit frequency.'
+  });
+}
+
+function compRenderRow(r, i) {
+  return '<tr class="cr" data-w="'+esc(r.windowLabel)+'">'
+    +'<td class="crn">'+(i+1)+'</td>'
+    +'<td><span class="store-link" data-store="'+esc(r.store)+'" onclick="jumpToStore(this.dataset.store)">'+esc(r.store)+'</span></td>'
+    +'<td>'+esc(r.brand)+'</td>'
+    +'<td>'+esc(r.region)+'</td>'
+    +'<td class="c" style="font-weight:700;color:var(--navy)">'+(r.ytdVisits||0)+'</td>'
+    +'<td><span class="wb wb-'+esc(r.windowLabel)+'">'+esc(r.windowLabel)+'</span></td>'
+    +'<td>'+esc(r.lastVisitDate)+'</td>'
+    +'<td class="c">'+pill(r.daysSince)+'</td>'
+    +'</tr>';
+}
+
+function compKpiCards(rows, allRows) {
+  var monthly   = rows.filter(function(r){ return r.windowLabel === 'Monthly'; }).length;
+  var quarterly = rows.filter(function(r){ return r.windowLabel === 'Quarterly'; }).length;
+  var semi      = rows.filter(function(r){ return r.windowLabel === 'Semi-Annual'; }).length;
+  var filtered  = rows.length !== allRows.length;
+  return '<div class="ck total"><div class="ck-lbl">TOTAL GAPS</div><div class="ck-val">'+rows.length+'</div>'
+    +'<div class="ck-sub">'+(filtered ? 'filtered of '+allRows.length : 'across all windows')+'</div></div>'
+    +'<div class="ck monthly"><div class="ck-lbl">MONTHLY REQUIRED</div><div class="ck-val">'+monthly+'</div><div class="ck-sub">NCR + Near Provincial</div></div>'
+    +'<div class="ck quarterly"><div class="ck-lbl">QUARTERLY REQUIRED</div><div class="ck-val">'+quarterly+'</div><div class="ck-sub">Far Provincial</div></div>'
+    +'<div class="ck semiannual"><div class="ck-lbl">SEMI-ANNUAL REQUIRED</div><div class="ck-val">'+semi+'</div><div class="ck-sub">Flight Provincial</div></div>';
+}
+
+// KPI cards track what is actually on screen, so they never contradict the table.
+function compOnRender(rows, allRows) {
+  document.getElementById('compKpis').innerHTML = compKpiCards(rows, allRows);
+  var cnt = document.getElementById('cfCount');
+  if (cnt) {
+    cnt.innerHTML = rows.length+' store'+(rows.length!==1?'s':'')
+      + (rows.length !== allRows.length ? '<span class="comp-active-note">filtered</span>' : '');
+  }
+}
+
+// The Monthly/Quarterly/Semi-Annual pills are a shortcut for the "Required"
+// column filter rather than a second, separate mechanism, so the two agree.
+function setFilter(btn, f) {
+  document.querySelectorAll('.cf-btn').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+  if (f === 'ALL') delete FT.comp.colF.windowLabel;
+  else FT.comp.colF.windowLabel = { type: 'set', sel: [f] };
+  ftClosePop();
+  ftRender('comp');
+}
+
+function syncWindowButtons() {
+  var f = FT.comp ? FT.comp.colF.windowLabel : null;
+  var active = (f && f.sel && f.sel.length === 1) ? f.sel[0] : (f ? null : 'ALL');
+  document.querySelectorAll('.cf-btn').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.f === active);
+  });
+}
+
+// ═══════════════════════════════════════
+// TAB 4 — SYSTEM TOOLS
+// ═══════════════════════════════════════
+var toolMap = {
+  rebuildExecutiveSummary: 'portal_rebuildExecutiveSummary',
+  rebuildStoreHealth:      'portal_rebuildStoreHealth',
+  rebuildKPI2026:          'portal_rebuildKPI2026',
+  rebuildDataHeaders:      'portal_rebuildDataHeaders',
+  rebuildStoreMaster:      'portal_rebuildStoreMaster',
+  validateMasterLog:       'portal_validateMasterLog'
+};
+
+// Every rebuild overwrites a whole sheet, so it asks first. Validation is
+// read-only and runs straight through.
+// confirm: 'update' = routine refresh of a derived sheet (nothing is authored
+// by hand in it), so it just asks for a nod. 'warn' = genuinely destructive.
+// 'none' = read-only, runs straight through.
+var TOOL_META = {
+  rebuildStoreMaster: { label: 'Store Master Insight', confirm: 'update',
+    detail: 'Every row is regenerated from MASTER_LOG + SETTINGS, so this only replaces derived output — nothing you typed into that sheet by hand.' },
+  rebuildStoreHealth: { label: 'Store Health', confirm: 'update',
+    detail: 'Risk scores, tiers and the Top 5 focus list are recalculated from MASTER_LOG — this sheet holds derived output only.' },
+  rebuildExecutiveSummary: { label: 'Executive Summary', confirm: 'warn',
+    detail: 'Clears EXECUTIVE SUMMARY including all formatting, then rebuilds the layout and every live formula. Manual edits on that sheet are lost.' },
+  rebuildKPI2026: { label: 'KPI 2026', confirm: 'warn',
+    detail: 'Clears the KPI 2026 sheet and rebuilds the weekly tracker from the SETTINGS!F visitor roster.' },
+  validateMasterLog: { label: 'Validate MASTER_LOG', confirm: 'none', detail: '' },
+  rebuildDataHeaders: { label: 'Data Sheet Headers', confirm: 'warn',
+    detail: 'Rewrites row 1 headers, column widths and conditional formatting on MASTER_LOG and SETTINGS, and regenerates the SETTINGS column D helper formula. Data rows are not touched.' }
+};
+
+var pendingTool = null;
+
+function runTool(key, statId) {
+  var meta  = TOOL_META[key] || {};
+  var label = meta.label || key;
+  if (meta.confirm === 'none' || !meta.confirm) { execTool(key, statId); return; }
+
+  var soft = meta.confirm === 'update';
+  pendingTool = { key: key, statId: statId };
+
+  document.getElementById('confirmIcon').textContent  = soft ? '🔄' : '⚠️';
+  document.getElementById('confirmTitle').textContent = (soft ? 'Update ' : 'Rebuild ') + label + '?';
+  document.getElementById('confirmBody').textContent  = soft
+    ? 'This refreshes the sheet from the latest MASTER_LOG data. Confirm to update.'
+    : 'This overwrites a whole sheet in the workbook and cannot be undone from here — recovering it would mean File → Version history in Google Sheets.';
+  document.getElementById('confirmDetail').textContent = meta.detail || '';
+  document.getElementById('confirmDetail').className   = 'dup-list' + (soft ? ' info' : '');
+  document.getElementById('confirmGo').textContent     = (soft ? 'Update ' : 'Rebuild ') + label;
+  document.getElementById('confirmGo').className       = 'dup-submit' + (soft ? ' update' : '');
+  document.getElementById('confirmOv').classList.add('show');
+}
+
+function closeConfirm() {
+  document.getElementById('confirmOv').classList.remove('show');
+  pendingTool = null;
+}
+
+function confirmProceed() {
+  var t = pendingTool;
+  document.getElementById('confirmOv').classList.remove('show');
+  pendingTool = null;
+  if (t) execTool(t.key, t.statId);
+}
+
+function execTool(key, statId) {
+  var el = document.getElementById(statId);
+  el.textContent = '⏳ Running…'; el.className = 'tool-stat running';
+  addLog('info', '▶ '+key+' started…');
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r.success) {
+        el.textContent = '✅ '+r.message; el.className = 'tool-stat success';
+        addLog('ok','✅ '+key+': '+r.message);
+      } else {
+        el.textContent = '❌ '+r.message; el.className = 'tool-stat error';
+        addLog('err','❌ '+key+': '+r.message);
+      }
+      if (r.errors && r.errors.length) {
+        r.errors.slice(0,5).forEach(function(e){ addLog('err','  Row '+(e.row||'?')+': '+(e.message||JSON.stringify(e))); });
+      }
+    })
+    .withFailureHandler(function(err) {
+      var msg = err.message || String(err);
+      el.textContent = '❌ '+msg; el.className = 'tool-stat error';
+      addLog('err','❌ '+key+' failed: '+msg);
+    })
+    [toolMap[key]]();
+}
+
+function addLog(type, msg) {
+  var log = document.getElementById('actLog');
+  var ts = new Date().toLocaleTimeString();
+  var e = document.createElement('div');
+  e.className = 'log-entry '+type; e.textContent = '['+ts+'] '+msg;
+  log.insertBefore(e, log.firstChild);
+}
+
+function clearLog() {
+  document.getElementById('actLog').innerHTML = '<div class="log-entry info">Log cleared.</div>';
+}
+
+// ═══════════════════════════════════════
+// SHARED HELPERS
+// ═══════════════════════════════════════
+function pCard(title, body) {
+  return '<div class="p-card"><div class="p-card-hdr">'+title+'</div><div class="p-card-body">'+body+'</div></div>';
+}
+function pKpi(lbl, val, sm) {
+  return '<div class="kpi-item"><div class="kpi-lbl">'+esc(lbl)+'</div>'
+    +'<div class="kpi-val'+(sm?' sm':'')+'">'+esc(String(val!=null?val:'—'))+'</div></div>';
+}
+function renderHealth(h) {
+  var icons = { LOW:'🟢', MEDIUM:'🟡', HIGH:'🔴' };
+  return '<div class="state-msg" style="padding:6px"><div style="font-size:18px">'+(icons[h.label]||'⚪')+'</div>'
+    +'<div class="title" style="font-size:13px">'+(h.label||'—')+' RISK</div>'
+    +'<div style="font-size:10px;color:var(--muted)">Score: '+Number(h.score||0).toFixed(2)+'</div></div>';
+}
+function renderPurposes(purposes) {
+  if (!purposes || !purposes.length) return '<div class="no-data">No visit records.</div>';
+  var colors = { 'STORE VISIT':'#2E75B6','TLTC':'#1A7A52','FAILED QA/MS':'#C0392B','CURING/SUPPORT':'#7030A0' };
+  return purposes.map(function(p) {
+    var c = colors[p.label]||'#6B7A90', w = Math.max(0,Math.min(100,parseFloat(p.pct)));
+    return '<div class="purpose-row"><span class="purpose-lbl">'+esc(p.label)+'</span>'
+      +'<div class="purpose-bar-wrap"><div class="purpose-bar" style="width:'+w+'%;background:'+c+'"></div></div>'
+      +'<span class="purpose-ct">'+p.count+'</span><span class="purpose-pct">'+p.pct+'%</span></div>';
+  }).join('');
+}
+function renderTopVis(v) {
+  if (!v || !v.length) return '<div class="no-data">No visitor records.</div>';
+  var m = ['🥇','🥈','🥉'];
+  return v.map(function(x,i) {
+    var cls = i===0?'g':i===1?'s':i===2?'b':'';
+    return '<div class="vis-row"><span class="vis-rank '+cls+'">'+(i<3?m[i]:(i+1))+'</span>'
+      +'<span class="vis-name">'+esc(x.name)+'</span>'
+      +'<span class="vis-ct">'+x.count+'</span></div>';
+  }).join('');
+}
+function renderRecent(r) {
+  if (!r || !r.length) return '<div class="no-data">No recent records.</div>';
+  return '<div class="tbl-scroll"><table class="recent-tbl"><thead><tr><th>Date</th><th>Visitor</th><th>Purpose</th><th>Remarks</th></tr></thead><tbody>'
+    +r.map(function(x) {
+      return '<tr><td>'+esc(x.date)+'</td><td>'+esc(x.visitor)+'</td><td>'+badge(x.purpose)+'</td><td>'+esc(x.remarks||'—')+'</td></tr>';
+    }).join('')+'</tbody></table></div>';
+}
+function badge(p) {
+  var m = {'STORE VISIT':'badge-sv','TLTC':'badge-tltc','FAILED QA/MS':'badge-failed','CURING/SUPPORT':'badge-curing'};
+  return '<span class="badge '+(m[p]||'badge-other')+'">'+esc(p||'—')+'</span>';
+}
+function pill(days) {
+  if (days === null || days === undefined) return '<span class="pill pill-never">Never</span>';
+  var c = days>=90?'critical':days>=30?'warning':'mild';
+  return '<span class="pill pill-'+c+'">'+days+'d ago</span>';
+}
+function stateMsg(icon, title, msg) {
+  return '<div class="state-msg"><span class="icon">'+icon+'</span>'
+    +'<div class="title">'+esc(title)+'</div><div>'+esc(msg)+'</div></div>';
+}
+function esc(s) {
+  return String(s==null?'':s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+</script>
+</body>
+</html>
