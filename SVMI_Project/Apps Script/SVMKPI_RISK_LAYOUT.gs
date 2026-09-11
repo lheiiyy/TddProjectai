@@ -64,24 +64,6 @@ const RISK_ROW = {
   DATA_START:       17,
 };
 
-// Column widths (px) — sized to print comfortably on A4 landscape
-const RISK_COL_WIDTHS = [
-  [RISK_COL.STORE,            170],
-  [RISK_COL.BRAND,            100],
-  [RISK_COL.REGION,            90],
-  [RISK_COL.LAST_DATE,         95],
-  [RISK_COL.LAST_PURPOSE,     115],
-  [RISK_COL.DAYS_SINCE,        90],
-  [RISK_COL.TOTAL_YTD,         85],
-  [RISK_COL.STORE_YTD,         85],
-  [RISK_COL.FAILED_COUNT,      95],
-  [RISK_COL.CURING_COUNT,     100],
-  [RISK_COL.RISK_SCORE,        70],
-  [RISK_COL.RISK_TIER,         85],
-  [RISK_COL.ACTION,           150],
-  [RISK_COL.ATTENTION_REASON, 210],
-];
-
 // KPI card definitions — 5 cards spread across columns A:N
 const RISK_KPI_CARDS = [
   { label: 'TOTAL STORES',                colStart: 1,  colSpan: 3, bg: 'NAVY'          },
@@ -256,7 +238,31 @@ function buildRiskEngineLayout(sheet) {
 
   // ── Freeze + column widths ─────────────────────────────────
   sheet.setFrozenRows(RISK_ROW.HEADER);
-  RISK_COL_WIDTHS.forEach(([col, px]) => sheet.setColumnWidth(col, px));
+  // Column widths (px), sized to print comfortably on A4 landscape.
+  // Built here rather than as a top-level const: it reads RISK_COL from
+  // SVMKPI_RISK.gs, and Apps Script does not guarantee which file's
+  // top-level code runs first — a deploy tool can push them in a
+  // different order than the online editor would, throwing
+  // "RISK_COL is not defined" before either file's code ever executes
+  // a function. Building it here defers the read until this function
+  // actually runs, by which point every file has finished loading.
+  const riskColWidths = [
+    [RISK_COL.STORE,            170],
+    [RISK_COL.BRAND,            100],
+    [RISK_COL.REGION,            90],
+    [RISK_COL.LAST_DATE,         95],
+    [RISK_COL.LAST_PURPOSE,     115],
+    [RISK_COL.DAYS_SINCE,        90],
+    [RISK_COL.TOTAL_YTD,         85],
+    [RISK_COL.STORE_YTD,         85],
+    [RISK_COL.FAILED_COUNT,      95],
+    [RISK_COL.CURING_COUNT,     100],
+    [RISK_COL.RISK_SCORE,        70],
+    [RISK_COL.RISK_TIER,         85],
+    [RISK_COL.ACTION,           150],
+    [RISK_COL.ATTENTION_REASON, 210],
+  ];
+  riskColWidths.forEach(([col, px]) => sheet.setColumnWidth(col, px));
 
   // ── Print setup: fit to A4 landscape as closely as code allows ──
   // NOTE: Apps Script's Spreadsheet service has no API to set page

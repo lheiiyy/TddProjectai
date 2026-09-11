@@ -6,10 +6,6 @@
 // ============================================================
 
 const KPI_SHEET_NAME = 'KPI 2026';
-// Derived from SVMKPI_CORE.gs's DATA_YEAR (the project's single source of
-// truth for the reporting year) instead of its own hardcoded value, so the
-// two can't drift out of sync when the year rolls over.
-const KPI_YEAR = DATA_YEAR;
 
 // ── Color palette ───────────────────────────────────────────
 const KPI_C = {
@@ -115,6 +111,15 @@ function _visitorWeekFormula(settingsFRow, year, month, s, e) {
 // ═══════════════════════════════════════════════════════════════
 function buildKPI2026() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // Derived from SVMKPI_CORE.gs's DATA_YEAR (the project's single source of
+  // truth for the reporting year), read here rather than as a top-level
+  // const: Apps Script does not guarantee which file's top-level code runs
+  // first, and a deploy tool can push files in a different order than the
+  // online editor would, throwing "DATA_YEAR is not defined" before any
+  // function ever runs. Reading it inside this function defers it until
+  // every file has finished loading.
+  const KPI_YEAR = DATA_YEAR;
 
   // ── Read visitor roster from SETTINGS!F ───────────────────
   const settings = ss.getSheetByName('SETTINGS');
