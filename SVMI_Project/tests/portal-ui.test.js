@@ -598,6 +598,41 @@ function check(name, cond, extra) {
   await page.waitForTimeout(250);
   check('clicking outside closes the popover', !(await page.isVisible('#colFilterPop')));
 
+  console.log('\n── Global Brand Filter (multi-select) ──');
+  await page.click('#gBrandBtn');
+  await page.waitForTimeout(200);
+  check('brand popover opens', await page.isVisible('#brandPop'));
+  const brandBoxes = await page.$$eval('#brandPop .brandBox', e => e.map(x => x.value));
+  check('brand popover lists the distinct brands', brandBoxes.length >= 2, JSON.stringify(brandBoxes));
+
+  // Tick two brands (e.g. the equivalent of "ANGEL'S PIZZA + TIEN MA'S") —
+  // ticking any individual box should auto-uncheck "All Brands".
+  await page.check('.brandBox >> nth=0');
+  await page.check('.brandBox >> nth=1');
+  await page.waitForTimeout(800);   // loadCompliance() re-fetches from the mock backend's simulated 260-680ms delay
+  const pickedBrands = brandBoxes.slice(0, 2);
+  check('"All Brands" unticks itself once a specific brand is picked',
+    !(await page.isChecked('#brandOptAll')));
+  check('brand button label shows the selection count',
+    (await page.textContent('#gBrandBtn')).trim() === '2 Brands ▾', await page.textContent('#gBrandBtn'));
+  const compBrandsAfter = await page.$$eval('#ftTbl-comp tbody tr td:nth-child(3)', e => [...new Set(e.map(x => x.textContent.trim()))]);
+  check('Unvisited table narrows to only the selected brands',
+    compBrandsAfter.length > 0 && compBrandsAfter.every(b => pickedBrands.indexOf(b) !== -1),
+    JSON.stringify(compBrandsAfter) + ' expected subset of ' + JSON.stringify(pickedBrands));
+  await page.click('#brandPop .colf-done');
+  await page.waitForTimeout(150);
+  check('brand popover closes on Done', !(await page.isVisible('#brandPop')));
+
+  // "All Brands" checkbox resets the multi-select back to no filter.
+  await page.click('#gBrandBtn');
+  await page.waitForTimeout(200);
+  await page.click('#brandPop .colf-clear');
+  await page.waitForTimeout(800);
+  check('Clear resets the button label to "All Brands"',
+    (await page.textContent('#gBrandBtn')).trim() === 'All Brands ▾', await page.textContent('#gBrandBtn'));
+  const compBrandsReset = await page.$$eval('#ftTbl-comp tbody tr td:nth-child(3)', e => [...new Set(e.map(x => x.textContent.trim()))]);
+  check('Clear restores every brand to the table', compBrandsReset.length >= 2, compBrandsReset.join(','));
+
   console.log('\n── Console errors ──');
   check('no page/console errors', errors.length === 0, errors.slice(0, 4).join(' | '));
 

@@ -475,13 +475,32 @@ function sl_getBrandList() {
 }
 
 /**
+ * _slBrandAllowed(brand, brandFilter)
+ * Shared brand-filter check for sl_getVisitedThisMonth() and
+ * sl_getComplianceGaps(). The portal's Brand filter is multi-select, so
+ * brandFilter normally arrives as an array of UPPERCASE brand names (empty
+ * array = no filter, i.e. "All Brands"). The legacy single-brand string
+ * ('ALL' / '' / a brand name) is still accepted for backward compatibility.
+ *
+ * @param {string} brand — a store's brand, already UPPERCASE
+ * @param {string[]|string} brandFilter
+ * @returns {boolean}
+ */
+function _slBrandAllowed(brand, brandFilter) {
+  if (!brandFilter) return true;
+  if (Array.isArray(brandFilter)) return brandFilter.length === 0 || brandFilter.indexOf(brand) !== -1;
+  return brandFilter === 'ALL' || brand === brandFilter;
+}
+
+/**
  * sl_getVisitedThisMonth(brandFilter)
  * Returns stores that HAVE been visited in the current calendar month,
  * optionally filtered by brand. Powers the "Visited This Month" view in
  * the Store Insights tab. (Its mirror image — what's still outstanding —
  * is the Unvisited This Month tab, served by sl_getComplianceGaps().)
  *
- * @param {string} brandFilter — brand name (UPPERCASE) or 'ALL' / '' for no filter
+ * @param {string[]|string} brandFilter — array of UPPERCASE brand names to
+ *   keep (empty array = no filter), or the legacy single brand name / 'ALL' / ''
  * @returns {{
  *   name: string, brand: string, region: string, visits: number,
  *   lastVisitDate: string, lastPurpose: string, visitors: string
@@ -507,7 +526,7 @@ function sl_getVisitedThisMonth(brandFilter) {
     const brand  = String(row[SL_SETTINGS_COL.BRAND]  || '').trim().toUpperCase();
     const region = String(row[SL_SETTINGS_COL.REGION] || '').trim().toUpperCase();
     if (!name || allStores.has(name)) return;
-    if (brandFilter && brandFilter !== 'ALL' && brand !== brandFilter) return;
+    if (!_slBrandAllowed(brand, brandFilter)) return;
     allStores.set(name, { brand, region });
   });
 
@@ -575,7 +594,8 @@ function sl_getVisitedThisMonth(brandFilter) {
  * calendar month. Kept as a straight calendar-month view for callers that
  * want exactly that.
  *
- * @param {string} brandFilter — brand name (UPPERCASE) or 'ALL' / '' for no filter
+ * @param {string[]|string} brandFilter — array of UPPERCASE brand names to
+ *   keep (empty array = no filter), or the legacy single brand name / 'ALL' / ''
  * @returns {{
  *   name: string, brand: string, region: string,
  *   lastVisitDate: string, daysSince: number|null
@@ -601,7 +621,7 @@ function sl_getUnvisitedThisMonth(brandFilter) {
     const brand  = String(row[SL_SETTINGS_COL.BRAND]  || '').trim().toUpperCase();
     const region = String(row[SL_SETTINGS_COL.REGION] || '').trim().toUpperCase();
     if (!name || allStores.has(name)) return;
-    if (brandFilter && brandFilter !== 'ALL' && brand !== brandFilter) return;
+    if (!_slBrandAllowed(brand, brandFilter)) return;
     allStores.set(name, { brand, region });
   });
 
@@ -680,7 +700,7 @@ function sl_getUnvisitedThisMonth(brandFilter) {
  *   NCR + NEAR PROVINCIAL  → at least 1 visit in current calendar month
  *   FAR PROVINCIAL         → at least 1 visit in current calendar quarter
  *   FLIGHT PROVINCIAL      → at least 1 visit in last 6 months
- * @param {string} brandFilter — brand name or 'ALL' / ''
+ * @param {string[]|string} brandFilter — array of UPPERCASE brand names, or the legacy brand name / 'ALL' / ''
  * @returns {{ store, brand, region, category, lastVisitDate, daysSince, windowLabel }[]}
  */
 /**
@@ -691,7 +711,8 @@ function sl_getUnvisitedThisMonth(brandFilter) {
  * Uses a set-based scan of ALL MASTER_LOG rows so historical
  * months are checked correctly (not just last-visit comparison).
  *
- * @param {string} brandFilter  — brand name or 'ALL' / ''
+ * @param {string[]|string} brandFilter  — array of UPPERCASE brand names to keep
+ *   (empty array = no filter), or the legacy single brand name / 'ALL' / ''
  * @param {number} monthNumber  — 1-12 for specific month, 0/null for current
  * @returns {object[]} sorted A-Z by store name
  */
@@ -727,7 +748,7 @@ function sl_getComplianceGaps(brandFilter, monthNumber) {
     const region   = String(row[2] || '').trim().toUpperCase();
     const category = String(row[4] || '').trim().toUpperCase();
     if (!store) return;
-    if (brandFilter && brandFilter !== 'ALL' && brand !== brandFilter) return;
+    if (!_slBrandAllowed(brand, brandFilter)) return;
     allStores.set(store, { brand, region, category });
   });
 

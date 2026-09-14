@@ -30,6 +30,8 @@ body{font-family:Arial,sans-serif;font-size:12px;background:var(--bg);color:var(
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23D7DCC5'/%3E%3C/svg%3E");
   background-repeat:no-repeat;background-position:right 7px center;min-width:130px}
 .sel-dark option{background:var(--navy-d)}
+.brand-btn{cursor:pointer;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background-image:none}
+.brand-btn:hover{background:#1f1e14}
 
 /* ── Tabs ── */
 .tab-bar{background:var(--navy-d);display:flex;flex-shrink:0;border-bottom:2px solid var(--border-d)}
@@ -269,6 +271,7 @@ textarea.fi{resize:vertical;min-height:50px}
 .colf-opt:hover{background:#EDF2F7}
 .colf-opt input{margin:0;flex-shrink:0}
 .colf-opt span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.colf-opt-all{border-bottom:1px solid var(--border);margin-bottom:4px;padding-bottom:5px!important}
 .colf-acts{display:flex;gap:5px;margin-top:7px}
 .colf-acts button{flex:1;padding:5px;font-size:10px;font-weight:700;border:none;border-radius:4px;
   cursor:pointer;font-family:Arial}
@@ -430,9 +433,8 @@ textarea.fi{padding-right:28px}
   </div>
   <div class="brand-wrap">
     <label>Brand:</label>
-    <select class="sel-dark" id="gBrand" onchange="onBrandChange()">
-      <option value="ALL">All Brands</option>
-    </select>
+    <button type="button" class="sel-dark brand-btn" id="gBrandBtn" onclick="toggleBrandPop(event)">All Brands ▾</button>
+    <div class="colf" id="brandPop" hidden onclick="event.stopPropagation()"></div>
   </div>
 </div>
 
@@ -743,7 +745,8 @@ var VCOLS = ['#4472C4','#1F1F1F','#00B050','#E36C09','#938953','#7F7F7F',
 var MONTHS = ['January','February','March','April','May','June',
               'July','August','September','October','November','December'];
 
-var gBrand       = 'ALL';
+var gBrands      = [];   // selected brands; empty array = All Brands (no filter)
+var allBrandList = [];
 var allStores    = [];
 var storeData    = {};
 var allVisitors  = [];
@@ -784,24 +787,87 @@ function switchTab(name) {
 }
 
 // ═══════════════════════════════════════
-// BRAND FILTER
+// BRAND FILTER (multi-select: pick any combination, e.g. ANGEL'S PIZZA + TIEN MA'S)
 // ═══════════════════════════════════════
 function loadBrandList() {
   google.script.run
     .withSuccessHandler(function(brands) {
-      var sel = document.getElementById('gBrand');
-      (brands||[]).forEach(function(b) {
-        var o = document.createElement('option');
-        o.value = b; o.textContent = b; sel.appendChild(o);
-      });
+      allBrandList = brands || [];
+      syncBrandButtonLabel();
     })
     .withFailureHandler(function(){})
     .sl_getBrandList();
 }
 
+function syncBrandButtonLabel() {
+  var btn = document.getElementById('gBrandBtn');
+  var n = gBrands.length;
+  var label = n === 0 ? 'All Brands'
+            : n === 1 ? gBrands[0]
+            : n + ' Brands';
+  btn.textContent = label + ' ▾';
+}
+
+function toggleBrandPop(e) {
+  e.stopPropagation();
+  var pop = document.getElementById('brandPop');
+  if (!pop.hidden) { closeBrandPop(); return; }
+
+  var html = '<div class="colf-hdr">Filter by Brand</div><div class="colf-list">'
+    + '<label class="colf-opt colf-opt-all"><input type="checkbox" id="brandOptAll"'
+    + (gBrands.length === 0 ? ' checked' : '') + ' onchange="brandToggleAll(this.checked)">'
+    + '<span><b>All Brands</b></span></label>';
+  allBrandList.forEach(function(b) {
+    html += '<label class="colf-opt"><input type="checkbox" class="brandBox" value="'+esc(b)+'"'
+      + (gBrands.indexOf(b) !== -1 ? ' checked' : '') + ' onchange="brandToggleOne()">'
+      + '<span>'+esc(b)+'</span></label>';
+  });
+  html += '</div><div class="colf-acts">'
+    + '<button class="colf-clear" onclick="brandPopClear()">Clear</button>'
+    + '<button class="colf-done" onclick="closeBrandPop()">Done</button>'
+    + '</div>';
+  pop.innerHTML = html;
+  pop.hidden = false;
+
+  // Fixed-position so it can never clip off the top bar's edge.
+  var r = document.getElementById('gBrandBtn').getBoundingClientRect();
+  var left = Math.max(6, Math.min(r.left, window.innerWidth - pop.offsetWidth - 6));
+  pop.style.left = left + 'px';
+  pop.style.top  = Math.min(r.bottom + 4, window.innerHeight - pop.offsetHeight - 6) + 'px';
+}
+
+function closeBrandPop() {
+  var pop = document.getElementById('brandPop');
+  if (pop) pop.hidden = true;
+}
+
+function brandToggleAll(checked) {
+  gBrands = [];
+  document.querySelectorAll('#brandPop .brandBox').forEach(function(b){ b.checked = false; });
+  document.getElementById('brandOptAll').checked = true;
+  onBrandChange();
+}
+
+function brandToggleOne() {
+  var boxes = document.querySelectorAll('#brandPop .brandBox');
+  var sel = [];
+  boxes.forEach(function(b){ if (b.checked) sel.push(b.value); });
+  gBrands = sel;
+  // "All Brands" reflects whether anything specific is ticked, and re-ticks
+  // itself if the user unchecks every individual brand.
+  document.getElementById('brandOptAll').checked = sel.length === 0;
+  onBrandChange();
+}
+
+function brandPopClear() {
+  gBrands = [];
+  closeBrandPop();
+  onBrandChange();
+}
+
 function onBrandChange() {
-  gBrand = document.getElementById('gBrand').value;
-  // The Store Insights combobox reads gBrand when it builds its list, so an
+  syncBrandButtonLabel();
+  // The Store Insights combobox reads gBrands when it builds its list, so an
   // open dropdown just needs rebuilding; a closed one picks it up on next open.
   if (document.getElementById('siDrop').classList.contains('open')) filterSIStores();
   // Compliance tab refresh if active
@@ -809,6 +875,9 @@ function onBrandChange() {
     loadCompliance();
   }
 }
+
+document.addEventListener('click', function() { closeBrandPop(); });
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeBrandPop(); });
 
 // ═══════════════════════════════════════
 // TAB 1 — INPUT PORTAL
@@ -1365,8 +1434,8 @@ function loadSIStores() {
 function filterSIStores() {
   var q    = document.getElementById('siSearch').value.trim().toUpperCase();
   var drop = document.getElementById('siDrop');
-  var base = gBrand === 'ALL' ? siAllStores
-           : siAllStores.filter(function(s){ return s.brand === gBrand; });
+  var base = gBrands.length === 0 ? siAllStores
+           : siAllStores.filter(function(s){ return gBrands.indexOf(s.brand) !== -1; });
   var list = base.filter(function(s) {
     if (!q) return true;
     return s.name.indexOf(q) !== -1 || String(s.brand || '').toUpperCase().indexOf(q) !== -1;
@@ -1491,7 +1560,7 @@ function visOnRender(rows, allRows) {
 }
 
 function loadVisited() {
-  var brand = gBrand === 'ALL' ? '' : gBrand;
+  var brand = gBrands;
   document.getElementById('coverageHint').textContent = 'Loading…';
   document.getElementById('siMain').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
   google.script.run
@@ -1780,7 +1849,7 @@ function loadCompliance() {
   var lbl = document.getElementById('monthLbl');
   var now = new Date();
   lbl.textContent = (!mo ? MONTHS[now.getMonth()]+' '+now.getFullYear() : MONTHS[mo-1]+' 2026');
-  var brand = gBrand === 'ALL' ? '' : gBrand;
+  var brand = gBrands;
   document.getElementById('visitsPanel').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
   google.script.run
     .withSuccessHandler(renderCompliance)
