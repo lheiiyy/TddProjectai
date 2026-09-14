@@ -4,6 +4,13 @@
   <base target="_top">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
   <style>
+    :root {
+      --tld-black: #15140F;
+      --tld-green: #2E8B3D;
+      --tld-green-dark: #216B2D;
+      --tld-lime: #C6D92E;
+      --tld-line: #E7E4D8;
+    }
     * { -webkit-tap-highlight-color: transparent; }
     body {
       font-family: Arial, sans-serif;
@@ -23,31 +30,34 @@
       font-size: 16px; /* 16px stops iOS Safari auto-zooming on focus */
       border: 1px solid #ccc; border-radius: 6px; background: #fff;
     }
-    input:focus, select:focus { outline: 2px solid #1a73e8; border-color: #1a73e8; }
+    input:focus, select:focus { outline: 2px solid var(--tld-green); border-color: var(--tld-green); }
     .row2 { display: flex; gap: 10px; }
     .row2 > div { flex: 1; min-width: 0; }
     @media (max-width: 420px) {
       .row2 { flex-direction: column; gap: 0; }
     }
     button {
-      margin-top: 18px; padding: 13px 14px; background: #1a73e8; color: #fff;
+      margin-top: 18px; padding: 13px 14px; background: var(--tld-green); color: #fff;
       border: none; border-radius: 8px; cursor: pointer; font-size: 15px;
       font-weight: bold; width: 100%; min-height: 46px;
     }
+    button:hover:not(:disabled) { background: var(--tld-green-dark); }
     button:disabled { background: #999; cursor: default; }
-    button.linklike { background: none; color: #1a73e8; font-weight: normal; width: auto; padding: 4px 0; margin: 0; min-height: 0; text-decoration: underline; font-size: 12px; }
+    button.linklike { background: none; color: var(--tld-green-dark); font-weight: normal; width: auto; padding: 4px 0; margin: 0; min-height: 0; text-decoration: underline; font-size: 12px; }
     #msg { margin-top: 10px; font-size: 13px; min-height: 16px; }
     .err { color: #c5221f; }
     .ok { color: #188038; }
     .warn { color: #b06000; }
 
     /* header bar */
-    .topbar { position: sticky; top: 0; background: #fff; padding-top: 14px; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid #eee; margin-bottom: 4px; }
+    .topbar { position: sticky; top: 0; background: #fff; padding-top: 14px; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid var(--tld-lime); margin-bottom: 4px; }
+    .brandrow { display: flex; align-items: center; gap: 9px; }
+    .deptTag { font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--tld-green-dark); }
 
     /* mode switch */
     .switch { display: flex; flex-wrap: wrap; margin-top: 10px; border: 1px solid #dadce0; border-radius: 8px; overflow: hidden; }
     .switch button.tab { flex: 1 1 25%; margin: 0; padding: 11px 4px; background: #f1f3f4; color: #333; border-radius: 0; font-weight: bold; font-size: 13px; min-height: 42px; }
-    .switch button.tab.active { background: #1a73e8; color: #fff; }
+    .switch button.tab.active { background: var(--tld-black); color: var(--tld-lime); }
     @media (max-width: 420px) {
       .switch button.tab { flex: 1 1 50%; }
     }
@@ -64,13 +74,13 @@
     .panel.active { display: block; }
 
     .sectionLabel {
-      font: 700 11px "Arial", sans-serif; text-transform: uppercase; letter-spacing: .04em; color: #1a73e8;
-      margin: 18px 0 2px; padding-top: 12px; border-top: 1px solid #eee;
+      font: 700 11px "Arial", sans-serif; text-transform: uppercase; letter-spacing: .04em; color: var(--tld-green-dark);
+      margin: 18px 0 2px; padding-top: 12px; border-top: 1px solid var(--tld-line);
     }
 
     .card { background: #f8f9fa; border: 1px solid #e8eaed; border-radius: 8px; padding: 10px 12px; margin-top: 12px; font-size: 13px; line-height: 1.6; }
     .card b { color: #202124; }
-    .avgPreview { font-size: 13px; color: #1a73e8; margin-top: 6px; font-weight: bold; }
+    .avgPreview { font-size: 13px; color: var(--tld-green-dark); margin-top: 6px; font-weight: bold; }
 
     .histbox { margin-top: 10px; }
     .histbox .histtitle { font-size: 11.5px; font-weight: bold; color: #666; text-transform: uppercase; letter-spacing: .03em; margin-bottom: 4px; }
@@ -98,8 +108,14 @@
   <!-- ============================= PIN GATE ============================= -->
   <div id="pinGate">
     <div class="box">
-      <div style="font-size:36px;">🍕🔒</div>
+      <svg width="46" height="46" viewBox="0 0 40 40" aria-hidden="true" style="display:block; margin:0 auto 6px;">
+        <circle cx="16" cy="14" r="11" fill="#C6D92E"/>
+        <circle cx="26" cy="14" r="11" fill="#15140F"/>
+        <circle cx="21" cy="24" r="11" fill="#2E8B3D"/>
+      </svg>
+      <div style="font-size:30px;">🍕🔒</div>
       <h2>TL Tracker</h2>
+      <div class="deptTag" style="margin-bottom:4px;">Training &amp; Development</div>
       <small class="hint">Enter the access PIN to continue.</small>
       <input type="password" inputmode="numeric" id="pinInput" placeholder="PIN" autofocus>
       <button id="pinBtn" onclick="tryUnlock()">Unlock</button>
@@ -110,9 +126,16 @@
   <!-- ============================= MAIN APP ============================= -->
   <div id="app">
     <div class="topbar">
-      <div>
-        <h3>🍕 TL Tracker</h3>
-        <small class="hint">Choose what you're doing, then fill in the form.</small>
+      <div class="brandrow">
+        <svg width="30" height="30" viewBox="0 0 40 40" aria-hidden="true" style="flex:none;">
+          <circle cx="16" cy="14" r="11" fill="#C6D92E"/>
+          <circle cx="26" cy="14" r="11" fill="#15140F"/>
+          <circle cx="21" cy="24" r="11" fill="#2E8B3D"/>
+        </svg>
+        <div>
+          <h3>🍕 TL Tracker</h3>
+          <small class="hint">Choose what you're doing, then fill in the form.</small>
+        </div>
       </div>
       <button type="button" class="linklike" onclick="lockApp()">🔒 Lock</button>
     </div>
@@ -332,6 +355,7 @@
     </div>
 
     <div id="msg"></div>
+    <div style="text-align:center; margin-top:22px; padding-top:12px; border-top:1px solid var(--tld-line); font-size:10.5px; letter-spacing:.03em; color:#8a8a80; text-transform:uppercase;">Figaro Coffee Group &middot; Training &amp; Development</div>
   </div>
 
   <script>
