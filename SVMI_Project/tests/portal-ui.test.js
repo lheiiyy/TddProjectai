@@ -38,6 +38,13 @@ function check(name, cond, extra) {
     (await page.textContent('#tab-Visits')).includes('Unvisited This Month'),
     await page.textContent('#tab-Visits'));
 
+  console.log('\n── Signed-in user (per-user Google login) ──');
+  check('"Signed in as" shows once the mock user loads',
+    await page.isVisible('#userWrap'));
+  check('shows the mock signed-in email',
+    (await page.textContent('#userEmail')).trim() === 'preview.user@example.com',
+    await page.textContent('#userEmail'));
+
   console.log('\n── Input: store dropdown shows brand ──');
   await page.click('#storeSearch');
   await page.fill('#storeSearch', 'MAKATI');

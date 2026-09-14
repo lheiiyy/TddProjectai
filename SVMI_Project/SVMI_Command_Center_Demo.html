@@ -25,6 +25,9 @@ body{font-family:Arial,sans-serif;font-size:12px;background:var(--bg);color:var(
 .top-bar .sub{font-size:10px;color:var(--light)}
 .brand-wrap{margin-left:auto;display:flex;align-items:center;gap:8px}
 .brand-wrap label{font-size:10px;color:var(--light);font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+.user-wrap{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--light);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.user-wrap[hidden]{display:none}
 .sel-dark{padding:4px 24px 4px 8px;background:var(--navy-c);border:1px solid var(--border-d);
   border-radius:4px;color:var(--white);font-size:11px;font-family:Arial;outline:none;
   appearance:none;-webkit-appearance:none;
@@ -273,6 +276,12 @@ textarea.fi{resize:vertical;min-height:50px}
 .colf-opt input{margin:0;flex-shrink:0}
 .colf-opt span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .colf-opt-all{border-bottom:1px solid var(--border);margin-bottom:4px;padding-bottom:5px!important}
+/* Brand filter popover: a plain checkmark instead of a checkbox square —
+   nothing shows when unticked, a green ✓ appears when ticked. */
+.brandBox,#brandOptAll{appearance:none;-webkit-appearance:none;-moz-appearance:none;
+  width:16px;height:16px;border:none;background:none;outline:none;position:relative;cursor:pointer}
+.brandBox:checked::after,#brandOptAll:checked::after{content:'✓';position:absolute;inset:0;
+  display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--tld)}
 .colf-acts{display:flex;gap:5px;margin-top:7px}
 .colf-acts button{flex:1;padding:5px;font-size:10px;font-weight:700;border:none;border-radius:4px;
   cursor:pointer;font-family:Arial}
@@ -439,6 +448,7 @@ textarea.fi{padding-right:28px}
     <button type="button" class="sel-dark brand-btn" id="gBrandBtn" onclick="toggleBrandPop(event)">All Brands ▾</button>
     <div class="colf" id="brandPop" hidden onclick="event.stopPropagation()"></div>
   </div>
+  <div class="user-wrap" id="userWrap" hidden>👤 <span id="userEmail"></span></div>
 </div>
 
 <!-- Tab Bar -->
@@ -1031,6 +1041,13 @@ textarea.fi{padding-right:28px}
       return Array.from(new Set(DB.stores.map(s => s.brand))).sort();
     },
 
+    // Mirrors sl_getCurrentUser() in SVMKPI_ADMIN.gs. There's no real signed-in
+    // user in a stand-alone preview, so this is a fixed sample address —
+    // just enough to show what the "Signed in as" line looks like live.
+    sl_getCurrentUser() {
+      return 'preview.user@example.com';
+    },
+
     manageVisitor(action, visitorName) {
       const name = normUp(visitorName);
       if (!name) return { success: false, message: 'Visitor name cannot be blank.' };
@@ -1388,8 +1405,25 @@ window.onload = function() {
   loadPortalData();
   loadBrandList();
   loadSIStores();
+  loadCurrentUser();
   syncFieldClears();
 };
+
+// Shows who's actually signed in — confirms the Web App is running as the
+// visiting Google account (appsscript.json webapp.executeAs:
+// "USER_ACCESSING"), not lumping every visit under whoever deployed it.
+// Empty result: no email visible for this session (e.g. opened from the
+// Sheets menu, or the account can't be identified) — leave it hidden.
+function loadCurrentUser() {
+  google.script.run
+    .withSuccessHandler(function(email) {
+      if (!email) return;
+      document.getElementById('userEmail').textContent = email;
+      document.getElementById('userWrap').hidden = false;
+    })
+    .withFailureHandler(function(){})
+    .sl_getCurrentUser();
+}
 
 function setToday() {
   var d = new Date();

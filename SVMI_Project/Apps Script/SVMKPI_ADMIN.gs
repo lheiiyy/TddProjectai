@@ -1,5 +1,5 @@
 // ============================================================
-// SVMKPI_ADMIN.gs  v2.1.0
+// SVMKPI_ADMIN.gs  v2.2.0
 // Store Visit Monitoring KPI — Admin / Menu / Trigger Layer
 // ------------------------------------------------------------
 // Single master onOpen() for entire project.
@@ -10,6 +10,14 @@
 //         inside a Sheets dialog. Same HTML file, same backend
 //         functions, same google.script.run bridge — no other
 //         code changes required. See README.txt for deployment steps.
+// v2.2.0: Web App now runs "Execute as: User accessing the web app"
+//         (see appsscript.json) so every request runs with the
+//         visiting Google account's own identity — needed for
+//         sl_getCurrentUser() below to reliably know who's using it,
+//         and for a real per-person audit trail instead of everyone
+//         being attributed to whoever deployed the script. Each user
+//         now needs their own Viewer/Editor access on this Spreadsheet
+//         (Share button, or a Google Group) — see DEPLOY.md.
 // ============================================================
 
 // ═══════════════════════════════════════════════════════════════
@@ -63,6 +71,28 @@ function doGet(e) {
     .createHtmlOutputFromFile('SVMI_PORTAL')
     .setTitle('SVMI Command Center')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/**
+ * sl_getCurrentUser()
+ * Returns the Google account email of whoever is using the Web App right
+ * now, for the "Signed in as" line in the top bar. Requires appsscript.json's
+ * webapp.executeAs = "USER_ACCESSING" (each request runs as that person,
+ * not as whoever deployed the script) — without it this reliably returns ''.
+ *
+ * A user with no email visible here (empty string) is signed in with Google
+ * (access:"ANYONE" already requires that) but hasn't been individually
+ * granted Viewer/Editor on this Spreadsheet, so their data calls will fail
+ * with a permission error — see the "Access control" section in DEPLOY.md.
+ *
+ * @returns {string} email address, or '' if unavailable
+ */
+function sl_getCurrentUser() {
+  try {
+    return Session.getActiveUser().getEmail() || '';
+  } catch (e) {
+    return '';
+  }
 }
 
 

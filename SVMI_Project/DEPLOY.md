@@ -131,6 +131,45 @@ Command Center from a phone.
 
 ---
 
+## Access control
+
+`Apps Script/appsscript.json` sets:
+
+```json
+"webapp": {
+  "executeAs": "USER_ACCESSING",
+  "access": "ANYONE"
+}
+```
+
+- **`access: "ANYONE"`** — despite the name, this means **"Anyone with a
+  Google account"**, not the public. Every visitor must sign in with Google
+  before the portal loads. (The fully-public option is `"ANYONE_ANONYMOUS"` —
+  not used here.)
+- **`executeAs: "USER_ACCESSING"`** — the script runs as whoever is actually
+  using it, not as whoever deployed it. This is what makes the "👤 Signed in
+  as …" line in the top bar (and any future per-person audit trail) reliable.
+
+**The trade-off:** because it runs as the visiting account, that account needs
+its *own* access to this Spreadsheet — Share it with each visitor (Viewer is
+enough to browse, Editor if they submit visits through Input Portal), or with
+a Google Group that covers everyone who should use it. Skip this and a
+visitor sees the portal load, then every data call fails with a permission
+error. `executeAs: "USER_DEPLOYING"` (the old setting) avoids that sharing
+step by running everything as whoever deployed it — simpler, but every visit
+is then indistinguishable from every other, and `sl_getCurrentUser()` returns
+`''`. Changing either value takes a **new deployment version** (Deploy →
+Manage deployments → pencil icon → New version → Deploy, or `clasp deploy`)
+to take effect — pushing the code alone is not enough.
+
+A shared **master password stored in the sheet** was also considered and
+turned down: it can't be tied to a real person (no audit trail), leaks to
+anyone with sheet-viewer access, and grants the same access to whoever has
+it. Google's own sign-in, above, replaces it with something no one has to
+manage by hand.
+
+---
+
 ## Checks before you push
 
 No linter or unit tests here, but two checks are worth running:
