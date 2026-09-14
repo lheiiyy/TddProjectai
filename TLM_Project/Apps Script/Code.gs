@@ -516,6 +516,136 @@ function getInventorySummary() {
   }));
 }
 
+// =====================================================================
+// EXECUTIVE SUMMARY & TRAINERS MONITORING — the web app's two read-only
+// report tabs. Both compute live from MASTER_LOG on every load instead
+// of relying on the desktop-only "Refresh Store Summary" sheet, so a
+// trainer or exec opening the phone link always sees the current state.
+// =====================================================================
+
+// Grade cells were written under two different scales over this file's
+// life (fraction 0-1 for most fields, raw 0-100 for TL Entry Average) —
+// read defensively so a report never shows "93%" as "9300%" or vice versa.
+function toDisplayPercent_(value) {
+  if (value === '' || value === null || value === undefined || isNaN(value)) return null;
+  const n = Number(value);
+  const pct = n <= 1 ? n * 100 : n;
+  return Math.round(pct * 10) / 10;
+}
+
+function average0_(nums) {
+  const clean = nums.filter(n => n !== null && n !== undefined && !isNaN(n));
+  if (!clean.length) return null;
+  return Math.round((clean.reduce((a, b) => a + b, 0) / clean.length) * 10) / 10;
+}
+
+// One aggregate snapshot for the "📊 Reports" tab: status breakdown,
+// certification rate, overdue count, average scores, and top stores by
+// active headcount. Reuses the same MASTER_LOG pass "Refresh Store
+// Summary" does, just returned as JSON instead of written to a sheet.
+function getExecutiveSummary() {
+  const sheet = getSheet_();
+  const map = getHeaderMap(sheet);
+  const lastRow = sheet.getLastRow();
+  const tz = Session.getScriptTimeZone();
+  const now = new Date();
+
+  const statusCounts = {};
+  STATUS_VALUES.forEach(s => statusCounts[s] = 0);
+  const perStoreActive = {};
+  let total = 0;
+  let overdueCount = 0;
+  const entryScores = [];
+  const finalScores = [];
+
+  if (lastRow >= 2) {
+    sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues().forEach(row => {
+      const name = row[map['Full Name']];
+      if (!name) return;
+      total++;
+
+      const status = toUpperSafe(row[map['Status']]);
+      if (statusCounts[status] !== undefined) statusCounts[status]++;
+
+      const store = normalizeStore(row[map['Mother Store']]);
+      if (store && (OPEN_STATUSES.indexOf(status) !== -1 || status === 'CERTIFIED')) {
+        perStoreActive[store] = (perStoreActive[store] || 0) + 1;
+      }
+
+      const deadline = row[map['Certification Deadline']];
+      if (OPEN_STATUSES.indexOf(status) !== -1 && deadline instanceof Date && deadline < now) overdueCount++;
+
+      const entryAvg = toDisplayPercent_(row[map['TL Entry Average']]);
+      if (entryAvg !== null) entryScores.push(entryAvg);
+      const finalAvg = toDisplayPercent_(row[map['Average']]);
+      if (finalAvg !== null) finalScores.push(finalAvg);
+    });
+  }
+
+  const certified = statusCounts['CERTIFIED'] || 0;
+  const closedOutcomes = certified + (statusCounts['FAILED'] || 0) + (statusCounts['QUIT'] || 0) + (statusCounts['DISQUALIFIED'] || 0);
+  const certRate = closedOutcomes > 0 ? Math.round((certified / closedOutcomes) * 1000) / 10 : null;
+
+  const topStores = Object.keys(perStoreActive)
+    .map(store => ({ store: store, count: perStoreActive[store] }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8);
+
+  return {
+    generatedAt: Utilities.formatDate(now, tz, 'dd MMM yyyy, h:mm a'),
+    total: total,
+    statusCounts: statusCounts,
+    openCount: (statusCounts['PROBATIONARY'] || 0) + (statusCounts['EXTENDED'] || 0),
+    overdueCount: overdueCount,
+    certRate: certRate,
+    avgEntryScore: average0_(entryScores),
+    avgFinalScore: average0_(finalScores),
+    storeCount: Object.keys(perStoreActive).length,
+    topStores: topStores,
+    uniform: getInventorySummary()
+  };
+}
+
+// Every trainee, flattened into one row per person for the "🔎 Monitoring"
+// tab's client-side search/filter — no server round-trip per keystroke.
+function getMonitoringList() {
+  const sheet = getSheet_();
+  const map = getHeaderMap(sheet);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  const tz = Session.getScriptTimeZone();
+  const now = new Date();
+
+  return sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues()
+    .map(row => {
+      const name = row[map['Full Name']];
+      if (!name) return null;
+      const store = row[map['Mother Store']];
+      const entryDate = row[map['Date of Entry']];
+      const status = toUpperSafe(row[map['Status']]);
+      const deadline = row[map['Certification Deadline']];
+      const isOverdue = OPEN_STATUSES.indexOf(status) !== -1 && deadline instanceof Date && deadline < now;
+      return {
+        key: makeKey_(name, store, entryDate),
+        fullName: name,
+        motherStore: normalizeStore(store),
+        motherStation: row[map['Mother Station']] || '',
+        batch: row[map['Batch #']] || '',
+        status: status,
+        entryDate: (entryDate instanceof Date) ? Utilities.formatDate(entryDate, tz, 'dd MMM yyyy') : '',
+        deadline: (deadline instanceof Date) ? Utilities.formatDate(deadline, tz, 'dd MMM yyyy') : '',
+        deadlineSort: (deadline instanceof Date) ? deadline.getTime() : null, // for chronological sort — the display string above isn't lexically sortable
+        isOverdue: isOverdue,
+        entryBy: row[map['Entry By']] || '',
+        certBy: row[map['Cert By']] || '',
+        finalScore: toDisplayPercent_(row[map['Average']]),
+        finalStatus: row[map['Final Status']] || ''
+      };
+    })
+    .filter(x => x)
+    .sort((a, b) => a.fullName.localeCompare(b.fullName));
+}
+
 // Past uniform releases for one trainee, most recent first — shown in the
 // Uniform tab so whoever's handing out the next piece can see what this
 // person already has before giving them more.
