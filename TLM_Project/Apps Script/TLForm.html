@@ -5,11 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
   <style>
     :root {
-      --tld-black: #15140F;
-      --tld-green: #2E8B3D;
-      --tld-green-dark: #216B2D;
-      --tld-lime: #C6D92E;
-      --tld-line: #E7E4D8;
+      /* Same design system as the SVMI Command Center, recolored from navy/gold to
+         Figaro Coffee Group Training & Development's black/green/lime. */
+      --navy: #1E1D14;
+      --navy-d: #121108;
+      --gold: #C6D92E;
+      --tld: #2E8B3D;
+      --tld-d: #216B2D;
+      --bg: #F4F7FB;
+      --card: #FFFFFF;
+      --border: #D8DEE8;
+      --border-d: #3A3826;
+      --text: #1A1A2E;
+      --muted: #6B7A90;
+      --light: #D7DCC5;
     }
     * { -webkit-tap-highlight-color: transparent; }
     body {
@@ -20,84 +29,103 @@
       max-width: 560px;
       margin-left: auto;
       margin-right: auto;
-      background: #fff;
+      background: var(--bg);
+      color: var(--text);
     }
-    h3 { margin: 0; font-size: 17px; }
+    h3 { margin: 0; font-size: 15px; font-weight: 700; color: #fff; }
     small.hint { color: #666; display: block; margin-top: 2px; }
-    label { display: block; margin-top: 12px; font-weight: bold; font-size: 13px; }
+    label { display: block; margin-top: 12px; font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); }
     input, select {
       width: 100%; box-sizing: border-box; padding: 11px 10px; margin-top: 4px;
       font-size: 16px; /* 16px stops iOS Safari auto-zooming on focus */
-      border: 1px solid #ccc; border-radius: 6px; background: #fff;
+      border: 1px solid #cbd5e0; border-radius: 4px; background: var(--card); color: var(--text); font-family: Arial;
     }
-    input:focus, select:focus { outline: 2px solid var(--tld-green); border-color: var(--tld-green); }
+    input:focus, select:focus { outline: none; border-color: var(--tld); box-shadow: 0 0 0 2px rgba(46,139,61,.14); }
     .row2 { display: flex; gap: 10px; }
     .row2 > div { flex: 1; min-width: 0; }
     @media (max-width: 420px) {
       .row2 { flex-direction: column; gap: 0; }
     }
     button {
-      margin-top: 18px; padding: 13px 14px; background: var(--tld-green); color: #fff;
-      border: none; border-radius: 8px; cursor: pointer; font-size: 15px;
-      font-weight: bold; width: 100%; min-height: 46px;
+      margin-top: 18px; padding: 13px 14px; background: var(--tld); color: #fff;
+      border: none; border-radius: 5px; cursor: pointer; font-size: 15px;
+      font-weight: 700; width: 100%; min-height: 46px; font-family: Arial; transition: background .15s;
     }
-    button:hover:not(:disabled) { background: var(--tld-green-dark); }
-    button:disabled { background: #999; cursor: default; }
-    button.linklike { background: none; color: var(--tld-green-dark); font-weight: normal; width: auto; padding: 4px 0; margin: 0; min-height: 0; text-decoration: underline; font-size: 12px; }
+    button:hover:not(:disabled) { background: var(--tld-d); }
+    button:disabled { background: #a0aec0; cursor: default; }
+    button.linklike {
+      background: transparent; color: var(--gold); font-weight: 700; width: auto; padding: 6px 12px;
+      margin: 0; min-height: 0; border: 1px solid var(--gold); border-radius: 4px; text-decoration: none;
+      font-size: 10px; text-transform: uppercase; letter-spacing: .3px;
+    }
+    button.linklike:hover { background: var(--gold); color: var(--navy-d); }
     #msg { margin-top: 10px; font-size: 13px; min-height: 16px; }
-    .err { color: #c5221f; }
-    .ok { color: #188038; }
+    .err { color: #c53030; }
+    .ok { color: #276749; }
     .warn { color: #b06000; }
 
-    /* header bar */
-    .topbar { position: sticky; top: 0; background: #fff; padding-top: 14px; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid var(--tld-lime); margin-bottom: 4px; }
+    /* header shell — top bar + tab bar, styled like SVMI's, sticking as one unit */
+    .shell { position: sticky; top: 0; z-index: 20; margin: 0 -16px 12px; }
+    .topbar { background: var(--navy); padding: 10px 16px 8px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 2px solid var(--gold); }
     .brandrow { display: flex; align-items: center; gap: 9px; }
-    .deptTag { font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--tld-green-dark); }
+    .brandrow small.hint { color: var(--light); }
+    .deptTag { font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--tld-d); }
 
-    /* mode switch */
-    .switch { display: flex; flex-wrap: wrap; margin-top: 10px; border: 1px solid #dadce0; border-radius: 8px; overflow: hidden; }
-    .switch button.tab { flex: 1 1 25%; margin: 0; padding: 11px 4px; background: #f1f3f4; color: #333; border-radius: 0; font-weight: bold; font-size: 13px; min-height: 42px; }
-    .switch button.tab.active { background: var(--tld-black); color: var(--tld-lime); }
+    /* tab bar */
+    .switch { display: flex; background: var(--navy-d); border-bottom: 2px solid var(--border-d); }
+    .switch button.tab {
+      flex: 1 1 25%; margin: 0; padding: 10px 4px; background: transparent; color: var(--light);
+      border: none; border-bottom: 3px solid transparent; border-radius: 0; font-weight: 700; font-size: 10.5px;
+      text-transform: uppercase; letter-spacing: .3px; min-height: 40px;
+    }
+    .switch button.tab:hover { color: #fff; background: rgba(255,255,255,.06); }
+    .switch button.tab.active { color: var(--gold); border-bottom-color: var(--gold); background: rgba(198,217,46,.1); }
     @media (max-width: 420px) {
       .switch button.tab { flex: 1 1 50%; }
     }
 
-    .stocktable { margin-top: 10px; border: 1px solid #e8eaed; border-radius: 8px; overflow: hidden; }
-    .stocktable .strow { display: flex; font-size: 13px; padding: 7px 10px; border-bottom: 1px solid #eee; }
+    /* stock table — styled like SVMI's data-tbl */
+    .stocktable { margin-top: 10px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .stocktable .strow { display: flex; font-size: 13px; padding: 7px 10px; border-bottom: 1px solid var(--border); }
     .stocktable .strow:last-child { border-bottom: none; }
-    .stocktable .strow.head { background: #f8f9fa; font-weight: bold; font-size: 11.5px; text-transform: uppercase; letter-spacing: .03em; color: #666; }
-    .stocktable .strow.total { background: #f8f9fa; font-weight: bold; }
+    .stocktable .strow.head { background: var(--navy); font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: .03em; color: #fff; border-bottom: 2px solid var(--gold); }
+    .stocktable .strow.total { background: #f4f7fb; font-weight: 700; }
     .stocktable .strow span { flex: 1; text-align: right; }
     .stocktable .strow span:first-child { text-align: left; }
 
     .panel { display: none; padding-bottom: 8px; }
     .panel.active { display: block; }
 
+    /* section header bar — SVMI's dark p-card-hdr, borrowed as a divider */
     .sectionLabel {
-      font: 700 11px "Arial", sans-serif; text-transform: uppercase; letter-spacing: .04em; color: var(--tld-green-dark);
-      margin: 18px 0 2px; padding-top: 12px; border-top: 1px solid var(--tld-line);
+      font: 700 10px Arial, sans-serif; text-transform: uppercase; letter-spacing: .04em; color: var(--gold);
+      margin: 18px 0 8px; padding: 6px 10px; background: var(--navy); border-radius: 5px;
     }
 
-    .card { background: #f8f9fa; border: 1px solid #e8eaed; border-radius: 8px; padding: 10px 12px; margin-top: 12px; font-size: 13px; line-height: 1.6; }
-    .card b { color: #202124; }
-    .avgPreview { font-size: 13px; color: var(--tld-green-dark); margin-top: 6px; font-weight: bold; }
+    /* card — SVMI's p-card: dark header bar + white body */
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 6px; margin-top: 12px; font-size: 13px; line-height: 1.6; overflow: hidden; }
+    .card .cardhdr { background: var(--navy); color: var(--gold); font: 700 10px Arial; text-transform: uppercase; letter-spacing: .04em; padding: 6px 10px; }
+    .card .cardbody { padding: 10px 12px; }
+    .card b { color: var(--text); }
+    .avgPreview { font-size: 13px; color: var(--tld-d); margin-top: 6px; font-weight: 700; }
 
-    .histbox { margin-top: 10px; }
-    .histbox .histtitle { font-size: 11.5px; font-weight: bold; color: #666; text-transform: uppercase; letter-spacing: .03em; margin-bottom: 4px; }
-    .histrow { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; padding: 6px 0; border-bottom: 1px solid #eee; }
+    .histbox { margin-top: 10px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .histbox .histtitle { font-size: 10px; font-weight: 700; color: var(--gold); text-transform: uppercase; letter-spacing: .03em; padding: 6px 10px; background: var(--navy); }
+    .histbox .histbody { padding: 2px 10px; }
+    .histrow { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; padding: 6px 0; border-bottom: 1px solid var(--border); }
     .histrow:last-child { border-bottom: none; }
-    .histrow .who { color: #333; font-weight: 600; }
-    .histrow .when { color: #999; }
-    .histempty { font-size: 12.5px; color: #999; margin-top: 8px; }
+    .histrow .who { color: var(--text); font-weight: 600; }
+    .histrow .when { color: var(--muted); }
+    .histempty { font-size: 12.5px; color: var(--muted); padding: 8px 0; }
 
     /* PIN gate */
     #pinGate {
-      position: fixed; inset: 0; background: #fff; z-index: 50;
+      position: fixed; inset: 0; background: var(--bg); z-index: 50;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       padding: 24px; text-align: center;
     }
-    #pinGate .box { width: 100%; max-width: 280px; }
-    #pinGate h2 { margin: 0 0 6px; }
+    #pinGate .box { width: 100%; max-width: 280px; background: var(--card); border: 1px solid var(--border); border-top: 4px solid var(--gold); border-radius: 8px; padding: 26px 20px; }
+    #pinGate h2 { margin: 0 0 6px; color: var(--text); }
     #pinGate input { text-align: center; letter-spacing: 4px; font-size: 20px; }
     #pinGate button { margin-top: 14px; }
     #app { display: none; padding-top: 4px; }
@@ -125,26 +153,28 @@
 
   <!-- ============================= MAIN APP ============================= -->
   <div id="app">
-    <div class="topbar">
-      <div class="brandrow">
-        <svg width="30" height="30" viewBox="0 0 40 40" aria-hidden="true" style="flex:none;">
-          <circle cx="16" cy="14" r="11" fill="#C6D92E"/>
-          <circle cx="26" cy="14" r="11" fill="#15140F"/>
-          <circle cx="21" cy="24" r="11" fill="#2E8B3D"/>
-        </svg>
-        <div>
-          <h3>🍕 TL Tracker</h3>
-          <small class="hint">Choose what you're doing, then fill in the form.</small>
+    <div class="shell">
+      <div class="topbar">
+        <div class="brandrow">
+          <svg width="28" height="28" viewBox="0 0 40 40" aria-hidden="true" style="flex:none;">
+            <circle cx="16" cy="14" r="11" fill="#C6D92E"/>
+            <circle cx="26" cy="14" r="11" fill="#15140F"/>
+            <circle cx="21" cy="24" r="11" fill="#2E8B3D"/>
+          </svg>
+          <div>
+            <h3>🍕 TL Tracker</h3>
+            <small class="hint">Choose what you're doing, then fill in the form.</small>
+          </div>
         </div>
+        <button type="button" class="linklike" onclick="lockApp()">🔒 Lock</button>
       </div>
-      <button type="button" class="linklike" onclick="lockApp()">🔒 Lock</button>
-    </div>
 
-    <div class="switch">
-      <button type="button" class="tab active" data-mode="entry" onclick="switchMode('entry')">🆕 New Entry</button>
-      <button type="button" class="tab" data-mode="update" onclick="switchMode('update')">✅ Certify</button>
-      <button type="button" class="tab" data-mode="uniform" onclick="switchMode('uniform')">👕 Uniform</button>
-      <button type="button" class="tab" data-mode="stock" onclick="switchMode('stock')">📦 Stock</button>
+      <div class="switch">
+        <button type="button" class="tab active" data-mode="entry" onclick="switchMode('entry')">🆕 New Entry</button>
+        <button type="button" class="tab" data-mode="update" onclick="switchMode('update')">✅ Certify</button>
+        <button type="button" class="tab" data-mode="uniform" onclick="switchMode('uniform')">👕 Uniform</button>
+        <button type="button" class="tab" data-mode="stock" onclick="switchMode('stock')">📦 Stock</button>
+      </div>
     </div>
 
     <!-- ============================= NEW ENTRY PANEL ============================= -->
@@ -557,13 +587,14 @@
       google.script.run.withSuccessHandler(function(d) {
         card.style.display = 'block';
         card.innerHTML =
+          '<div class="cardhdr">Trainee Summary</div><div class="cardbody">' +
           '<b>' + d.fullName + '</b> — ' + d.motherStore + (d.motherStation ? ' (' + d.motherStation + ')' : '') + '<br>' +
           'Current status: <b>' + d.status + '</b><br>' +
           'Current deadline: <b>' + d.currentDeadline + '</b><br>' +
-          'If EXTENDED again, deadline would default to: <b>' + d.nextExtendedDeadline + '</b>';
+          'If EXTENDED again, deadline would default to: <b>' + d.nextExtendedDeadline + '</b></div>';
       }).withFailureHandler(function(err) {
         card.style.display = 'block';
-        card.innerHTML = '<span class="err">' + err.message + '</span>';
+        card.innerHTML = '<div class="cardbody"><span class="err">' + err.message + '</span></div>';
       }).getTLDetails(key);
     }
 
@@ -680,13 +711,13 @@
       box.innerHTML = '<div class="histbox"><div class="histtitle">Loading history…</div></div>';
       google.script.run.withSuccessHandler(function(rows) {
         if (!rows.length) {
-          box.innerHTML = '<div class="histbox"><div class="histtitle">Uniform History</div><div class="histempty">Nothing logged yet for this person.</div></div>';
+          box.innerHTML = '<div class="histbox"><div class="histtitle">Uniform History</div><div class="histbody"><div class="histempty">Nothing logged yet for this person.</div></div></div>';
           return;
         }
         var items = rows.map(function(r) {
           return '<div class="histrow"><span class="who">' + r.quantity + ' ' + r.size + (r.drNumber ? ' · DR#' + r.drNumber : '') + '</span><span class="when">' + r.date + (r.givenBy ? ' · ' + r.givenBy : '') + '</span></div>';
         }).join('');
-        box.innerHTML = '<div class="histbox"><div class="histtitle">Uniform History</div>' + items + '</div>';
+        box.innerHTML = '<div class="histbox"><div class="histtitle">Uniform History</div><div class="histbody">' + items + '</div></div>';
       }).withFailureHandler(function(err) {
         box.innerHTML = '<div class="histbox"><div class="histempty">' + err.message + '</div></div>';
       }).getUniformHistory(key);
