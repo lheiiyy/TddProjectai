@@ -84,6 +84,7 @@ function onOpen() {
     .addItem('Refresh Store Summary', 'refreshStoreSummary')
     .addItem('Set Up Sheets (first-time only)', 'setupSheets')
     .addItem('Migrate Legacy Logs into MASTER_LOG (one-time)', 'migrateLegacyLogs')
+    .addItem('Audit & Fix MASTER_LOG (one-time)', 'auditAndFixMasterLog')
     .addSeparator()
     .addItem('Set / Change Access PIN', 'setAccessPin')
     .addItem('Show Phone App Link', 'showWebAppUrl')
@@ -985,7 +986,10 @@ function refreshStoreSummary() {
     }
   });
 
-  let summarySheet = ss.getSheetByName('Summary');
+  // Tab name lookup is case-sensitive, and some copies of this sheet have it
+  // as "SUMMARY" (all caps) rather than "Summary" — check both before
+  // creating a brand-new tab and leaving a stale duplicate behind.
+  let summarySheet = findSheetByCandidates_(ss, ['Summary', 'SUMMARY']);
   if (!summarySheet) summarySheet = ss.insertSheet('Summary');
   summarySheet.clear();
 
@@ -1247,6 +1251,205 @@ function migrateLegacyLogs() {
     (skipped ? ' Skipped ' + skipped + ' already present.' : '') +
     (blankRows ? ' Skipped ' + blankRows + ' blank/placeholder row(s) with no name.' : '') +
     '\n\nSpot-check a few rows in MASTER_LOG before relying on Reports/Monitoring — this is a best-effort column mapping off text-based headers, not a guaranteed 1:1 copy.',
+    ui.ButtonSet.OK
+  );
+}
+
+// =====================================================================
+// AUDIT & FIX MASTER_LOG — a one-time pass for a specific set of
+// data-quality issues found by inspecting a real export of this sheet.
+//
+// IMPORTANT: this deliberately does NOT use getHeaderMap()/getSheet_()
+// like the rest of this file — MASTER_LOG's actual header row uses
+// different spelling/casing than every other function here assumes
+// (e.g. real header "RESULT" vs. this script's "Status", "CERT BY:"
+// vs. "Cert By", "STATUS" vs. "Final Status" — 18 of 23 columns don't
+// match exactly). Until that's reconciled, this function reads/writes
+// by the sheet's REAL header text (case/whitespace-tolerant, via the
+// same getHeaderMapCI_/pickCell_ helpers migrateLegacyLogs uses) so it
+// actually works against the live data instead of silently no-op'ing.
+//
+// Splits findings into two buckets:
+//   - Mechanical fixes (no judgment call) are applied automatically
+//     once you confirm: a repeated Batch # typo, dates that got stored
+//     as literal serial-number text instead of a real date, and a
+//     grade cell that held the word "PENDING" instead of a number.
+//   - Everything else (a blank Mother Store, an ambiguous Batch #, a
+//     status value the new form's dropdown doesn't list) is only
+//     reported — never guessed at — because a value going in needs a
+//     human decision, not this script's assumption.
+// Rows are matched by Full Name + Date of Entry, not row number, so
+// this stays correct even if rows get sorted/reordered later. Safe to
+// run more than once: anything already fixed is simply skipped.
+// =====================================================================
+
+// A bare number (or "12345.0") stored as TEXT in a date column is
+// almost always a Sheets/Excel date serial that failed to land as a
+// real date — day 0 is Dec 30, 1899, the same epoch Sheets itself
+// uses. Falls back to normal date parsing for anything else (e.g. the
+// plain string "8/20/26").
+function parseFlexibleDate_(value) {
+  if (value instanceof Date) return value;
+  if (value === '' || value === null || value === undefined) return null;
+  const str = value.toString().trim();
+  if (str === '') return null;
+  const asNumber = Number(str);
+  if (!isNaN(asNumber)) {
+    const epoch = new Date(Date.UTC(1899, 11, 30));
+    return new Date(epoch.getTime() + Math.round(asNumber) * 86400000);
+  }
+  const asDate = new Date(str);
+  return isNaN(asDate.getTime()) ? null : asDate;
+}
+
+// Collapses "Certification Deadline stored as text (\"46273\") -> real date"
+// down to one bucket regardless of which value each row had, so the
+// confirmation dialog shows counts per fix TYPE, not one line per row.
+function summarizeFixLabels_(fixable) {
+  const counts = {};
+  fixable.forEach(f => {
+    const key = f.label.replace(/"[^"]*"/g, '"..."');
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  return Object.keys(counts).map(k => '- ' + k + ' (' + counts[k] + 'x)').join('\n');
+}
+
+function auditAndFixMasterLog() {
+  const ui = SpreadsheetApp.getUi();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sheet) { ui.alert('No "' + SHEET_NAME + '" tab found.'); return; }
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) { ui.alert('MASTER_LOG has no data rows yet.'); return; }
+
+  const ciMap = getHeaderMapCI_(sheet);
+  const col_ = (candidates) => {
+    for (let i = 0; i < candidates.length; i++) {
+      const idx = ciMap[candidates[i].toUpperCase()];
+      if (idx != null) return idx;
+    }
+    return null;
+  };
+
+  const nameCol = col_(['Full Name', 'Full name']);
+  const entryCol = col_(['Date of Entry']);
+  const batchCol = col_(['Batch #']);
+  const deadlineCol = col_(['Certification Deadline']);
+  const dateCertCol = col_(['Date Certified']);
+  const istvCol = col_(['ISTV Grade', 'ISTV GRADE']);
+  const storeCol = col_(['Mother Store']);
+  const supportCol = col_(['Support Store', 'SUPPORT STORE']);
+  const finalStatusCol = col_(['Final Status', 'STATUS']);
+
+  if (nameCol == null || entryCol == null) {
+    ui.alert('Could not find a "Full Name"/"Date of Entry" column on ' + SHEET_NAME + ' — cannot safely run this.');
+    return;
+  }
+
+  const lastCol = sheet.getLastColumn();
+  const data = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  const tz = Session.getScriptTimeZone();
+
+  const fixable = [];   // {sheetRow, col (1-based), newValue, label, who}
+  const flagged = [];   // {who, issue}
+  const KNOWN_FINAL_STATUS = ['SIGNED', 'AGENCY', 'FOR REPORTING', 'ON-GOING PROMOTION', 'NOT RETURNED'];
+
+  data.forEach((row, i) => {
+    const sheetRow = i + 2;
+    const name = row[nameCol];
+    if (!name) return;
+    const entryVal = row[entryCol];
+    const who = name + ' (entry ' + (entryVal instanceof Date ? Utilities.formatDate(entryVal, tz, 'dd MMM yyyy') : entryVal) + ')';
+
+    // 1. Batch # typo / wrong type / ambiguous variant
+    if (batchCol != null) {
+      const batch = row[batchCol];
+      if (!batch) {
+        flagged.push({ who: who, issue: 'Batch # is blank' });
+      } else {
+        const batchStr = batch.toString().trim();
+        if (batchStr.toUpperCase() === 'BACTH 10') {
+          fixable.push({ sheetRow: sheetRow, col: batchCol + 1, newValue: 'BATCH 10', label: 'Batch # typo "BACTH 10" -> "BATCH 10"', who: who });
+        } else if (/^\d+$/.test(batchStr)) {
+          fixable.push({ sheetRow: sheetRow, col: batchCol + 1, newValue: 'BATCH ' + batchStr, label: 'Batch # stored as a bare number ("' + batchStr + '") -> "BATCH ' + batchStr + '"', who: who });
+        } else if (batchStr.toUpperCase().indexOf('SPECIAL') === 0 && batchStr.toUpperCase() !== 'SPECIAL') {
+          flagged.push({ who: who, issue: 'Batch # is "' + batchStr + '" — confirm this is intentional, not a typo of "SPECIAL"' });
+        }
+      }
+    }
+
+    // 2. Certification Deadline / Date Certified stored as text instead of a real date
+    [['Certification Deadline', deadlineCol], ['Date Certified', dateCertCol]].forEach(pair => {
+      const label = pair[0], col = pair[1];
+      if (col == null) return;
+      const val = row[col];
+      if (val && !(val instanceof Date)) {
+        const parsed = parseFlexibleDate_(val);
+        if (parsed) {
+          fixable.push({ sheetRow: sheetRow, col: col + 1, newValue: parsed, label: label + ' stored as text ("' + val + '") -> real date', who: who });
+        } else {
+          flagged.push({ who: who, issue: label + ' has an unparseable value: "' + val + '"' });
+        }
+      }
+    });
+
+    // 3. ISTV Grade holding non-numeric placeholder text (e.g. "PENDING")
+    if (istvCol != null) {
+      const istv = row[istvCol];
+      if (istv && typeof istv !== 'number') {
+        fixable.push({ sheetRow: sheetRow, col: istvCol + 1, newValue: '', label: 'ISTV Grade held text ("' + istv + '") instead of a number -> cleared to blank', who: who });
+      }
+    }
+
+    // 4. Blank Mother Store
+    if (storeCol != null && !row[storeCol]) {
+      const supportVal = supportCol != null ? row[supportCol] : '';
+      flagged.push({ who: who, issue: 'Mother Store is blank' + (supportVal ? ' (Support Store says "' + supportVal + '" — check whether that belongs in Mother Store instead)' : '') });
+    }
+
+    // 5. Final Status value the new form's dropdown doesn't offer
+    if (finalStatusCol != null) {
+      const finalStatus = row[finalStatusCol];
+      if (finalStatus && KNOWN_FINAL_STATUS.indexOf(finalStatus.toString().trim().toUpperCase()) === -1
+          && finalStatus.toString().trim().toUpperCase() !== 'NEW ENTRY') {
+        flagged.push({ who: who, issue: 'Final Status is "' + finalStatus + '" — not one of the options TLForm\'s dropdown offers (' + KNOWN_FINAL_STATUS.join(', ') + ')' });
+      }
+    }
+  });
+
+  if (!fixable.length && !flagged.length) {
+    ui.alert('No issues found — MASTER_LOG looks clean.');
+    return;
+  }
+
+  let msg = '';
+  if (fixable.length) {
+    msg += fixable.length + ' fixable issue(s) will be corrected automatically:\n' + summarizeFixLabels_(fixable) + '\n\n';
+  }
+  if (flagged.length) {
+    msg += flagged.length + ' issue(s) need a human decision and will only be reported, not changed:\n' +
+      flagged.slice(0, 15).map(f => '- ' + f.who + ': ' + f.issue).join('\n') +
+      (flagged.length > 15 ? '\n...and ' + (flagged.length - 15) + ' more (full list in the finishing alert).' : '');
+  }
+
+  if (!fixable.length) {
+    ui.alert('Audit & Fix MASTER_LOG', 'Nothing auto-fixable found.\n\n' + msg, ui.ButtonSet.OK);
+    return;
+  }
+
+  const resp = ui.alert('Audit & Fix MASTER_LOG', msg + '\n\nApply the fixable corrections now?', ui.ButtonSet.YES_NO);
+  if (resp !== ui.Button.YES) {
+    ui.alert('No changes made.' + (flagged.length ? ' The ' + flagged.length + ' flagged issue(s) above still need manual review.' : ''));
+    return;
+  }
+
+  fixable.forEach(f => {
+    sheet.getRange(f.sheetRow, f.col).setValue(f.newValue);
+  });
+
+  ui.alert(
+    'Done',
+    'Applied ' + fixable.length + ' fix(es) to MASTER_LOG.' +
+    (flagged.length ? '\n\n' + flagged.length + ' issue(s) still need manual review:\n' + flagged.map(f => '- ' + f.who + ': ' + f.issue).join('\n') : ''),
     ui.ButtonSet.OK
   );
 }
