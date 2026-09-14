@@ -2,21 +2,47 @@
  * TL TRACKER — Team Leader Monitoring
  * Rebuilt version with HTML forms for data entry.
  *
+ * MASTER_LOG IS READ/WRITTEN BY FIXED COLUMN POSITION (see the COL
+ * constant below), not by header name. This matches how the real,
+ * live production script (the one this file was reconciled against)
+ * has always worked, and it's a deliberate choice, not a shortcut:
+ * the real MASTER_LOG's header row text is inconsistent — a blank
+ * header, trailing spaces ("Batch # ", "TL ENTRY AVERAGE "), a typo
+ * ("CERTFICATION  GRADE"), a stray colon ("CERT BY:"), and names that
+ * don't match what this project's UI calls the same field ("RESULT"
+ * is Status, "STATUS" is Final Status) — so header-name lookup against
+ * it is fragile in a way fixed positions aren't. UNIFORM_LOG and
+ * UNIFORM_INVENTORY are this project's own tabs with headers it fully
+ * controls, so those two still use header-name lookup (getHeaderMap)
+ * — reorder-safe, and there's no drift risk to guard against.
+ *
  * WHAT THIS FIXES vs. the old script pasted in the sheet:
- *  1. Writes by HEADER NAME, not fixed column letters — a reordered/added
- *     column no longer silently corrupts data.
- *  2. Deadlines are always real Date objects computed in script
+ *  1. Deadlines are always real Date objects computed in script
  *     (Date of Entry + 3 months on entry, +2 months on each EXTEND) —
  *     this is what stops the "4627300%" style corruption, which happens
  *     when a date serial number lands in a percent-formatted text cell.
- *  3. Duplicate lookup uses Full Name + Mother Store + Date of Entry
- *     together, not name alone — two people who share a name, or one
- *     person re-entering after quitting, no longer collide.
+ *  2. Duplicate/lookup matching uses Full Name + Mother Store + Date of
+ *     Entry together (a composite key), not name alone — two people who
+ *     share a name, or one person re-entering after quitting, no longer
+ *     collide. (The live script's submitTLCertification and its onEdit
+ *     sync both matched by name only — that collision risk is why this
+ *     project uses the composite key everywhere instead.)
+ *  3. Certification/Extend/Fail writes only touch Cert Grade / Exam
+ *     Grade / Average when the form actually sent a value — the live
+ *     script overwrote all three unconditionally on every update, which
+ *     could blank out a previously-recorded grade on a later EXTEND.
  *  4. FAILED / QUIT / DISQUALIFIED still save whatever grade was entered,
  *     so the outcome and the score that produced it live in one place.
  *  5. Store names are normalized (trim, collapse spaces, uppercase) on
  *     every save, so "PETRON" and "PETRON " (or "DONA"/"DOÑA SOLEDAD")
  *     can't split into two different stores in your summaries.
+ *  6. No onEdit two-way sync to separate PROBATIONARY/CERTIFIED tabs.
+ *     The live script's onEdit(e) kept MASTER_LOG in sync with those
+ *     two tabs (and vice versa) by name-only matching, one column at a
+ *     time. MASTER_LOG is the master data holder — everything else
+ *     derives from it — so that sync is no longer needed and dropping
+ *     it removes a second name-collision risk along with it, not just
+ *     the first one in point 2.
  *
  * INSTALL
  *  1. Open the spreadsheet → Extensions → Apps Script.
@@ -40,18 +66,21 @@
  *
  * SHEET SETUP
  *  Run "🍕 TL Tracker → Set Up Sheets (first-time only)" to create both
- *  of the tabs below automatically. If you're setting up by hand instead,
- *  match these header rows exactly (order doesn't matter — the script
- *  looks columns up by name — but every name must be present):
+ *  of the tabs below automatically — only on a spreadsheet that doesn't
+ *  have a MASTER_LOG yet (it never touches an existing one). If you're
+ *  connecting this script to the REAL, already-populated MASTER_LOG
+ *  instead, header text doesn't matter at all: every MASTER_LOG read/
+ *  write in this file goes by fixed column position (see the COL
+ *  constant below), column A through W, in this exact order:
  *
- *  MASTER_LOG:
- *   Timestamp | Date of Entry | Batch # | Mother Store | Full Name |
- *   Mother Station | Support Store | Status | Uniform Release |
- *   Entry By | ISTV Grade | TechVal FP | TechVal PM |
- *   TL-Entry Food Prep Exam | TL-Entry Pizza Maker Exam |
- *   TL Entry Average | Certification Deadline | Cert By |
- *   Date Certified | Certification Grade | Exam Grade | Average |
- *   Final Status
+ *  MASTER_LOG (A-W, fixed position, header text irrelevant):
+ *   A: (timestamp) | B: Date of Entry | C: Batch # | D: Mother Store |
+ *   E: Full Name | F: Mother Station | G: Support Store | H: Status |
+ *   I: Uniform Release | J: Entry By | K: ISTV Grade | L: TechVal FP |
+ *   M: TechVal PM | N: TL-Entry Food Prep Exam |
+ *   O: TL-Entry Pizza Maker Exam | P: TL Entry Average |
+ *   Q: Certification Deadline | R: Cert By | S: Date Certified |
+ *   T: Certification Grade | U: Exam Grade | V: Average | W: Final Status
  *
  *  UNIFORM_LOG (one row per piece handed out — its own tracking, not
  *  crammed into MASTER_LOG's "Uniform Release" cell):
@@ -72,6 +101,38 @@ const OPEN_STATUSES = ['PROBATIONARY', 'EXTENDED']; // statuses eligible for the
 const UNIFORM_SIZES = ['XSMALL', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE', 'XXLARGE'];
 const PIN_PROPERTY_KEY = 'TL_TRACKER_PIN';
 const LOCK_WAIT_MS = 10000; // how long a phone submit waits for another one to finish
+
+// MASTER_LOG's real, fixed column layout (1-based, matches getRange).
+// Confirmed against a full export of the live production spreadsheet —
+// see the file header comment above for why this is fixed-position
+// instead of header-name lookup. Column A ("timestamp") has no usable
+// header text on the real sheet, hence no name in the comment block above.
+const COL = {
+  TIMESTAMP: 1,
+  ENTRY_DATE: 2,
+  BATCH: 3,
+  MOTHER_STORE: 4,
+  FULL_NAME: 5,
+  MOTHER_STATION: 6,
+  SUPPORT_STORE: 7,
+  STATUS: 8,
+  UNIFORM_RELEASE: 9,
+  ENTRY_BY: 10,
+  ISTV_GRADE: 11,
+  TECHVAL_FP: 12,
+  TECHVAL_PM: 13,
+  ENTRY_FOOD_PREP: 14,
+  ENTRY_PIZZA_MAKER: 15,
+  ENTRY_AVERAGE: 16,
+  CERT_DEADLINE: 17,
+  CERT_BY: 18,
+  DATE_CERTIFIED: 19,
+  CERT_GRADE: 20,
+  EXAM_GRADE: 21,
+  AVERAGE: 22,
+  FINAL_STATUS: 23
+};
+const MASTER_LOG_LAST_COL = 23; // A through W
 
 // =====================================================================
 // MENU
@@ -156,8 +217,12 @@ function setupMasterLogHeaders_() {
   let sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) sheet = ss.insertSheet(SHEET_NAME);
 
+  // Cosmetic only — every actual read/write against MASTER_LOG goes by
+  // fixed column position (COL, above), not this header text. This only
+  // ever runs when the sheet is brand new (see the guard below), so it
+  // never touches the real, already-populated MASTER_LOG's header row.
   const headers = [
-    'Timestamp', 'Date of Entry', 'Batch #', 'Mother Store', 'Full Name',
+    '', 'Date of Entry', 'Batch #', 'Mother Store', 'Full Name',
     'Mother Station', 'Support Store', 'Status', 'Uniform Release',
     'Entry By', 'ISTV Grade', 'TechVal FP', 'TechVal PM',
     'TL-Entry Food Prep Exam', 'TL-Entry Pizza Maker Exam',
@@ -173,15 +238,11 @@ function setupMasterLogHeaders_() {
   }
 
   // Status column dropdown validation
-  const headerMap = getHeaderMap(sheet);
-  if (headerMap['Status'] != null) {
-    const statusCol = headerMap['Status'] + 1;
-    const rule = SpreadsheetApp.newDataValidation()
-      .requireValueInList(STATUS_VALUES, true)
-      .setAllowInvalid(false)
-      .build();
-    sheet.getRange(2, statusCol, Math.max(sheet.getMaxRows() - 1, 1), 1).setDataValidation(rule);
-  }
+  const rule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(STATUS_VALUES, true)
+    .setAllowInvalid(false)
+    .build();
+  sheet.getRange(2, COL.STATUS, Math.max(sheet.getMaxRows() - 1, 1), 1).setDataValidation(rule);
 }
 
 // A separate event log — one row per uniform piece handed out — instead of
@@ -264,6 +325,9 @@ function getSheet_() {
   return sheet;
 }
 
+// Used for UNIFORM_LOG and UNIFORM_INVENTORY only — this project's own
+// tabs, with header text it fully controls. NOT used for MASTER_LOG;
+// see the COL constant and the file header comment for why.
 function getHeaderMap(sheet) {
   const lastCol = sheet.getLastColumn();
   const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
@@ -331,16 +395,15 @@ function makeKey_(name, store, dateOfEntry) {
 // person by their composite key (currently: uniform releases).
 function findMasterRowByKey_(key) {
   const sheet = getSheet_();
-  const map = getHeaderMap(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) throw new Error('Could not find that trainee — the sheet may have changed. Reopen the form and try again.');
-  const data = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, MASTER_LOG_LAST_COL).getValues();
   for (let i = 0; i < data.length; i++) {
-    const name = data[i][map['Full Name']];
-    const store = data[i][map['Mother Store']];
-    const entryDate = data[i][map['Date of Entry']];
+    const name = data[i][COL.FULL_NAME - 1];
+    const store = data[i][COL.MOTHER_STORE - 1];
+    const entryDate = data[i][COL.ENTRY_DATE - 1];
     if (makeKey_(name, store, entryDate) === key) {
-      return { sheet: sheet, map: map, sheetRow: i + 2, name: name, store: normalizeStore(store) };
+      return { sheet: sheet, sheetRow: i + 2, name: name, store: normalizeStore(store) };
     }
   }
   throw new Error('Could not find that trainee — the sheet may have changed. Reopen the form and try again.');
@@ -351,10 +414,9 @@ function findMasterRowByKey_(key) {
 // =====================================================================
 function getStoreList() {
   const sheet = getSheet_();
-  const map = getHeaderMap(sheet);
   const lastRow = sheet.getLastRow();
-  if (lastRow < 2 || map['Mother Store'] == null) return [];
-  const values = sheet.getRange(2, map['Mother Store'] + 1, lastRow - 1, 1).getValues();
+  if (lastRow < 2) return [];
+  const values = sheet.getRange(2, COL.MOTHER_STORE, lastRow - 1, 1).getValues();
   const seen = {};
   const stores = [];
   values.forEach(row => {
@@ -372,20 +434,18 @@ function getStoreList() {
 // can find the exact row even if two people share a name.
 function getOpenTLList() {
   const sheet = getSheet_();
-  const map = getHeaderMap(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
 
-  const lastCol = sheet.getLastColumn();
-  const data = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, MASTER_LOG_LAST_COL).getValues();
 
   const result = [];
   data.forEach(row => {
-    const status = toUpperSafe(row[map['Status']]);
+    const status = toUpperSafe(row[COL.STATUS - 1]);
     if (OPEN_STATUSES.indexOf(status) === -1) return;
-    const name = row[map['Full Name']];
-    const store = row[map['Mother Store']];
-    const entryDate = row[map['Date of Entry']];
+    const name = row[COL.FULL_NAME - 1];
+    const store = row[COL.MOTHER_STORE - 1];
+    const entryDate = row[COL.ENTRY_DATE - 1];
     result.push({
       key: makeKey_(name, store, entryDate),
       label: name + ' — ' + normalizeStore(store) + ' (' + status + ')',
@@ -399,18 +459,16 @@ function getOpenTLList() {
 // uniforms get handed out to certified TLs too, not just open trainees.
 function getAllTLList() {
   const sheet = getSheet_();
-  const map = getHeaderMap(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
 
-  const lastCol = sheet.getLastColumn();
-  const data = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, MASTER_LOG_LAST_COL).getValues();
 
   return data.map(row => {
-    const name = row[map['Full Name']];
-    const store = row[map['Mother Store']];
-    const entryDate = row[map['Date of Entry']];
-    const status = toUpperSafe(row[map['Status']]);
+    const name = row[COL.FULL_NAME - 1];
+    const store = row[COL.MOTHER_STORE - 1];
+    const entryDate = row[COL.ENTRY_DATE - 1];
+    const status = toUpperSafe(row[COL.STATUS - 1]);
     if (!name) return null;
     return {
       key: makeKey_(name, store, entryDate),
@@ -419,12 +477,12 @@ function getAllTLList() {
   }).filter(x => x);
 }
 
-function distinctColumnValues_(headerName) {
+// col is a 1-based MASTER_LOG column number (a COL.* constant).
+function distinctColumnValues_(col) {
   const sheet = getSheet_();
-  const map = getHeaderMap(sheet);
   const lastRow = sheet.getLastRow();
-  if (lastRow < 2 || map[headerName] == null) return [];
-  const values = sheet.getRange(2, map[headerName] + 1, lastRow - 1, 1).getValues();
+  if (lastRow < 2) return [];
+  const values = sheet.getRange(2, col, lastRow - 1, 1).getValues();
   const seen = {};
   const out = [];
   values.forEach(row => {
@@ -438,18 +496,18 @@ function distinctColumnValues_(headerName) {
 }
 
 function getStationList() {
-  return distinctColumnValues_('Mother Station');
+  return distinctColumnValues_(COL.MOTHER_STATION);
 }
 
 function getBatchList() {
-  return distinctColumnValues_('Batch #');
+  return distinctColumnValues_(COL.BATCH);
 }
 
 // Trainer initials/names pulled from what's actually been typed into
 // Entry By / Cert By so far — no hardcoded roster to keep in sync.
 function getTrainerList() {
-  const entryBy = distinctColumnValues_('Entry By');
-  const certBy = distinctColumnValues_('Cert By');
+  const entryBy = distinctColumnValues_(COL.ENTRY_BY);
+  const certBy = distinctColumnValues_(COL.CERT_BY);
   const seen = {};
   const out = [];
   entryBy.concat(certBy).forEach(name => {
@@ -547,7 +605,6 @@ function average0_(nums) {
 // Summary" does, just returned as JSON instead of written to a sheet.
 function getExecutiveSummary() {
   const sheet = getSheet_();
-  const map = getHeaderMap(sheet);
   const lastRow = sheet.getLastRow();
   const tz = Session.getScriptTimeZone();
   const now = new Date();
@@ -561,25 +618,25 @@ function getExecutiveSummary() {
   const finalScores = [];
 
   if (lastRow >= 2) {
-    sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues().forEach(row => {
-      const name = row[map['Full Name']];
+    sheet.getRange(2, 1, lastRow - 1, MASTER_LOG_LAST_COL).getValues().forEach(row => {
+      const name = row[COL.FULL_NAME - 1];
       if (!name) return;
       total++;
 
-      const status = toUpperSafe(row[map['Status']]);
+      const status = toUpperSafe(row[COL.STATUS - 1]);
       if (statusCounts[status] !== undefined) statusCounts[status]++;
 
-      const store = normalizeStore(row[map['Mother Store']]);
+      const store = normalizeStore(row[COL.MOTHER_STORE - 1]);
       if (store && (OPEN_STATUSES.indexOf(status) !== -1 || status === 'CERTIFIED')) {
         perStoreActive[store] = (perStoreActive[store] || 0) + 1;
       }
 
-      const deadline = row[map['Certification Deadline']];
+      const deadline = row[COL.CERT_DEADLINE - 1];
       if (OPEN_STATUSES.indexOf(status) !== -1 && deadline instanceof Date && deadline < now) overdueCount++;
 
-      const entryAvg = toDisplayPercent_(row[map['TL Entry Average']]);
+      const entryAvg = toDisplayPercent_(row[COL.ENTRY_AVERAGE - 1]);
       if (entryAvg !== null) entryScores.push(entryAvg);
-      const finalAvg = toDisplayPercent_(row[map['Average']]);
+      const finalAvg = toDisplayPercent_(row[COL.AVERAGE - 1]);
       if (finalAvg !== null) finalScores.push(finalAvg);
     });
   }
@@ -612,36 +669,35 @@ function getExecutiveSummary() {
 // tab's client-side search/filter — no server round-trip per keystroke.
 function getMonitoringList() {
   const sheet = getSheet_();
-  const map = getHeaderMap(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
   const tz = Session.getScriptTimeZone();
   const now = new Date();
 
-  return sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues()
+  return sheet.getRange(2, 1, lastRow - 1, MASTER_LOG_LAST_COL).getValues()
     .map(row => {
-      const name = row[map['Full Name']];
+      const name = row[COL.FULL_NAME - 1];
       if (!name) return null;
-      const store = row[map['Mother Store']];
-      const entryDate = row[map['Date of Entry']];
-      const status = toUpperSafe(row[map['Status']]);
-      const deadline = row[map['Certification Deadline']];
+      const store = row[COL.MOTHER_STORE - 1];
+      const entryDate = row[COL.ENTRY_DATE - 1];
+      const status = toUpperSafe(row[COL.STATUS - 1]);
+      const deadline = row[COL.CERT_DEADLINE - 1];
       const isOverdue = OPEN_STATUSES.indexOf(status) !== -1 && deadline instanceof Date && deadline < now;
       return {
         key: makeKey_(name, store, entryDate),
         fullName: name,
         motherStore: normalizeStore(store),
-        motherStation: row[map['Mother Station']] || '',
-        batch: row[map['Batch #']] || '',
+        motherStation: row[COL.MOTHER_STATION - 1] || '',
+        batch: row[COL.BATCH - 1] || '',
         status: status,
         entryDate: (entryDate instanceof Date) ? Utilities.formatDate(entryDate, tz, 'dd MMM yyyy') : '',
         deadline: (deadline instanceof Date) ? Utilities.formatDate(deadline, tz, 'dd MMM yyyy') : '',
         deadlineSort: (deadline instanceof Date) ? deadline.getTime() : null, // for chronological sort — the display string above isn't lexically sortable
         isOverdue: isOverdue,
-        entryBy: row[map['Entry By']] || '',
-        certBy: row[map['Cert By']] || '',
-        finalScore: toDisplayPercent_(row[map['Average']]),
-        finalStatus: row[map['Final Status']] || ''
+        entryBy: row[COL.ENTRY_BY - 1] || '',
+        certBy: row[COL.CERT_BY - 1] || '',
+        finalScore: toDisplayPercent_(row[COL.AVERAGE - 1]),
+        finalStatus: row[COL.FINAL_STATUS - 1] || ''
       };
     })
     .filter(x => x)
@@ -676,26 +732,24 @@ function getUniformHistory(key) {
 // far) before the user changes anything.
 function getTLDetails(key) {
   const sheet = getSheet_();
-  const map = getHeaderMap(sheet);
   const lastRow = sheet.getLastRow();
-  const lastCol = sheet.getLastColumn();
-  const data = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, MASTER_LOG_LAST_COL).getValues();
 
   for (let i = 0; i < data.length; i++) {
     const row = data[i];
-    if (makeKey_(row[map['Full Name']], row[map['Mother Store']], row[map['Date of Entry']]) === key) {
-      const deadline = row[map['Certification Deadline']];
+    if (makeKey_(row[COL.FULL_NAME - 1], row[COL.MOTHER_STORE - 1], row[COL.ENTRY_DATE - 1]) === key) {
+      const deadline = row[COL.CERT_DEADLINE - 1];
       const tz = Session.getScriptTimeZone();
       return {
-        fullName: row[map['Full Name']],
-        motherStore: normalizeStore(row[map['Mother Store']]),
-        motherStation: row[map['Mother Station']],
-        status: toUpperSafe(row[map['Status']]),
-        uniformRelease: row[map['Uniform Release']],
+        fullName: row[COL.FULL_NAME - 1],
+        motherStore: normalizeStore(row[COL.MOTHER_STORE - 1]),
+        motherStation: row[COL.MOTHER_STATION - 1],
+        status: toUpperSafe(row[COL.STATUS - 1]),
+        uniformRelease: row[COL.UNIFORM_RELEASE - 1],
         currentDeadline: (deadline instanceof Date) ? Utilities.formatDate(deadline, tz, 'dd MMM yyyy') : '(not a valid date on file)',
         nextExtendedDeadline: (deadline instanceof Date) ? Utilities.formatDate(addMonths(deadline, 2), tz, 'dd MMM yyyy') : '(will default to today + 2 months)',
-        tlEntryAverage: row[map['TL Entry Average']],
-        istvGrade: row[map['ISTV Grade']]
+        tlEntryAverage: row[COL.ENTRY_AVERAGE - 1],
+        istvGrade: row[COL.ISTV_GRADE - 1]
       };
     }
   }
@@ -719,7 +773,6 @@ function submitNewEntry(form) {
 
   try {
     const sheet = getSheet_();
-    const map = getHeaderMap(sheet);
 
     const entryDate = new Date(form.entryDate);
     const store = normalizeStore(form.motherStore);
@@ -740,24 +793,24 @@ function submitNewEntry(form) {
       ? uniformQty + ' ' + form.uniformSize + (form.uniformDr ? ' (DR#' + form.uniformDr + ')' : '')
       : '';
 
-    const row = new Array(sheet.getLastColumn()).fill('');
-    row[map['Timestamp']] = new Date();
-    row[map['Date of Entry']] = entryDate;
-    row[map['Batch #']] = toUpperSafe(form.batch);
-    row[map['Mother Store']] = store;
-    row[map['Full Name']] = name;
-    row[map['Mother Station']] = toUpperSafe(form.motherStation);
-    row[map['Support Store']] = normalizeStore(form.supportStore);
-    row[map['Status']] = 'PROBATIONARY';
-    row[map['Uniform Release']] = uniformSummary;
-    row[map['Entry By']] = toUpperSafe(form.entryBy);
-    row[map['ISTV Grade']] = toPercent(form.istvGrade);
-    row[map['TechVal FP']] = toPercent(form.techValFp);
-    row[map['TechVal PM']] = toPercent(form.techValPm);
-    row[map['TL-Entry Food Prep Exam']] = toPercent(form.entryFoodPrepExam);
-    row[map['TL-Entry Pizza Maker Exam']] = toPercent(form.entryPizzaMakerExam);
-    row[map['TL Entry Average']] = entryAverage;
-    row[map['Certification Deadline']] = addMonths(entryDate, 3);
+    const row = new Array(MASTER_LOG_LAST_COL).fill('');
+    row[COL.TIMESTAMP - 1] = new Date();
+    row[COL.ENTRY_DATE - 1] = entryDate;
+    row[COL.BATCH - 1] = toUpperSafe(form.batch);
+    row[COL.MOTHER_STORE - 1] = store;
+    row[COL.FULL_NAME - 1] = name;
+    row[COL.MOTHER_STATION - 1] = toUpperSafe(form.motherStation);
+    row[COL.SUPPORT_STORE - 1] = normalizeStore(form.supportStore);
+    row[COL.STATUS - 1] = 'PROBATIONARY';
+    row[COL.UNIFORM_RELEASE - 1] = uniformSummary;
+    row[COL.ENTRY_BY - 1] = toUpperSafe(form.entryBy);
+    row[COL.ISTV_GRADE - 1] = toPercent(form.istvGrade);
+    row[COL.TECHVAL_FP - 1] = toPercent(form.techValFp);
+    row[COL.TECHVAL_PM - 1] = toPercent(form.techValPm);
+    row[COL.ENTRY_FOOD_PREP - 1] = toPercent(form.entryFoodPrepExam);
+    row[COL.ENTRY_PIZZA_MAKER - 1] = toPercent(form.entryPizzaMakerExam);
+    row[COL.ENTRY_AVERAGE - 1] = entryAverage;
+    row[COL.CERT_DEADLINE - 1] = addMonths(entryDate, 3);
 
     sheet.appendRow(row);
 
@@ -806,16 +859,14 @@ function submitCertification(form) {
 
   try {
     const sheet = getSheet_();
-    const map = getHeaderMap(sheet);
     const lastRow = sheet.getLastRow();
-    const lastCol = sheet.getLastColumn();
-    const data = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+    const data = sheet.getRange(2, 1, lastRow - 1, MASTER_LOG_LAST_COL).getValues();
 
     let rowIndex = -1;
     for (let i = 0; i < data.length; i++) {
-      const name = data[i][map['Full Name']];
-      const store = data[i][map['Mother Store']];
-      const entryDate = data[i][map['Date of Entry']];
+      const name = data[i][COL.FULL_NAME - 1];
+      const store = data[i][COL.MOTHER_STORE - 1];
+      const entryDate = data[i][COL.ENTRY_DATE - 1];
       if (makeKey_(name, store, entryDate) === form.key) {
         rowIndex = i;
         break;
@@ -828,22 +879,22 @@ function submitCertification(form) {
     // Uniform releases have their own "👕 Uniform" tab/action now (submitUniformRelease) —
     // that's what keeps size/qty/DR# queryable instead of piling into one text cell.
 
-    sheet.getRange(sheetRow, map['Status'] + 1).setValue(form.newStatus);
+    sheet.getRange(sheetRow, COL.STATUS).setValue(form.newStatus);
 
     const certGrade = form.certGrade === '' ? '' : Number(form.certGrade) / 100;
     const examOnly = form.examGradeInput === '' ? '' : Number(form.examGradeInput) / 100;
     const finalAverage = average_([certGrade, examOnly].map(v => v === '' ? '' : v * 100)); // average_ expects raw numbers
 
     if (form.newStatus === 'CERTIFIED' || form.newStatus === 'PROMOTION') {
-      if (form.certBy) sheet.getRange(sheetRow, map['Cert By'] + 1).setValue(toUpperSafe(form.certBy));
-      sheet.getRange(sheetRow, map['Date Certified'] + 1).setValue(new Date());
-      if (form.certGrade !== '') sheet.getRange(sheetRow, map['Certification Grade'] + 1).setValue(certGrade);
-      if (form.examGradeInput !== '') sheet.getRange(sheetRow, map['Exam Grade'] + 1).setValue(examOnly);
-      if (finalAverage !== '') sheet.getRange(sheetRow, map['Average'] + 1).setValue(finalAverage / 100);
+      if (form.certBy) sheet.getRange(sheetRow, COL.CERT_BY).setValue(toUpperSafe(form.certBy));
+      sheet.getRange(sheetRow, COL.DATE_CERTIFIED).setValue(new Date());
+      if (form.certGrade !== '') sheet.getRange(sheetRow, COL.CERT_GRADE).setValue(certGrade);
+      if (form.examGradeInput !== '') sheet.getRange(sheetRow, COL.EXAM_GRADE).setValue(examOnly);
+      if (finalAverage !== '') sheet.getRange(sheetRow, COL.AVERAGE).setValue(finalAverage / 100);
     }
 
     if (form.newStatus === 'EXTENDED') {
-      const deadlineCell = sheet.getRange(sheetRow, map['Certification Deadline'] + 1);
+      const deadlineCell = sheet.getRange(sheetRow, COL.CERT_DEADLINE);
       if (form.deadlineOverride) {
         // User picked an exact new deadline instead of the +2 month default.
         deadlineCell.setValue(new Date(form.deadlineOverride));
@@ -852,24 +903,24 @@ function submitCertification(form) {
         const base = (oldDeadline instanceof Date) ? oldDeadline : new Date(); // never blocks on a bad cell — falls back to today
         deadlineCell.setValue(addMonths(base, 2));
       }
-      if (form.certBy) sheet.getRange(sheetRow, map['Cert By'] + 1).setValue(toUpperSafe(form.certBy));
-      if (form.certGrade !== '') sheet.getRange(sheetRow, map['Certification Grade'] + 1).setValue(certGrade);
-      if (form.examGradeInput !== '') sheet.getRange(sheetRow, map['Exam Grade'] + 1).setValue(examOnly);
-      if (finalAverage !== '') sheet.getRange(sheetRow, map['Average'] + 1).setValue(finalAverage / 100);
+      if (form.certBy) sheet.getRange(sheetRow, COL.CERT_BY).setValue(toUpperSafe(form.certBy));
+      if (form.certGrade !== '') sheet.getRange(sheetRow, COL.CERT_GRADE).setValue(certGrade);
+      if (form.examGradeInput !== '') sheet.getRange(sheetRow, COL.EXAM_GRADE).setValue(examOnly);
+      if (finalAverage !== '') sheet.getRange(sheetRow, COL.AVERAGE).setValue(finalAverage / 100);
     }
 
     // FAILED / QUIT / DISQUALIFIED — still capture whatever grade was entered,
     // so the score that produced the outcome isn't lost in a side table.
     if (['FAILED', 'QUIT', 'DISQUALIFIED'].indexOf(form.newStatus) !== -1) {
-      if (form.certBy) sheet.getRange(sheetRow, map['Cert By'] + 1).setValue(toUpperSafe(form.certBy));
-      sheet.getRange(sheetRow, map['Date Certified'] + 1).setValue(new Date());
-      if (form.certGrade !== '') sheet.getRange(sheetRow, map['Certification Grade'] + 1).setValue(certGrade);
-      if (form.examGradeInput !== '') sheet.getRange(sheetRow, map['Exam Grade'] + 1).setValue(examOnly);
-      if (finalAverage !== '') sheet.getRange(sheetRow, map['Average'] + 1).setValue(finalAverage / 100);
+      if (form.certBy) sheet.getRange(sheetRow, COL.CERT_BY).setValue(toUpperSafe(form.certBy));
+      sheet.getRange(sheetRow, COL.DATE_CERTIFIED).setValue(new Date());
+      if (form.certGrade !== '') sheet.getRange(sheetRow, COL.CERT_GRADE).setValue(certGrade);
+      if (form.examGradeInput !== '') sheet.getRange(sheetRow, COL.EXAM_GRADE).setValue(examOnly);
+      if (finalAverage !== '') sheet.getRange(sheetRow, COL.AVERAGE).setValue(finalAverage / 100);
     }
 
     if (form.finalStatus) {
-      sheet.getRange(sheetRow, map['Final Status'] + 1).setValue(toUpperSafe(form.finalStatus));
+      sheet.getRange(sheetRow, COL.FINAL_STATUS).setValue(toUpperSafe(form.finalStatus));
     }
 
     return 'Updated: row set to ' + form.newStatus;
@@ -914,7 +965,7 @@ function submitUniformRelease(form) {
     // Roll a compact summary into MASTER_LOG's Uniform Release cell too, so
     // a glance at the main log still shows the latest without opening UNIFORM_LOG.
     const summary = qty + ' ' + form.size + (form.drNumber ? ' (DR#' + form.drNumber + ')' : '');
-    const cell = found.sheet.getRange(found.sheetRow, found.map['Uniform Release'] + 1);
+    const cell = found.sheet.getRange(found.sheetRow, COL.UNIFORM_RELEASE);
     const existing = cell.getValue().toString().trim();
     cell.setValue(existing ? existing + ' | ' + summary : summary);
 
@@ -964,21 +1015,20 @@ function submitUniformDelivery(form) {
 function refreshStoreSummary() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = getSheet_();
-  const map = getHeaderMap(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) {
     SpreadsheetApp.getUi().alert('No data yet.');
     return;
   }
-  const data = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, MASTER_LOG_LAST_COL).getValues();
 
   const perStoreActive = {};
   const statusCounts = {};
   STATUS_VALUES.forEach(s => statusCounts[s] = 0);
 
   data.forEach(row => {
-    const store = normalizeStore(row[map['Mother Store']]);
-    const status = toUpperSafe(row[map['Status']]);
+    const store = normalizeStore(row[COL.MOTHER_STORE - 1]);
+    const status = toUpperSafe(row[COL.STATUS - 1]);
     if (!store) return;
     if (statusCounts[status] !== undefined) statusCounts[status]++;
     if (OPEN_STATUSES.indexOf(status) !== -1 || status === 'CERTIFIED') {
@@ -1130,6 +1180,16 @@ function gradeForStorage_(value, keepRaw) {
   return keepRaw ? Math.round(fraction * 10000) / 100 : Math.round(fraction * 10000) / 10000;
 }
 
+// NOTE: as of the real MASTER_LOG audit, this function's original premise
+// (MASTER_LOG needs backfilling from PROBATIONARY/CERTIFIED) is likely
+// moot — the real MASTER_LOG already holds all ~270 real people. Left in
+// place because it's harmless and idempotent (every row is checked
+// against MASTER_LOG's existing composite key and skipped if present),
+// so running it again costs nothing if it turns out there's nobody left
+// to add. Its target-write side below now uses COL (fixed position),
+// same as the rest of this file; its source-read side still uses
+// getHeaderMapCI_/pickCell_ because PROBATIONARY/CERTIFIED are different
+// tabs with their own header text, unrelated to MASTER_LOG's.
 function migrateLegacyLogs() {
   const ui = SpreadsheetApp.getUi();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1146,21 +1206,20 @@ function migrateLegacyLogs() {
     'Migrate legacy logs into MASTER_LOG?',
     'Found: ' + (probSheet ? '"' + probSheet.getName() + '" ' : '(no probationary tab) ') +
     (certSheet ? 'and "' + certSheet.getName() + '"' : '(no certified tab)') +
-    '.\n\nThis will APPEND every row from those tabs into MASTER_LOG under this script\'s column headers. It never edits or deletes the source tabs, and skips anyone already in MASTER_LOG. Continue?',
+    '.\n\nThis will APPEND every row from those tabs into MASTER_LOG. It never edits or deletes the source tabs, and skips anyone already in MASTER_LOG. Continue?',
     ui.ButtonSet.YES_NO
   );
   if (resp !== ui.Button.YES) return;
 
   const masterSheet = getSheet_();
-  const masterMap = getHeaderMap(masterSheet);
   const masterLastRow = masterSheet.getLastRow();
 
   const existingKeys = {};
   if (masterLastRow >= 2) {
-    masterSheet.getRange(2, 1, masterLastRow - 1, masterSheet.getLastColumn()).getValues().forEach(row => {
-      const name = row[masterMap['Full Name']];
+    masterSheet.getRange(2, 1, masterLastRow - 1, MASTER_LOG_LAST_COL).getValues().forEach(row => {
+      const name = row[COL.FULL_NAME - 1];
       if (!name) return;
-      existingKeys[makeKey_(name, row[masterMap['Mother Store']], row[masterMap['Date of Entry']])] = true;
+      existingKeys[makeKey_(name, row[COL.MOTHER_STORE - 1], row[COL.ENTRY_DATE - 1])] = true;
     });
   }
 
@@ -1180,25 +1239,25 @@ function migrateLegacyLogs() {
         if (existingKeys[key]) { skipped++; return; }
         existingKeys[key] = true;
 
-        const row = new Array(masterSheet.getLastColumn()).fill('');
-        row[masterMap['Timestamp']] = new Date();
-        row[masterMap['Date of Entry']] = entryDate || '';
-        row[masterMap['Batch #']] = toUpperSafe(pickCell_(srcRow, ciMap, ['Batch #']));
-        row[masterMap['Mother Store']] = normalizeStore(store);
-        row[masterMap['Full Name']] = name;
-        row[masterMap['Mother Station']] = toUpperSafe(pickCell_(srcRow, ciMap, ['Mother Station']));
-        row[masterMap['Support Store']] = normalizeStore(pickCell_(srcRow, ciMap, ['Support Store']));
-        row[masterMap['Status']] = toUpperSafe(pickCell_(srcRow, ciMap, ['Result']));
-        row[masterMap['Uniform Release']] = pickCell_(srcRow, ciMap, ['Uniform Release']);
-        row[masterMap['Entry By']] = toUpperSafe(pickCell_(srcRow, ciMap, ['Entry By']));
-        row[masterMap['ISTV Grade']] = gradeForStorage_(pickCell_(srcRow, ciMap, ['ISTV Grade']), false);
-        row[masterMap['TechVal FP']] = gradeForStorage_(pickCell_(srcRow, ciMap, ['TechVal FP']), false);
-        row[masterMap['TechVal PM']] = gradeForStorage_(pickCell_(srcRow, ciMap, ['TechVal PM']), false);
-        row[masterMap['TL-Entry Food Prep Exam']] = gradeForStorage_(pickCell_(srcRow, ciMap, ['TL-Entry Food Prep Exam']), false);
-        row[masterMap['TL-Entry Pizza Maker Exam']] = gradeForStorage_(pickCell_(srcRow, ciMap, ['TL-Entry Pizza Maker Exam']), false);
-        row[masterMap['TL Entry Average']] = gradeForStorage_(pickCell_(srcRow, ciMap, ['TL Entry Average']), true);
+        const row = new Array(MASTER_LOG_LAST_COL).fill('');
+        row[COL.TIMESTAMP - 1] = new Date();
+        row[COL.ENTRY_DATE - 1] = entryDate || '';
+        row[COL.BATCH - 1] = toUpperSafe(pickCell_(srcRow, ciMap, ['Batch #']));
+        row[COL.MOTHER_STORE - 1] = normalizeStore(store);
+        row[COL.FULL_NAME - 1] = name;
+        row[COL.MOTHER_STATION - 1] = toUpperSafe(pickCell_(srcRow, ciMap, ['Mother Station']));
+        row[COL.SUPPORT_STORE - 1] = normalizeStore(pickCell_(srcRow, ciMap, ['Support Store']));
+        row[COL.STATUS - 1] = toUpperSafe(pickCell_(srcRow, ciMap, ['Result']));
+        row[COL.UNIFORM_RELEASE - 1] = pickCell_(srcRow, ciMap, ['Uniform Release']);
+        row[COL.ENTRY_BY - 1] = toUpperSafe(pickCell_(srcRow, ciMap, ['Entry By']));
+        row[COL.ISTV_GRADE - 1] = gradeForStorage_(pickCell_(srcRow, ciMap, ['ISTV Grade']), false);
+        row[COL.TECHVAL_FP - 1] = gradeForStorage_(pickCell_(srcRow, ciMap, ['TechVal FP']), false);
+        row[COL.TECHVAL_PM - 1] = gradeForStorage_(pickCell_(srcRow, ciMap, ['TechVal PM']), false);
+        row[COL.ENTRY_FOOD_PREP - 1] = gradeForStorage_(pickCell_(srcRow, ciMap, ['TL-Entry Food Prep Exam']), false);
+        row[COL.ENTRY_PIZZA_MAKER - 1] = gradeForStorage_(pickCell_(srcRow, ciMap, ['TL-Entry Pizza Maker Exam']), false);
+        row[COL.ENTRY_AVERAGE - 1] = gradeForStorage_(pickCell_(srcRow, ciMap, ['TL Entry Average']), false);
         const deadline = parseDateCell_(pickCell_(srcRow, ciMap, ['Certification Deadline']));
-        if (deadline) row[masterMap['Certification Deadline']] = deadline;
+        if (deadline) row[COL.CERT_DEADLINE - 1] = deadline;
         newRows.push(row);
         added++;
       });
@@ -1218,23 +1277,23 @@ function migrateLegacyLogs() {
         if (existingKeys[key]) { skipped++; return; }
         existingKeys[key] = true;
 
-        const row = new Array(masterSheet.getLastColumn()).fill('');
-        row[masterMap['Timestamp']] = new Date();
-        row[masterMap['Date of Entry']] = entryDate || '';
-        row[masterMap['Batch #']] = toUpperSafe(pickCell_(srcRow, ciMap, ['Batch #']));
-        row[masterMap['Mother Store']] = normalizeStore(store);
-        row[masterMap['Full Name']] = name;
-        row[masterMap['Mother Station']] = toUpperSafe(pickCell_(srcRow, ciMap, ['Mother Station']));
-        row[masterMap['Support Store']] = normalizeStore(pickCell_(srcRow, ciMap, ['Support Store']));
-        row[masterMap['Status']] = toUpperSafe(pickCell_(srcRow, ciMap, ['Result']));
-        row[masterMap['Uniform Release']] = pickCell_(srcRow, ciMap, ['Uniform Release']);
-        row[masterMap['Cert By']] = toUpperSafe(pickCell_(srcRow, ciMap, ['Cert By:', 'Cert By']));
+        const row = new Array(MASTER_LOG_LAST_COL).fill('');
+        row[COL.TIMESTAMP - 1] = new Date();
+        row[COL.ENTRY_DATE - 1] = entryDate || '';
+        row[COL.BATCH - 1] = toUpperSafe(pickCell_(srcRow, ciMap, ['Batch #']));
+        row[COL.MOTHER_STORE - 1] = normalizeStore(store);
+        row[COL.FULL_NAME - 1] = name;
+        row[COL.MOTHER_STATION - 1] = toUpperSafe(pickCell_(srcRow, ciMap, ['Mother Station']));
+        row[COL.SUPPORT_STORE - 1] = normalizeStore(pickCell_(srcRow, ciMap, ['Support Store']));
+        row[COL.STATUS - 1] = toUpperSafe(pickCell_(srcRow, ciMap, ['Result']));
+        row[COL.UNIFORM_RELEASE - 1] = pickCell_(srcRow, ciMap, ['Uniform Release']);
+        row[COL.CERT_BY - 1] = toUpperSafe(pickCell_(srcRow, ciMap, ['Cert By:', 'Cert By']));
         const dateCertified = parseDateCell_(pickCell_(srcRow, ciMap, ['Date Certified']));
-        if (dateCertified) row[masterMap['Date Certified']] = dateCertified;
-        row[masterMap['Certification Grade']] = gradeForStorage_(pickCell_(srcRow, ciMap, ['Certfication Grade', 'Certification Grade']), false);
-        row[masterMap['Exam Grade']] = gradeForStorage_(pickCell_(srcRow, ciMap, ['Exam Grade']), false);
-        row[masterMap['Average']] = gradeForStorage_(pickCell_(srcRow, ciMap, ['Average']), false);
-        row[masterMap['Final Status']] = toUpperSafe(pickCell_(srcRow, ciMap, ['Signed Appointment Letter']));
+        if (dateCertified) row[COL.DATE_CERTIFIED - 1] = dateCertified;
+        row[COL.CERT_GRADE - 1] = gradeForStorage_(pickCell_(srcRow, ciMap, ['Certfication Grade', 'Certification Grade']), false);
+        row[COL.EXAM_GRADE - 1] = gradeForStorage_(pickCell_(srcRow, ciMap, ['Exam Grade']), false);
+        row[COL.AVERAGE - 1] = gradeForStorage_(pickCell_(srcRow, ciMap, ['Average']), false);
+        row[COL.FINAL_STATUS - 1] = toUpperSafe(pickCell_(srcRow, ciMap, ['Signed Appointment Letter']));
         newRows.push(row);
         added++;
       });
@@ -1242,7 +1301,7 @@ function migrateLegacyLogs() {
   }
 
   if (newRows.length) {
-    masterSheet.getRange(masterSheet.getLastRow() + 1, 1, newRows.length, masterSheet.getLastColumn()).setValues(newRows);
+    masterSheet.getRange(masterSheet.getLastRow() + 1, 1, newRows.length, MASTER_LOG_LAST_COL).setValues(newRows);
   }
 
   ui.alert(
@@ -1259,15 +1318,11 @@ function migrateLegacyLogs() {
 // AUDIT & FIX MASTER_LOG — a one-time pass for a specific set of
 // data-quality issues found by inspecting a real export of this sheet.
 //
-// IMPORTANT: this deliberately does NOT use getHeaderMap()/getSheet_()
-// like the rest of this file — MASTER_LOG's actual header row uses
-// different spelling/casing than every other function here assumes
-// (e.g. real header "RESULT" vs. this script's "Status", "CERT BY:"
-// vs. "Cert By", "STATUS" vs. "Final Status" — 18 of 23 columns don't
-// match exactly). Until that's reconciled, this function reads/writes
-// by the sheet's REAL header text (case/whitespace-tolerant, via the
-// same getHeaderMapCI_/pickCell_ helpers migrateLegacyLogs uses) so it
-// actually works against the live data instead of silently no-op'ing.
+// Reads/writes by fixed column position (COL), same as the rest of this
+// file — MASTER_LOG's real header row text is inconsistent enough (a
+// blank cell, trailing spaces, a typo, a stray colon — see the file
+// header comment) that this used to go by case-insensitive header text
+// instead; now that COL is the standard everywhere, this uses it too.
 //
 // Splits findings into two buckets:
 //   - Mechanical fixes (no judgment call) are applied automatically
@@ -1321,32 +1376,18 @@ function auditAndFixMasterLog() {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) { ui.alert('MASTER_LOG has no data rows yet.'); return; }
 
-  const ciMap = getHeaderMapCI_(sheet);
-  const col_ = (candidates) => {
-    for (let i = 0; i < candidates.length; i++) {
-      const idx = ciMap[candidates[i].toUpperCase()];
-      if (idx != null) return idx;
-    }
-    return null;
-  };
+  // 0-based indices into each data row (COL is 1-based, for getRange).
+  const nameCol = COL.FULL_NAME - 1;
+  const entryCol = COL.ENTRY_DATE - 1;
+  const batchCol = COL.BATCH - 1;
+  const deadlineCol = COL.CERT_DEADLINE - 1;
+  const dateCertCol = COL.DATE_CERTIFIED - 1;
+  const istvCol = COL.ISTV_GRADE - 1;
+  const storeCol = COL.MOTHER_STORE - 1;
+  const supportCol = COL.SUPPORT_STORE - 1;
+  const finalStatusCol = COL.FINAL_STATUS - 1;
 
-  const nameCol = col_(['Full Name', 'Full name']);
-  const entryCol = col_(['Date of Entry']);
-  const batchCol = col_(['Batch #']);
-  const deadlineCol = col_(['Certification Deadline']);
-  const dateCertCol = col_(['Date Certified']);
-  const istvCol = col_(['ISTV Grade', 'ISTV GRADE']);
-  const storeCol = col_(['Mother Store']);
-  const supportCol = col_(['Support Store', 'SUPPORT STORE']);
-  const finalStatusCol = col_(['Final Status', 'STATUS']);
-
-  if (nameCol == null || entryCol == null) {
-    ui.alert('Could not find a "Full Name"/"Date of Entry" column on ' + SHEET_NAME + ' — cannot safely run this.');
-    return;
-  }
-
-  const lastCol = sheet.getLastColumn();
-  const data = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, MASTER_LOG_LAST_COL).getValues();
   const tz = Session.getScriptTimeZone();
 
   const fixable = [];   // {sheetRow, col (1-based), newValue, label, who}
