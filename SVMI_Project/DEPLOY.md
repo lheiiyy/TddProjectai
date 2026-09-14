@@ -133,6 +133,16 @@ Command Center from a phone.
 
 ## Access control
 
+Three layers, each answering a different question:
+
+| Layer | Question it answers | Where it's configured |
+|---|---|---|
+| Google sign-in | Is this a real Google account? | `appsscript.json` |
+| Guest password | Should this account be using the app at all? | `SETTINGS!I2` |
+| Admin list | Should this account run the destructive System Tools? | `SETTINGS!G2:G` |
+
+### 1. Google sign-in
+
 `Apps Script/appsscript.json` sets:
 
 ```json
@@ -144,11 +154,11 @@ Command Center from a phone.
 
 - **`access: "ANYONE"`** — despite the name, this means **"Anyone with a
   Google account"**, not the public. Every visitor must sign in with Google
-  before the portal loads. (The fully-public option is `"ANYONE_ANONYMOUS"` —
+  before anything loads. (The fully-public option is `"ANYONE_ANONYMOUS"` —
   not used here.)
 - **`executeAs: "USER_ACCESSING"`** — the script runs as whoever is actually
-  using it, not as whoever deployed it. This is what makes the "👤 Signed in
-  as …" line in the top bar (and any future per-person audit trail) reliable.
+  using it, not as whoever deployed it. This is what makes `sl_getCurrentUser()`
+  (the "👤 Signed in as …" line, and the admin check below) reliable.
 
 **The trade-off:** because it runs as the visiting account, that account needs
 its *own* access to this Spreadsheet — Share it with each visitor (Viewer is
@@ -158,15 +168,60 @@ visitor sees the portal load, then every data call fails with a permission
 error. `executeAs: "USER_DEPLOYING"` (the old setting) avoids that sharing
 step by running everything as whoever deployed it — simpler, but every visit
 is then indistinguishable from every other, and `sl_getCurrentUser()` returns
-`''`. Changing either value takes a **new deployment version** (Deploy →
-Manage deployments → pencil icon → New version → Deploy, or `clasp deploy`)
-to take effect — pushing the code alone is not enough.
+`''` (which also disables the admin list below — see its note there).
+Changing either value takes a **new deployment version** (Deploy → Manage
+deployments → pencil icon → New version → Deploy, or `clasp deploy`) to take
+effect — pushing the code alone is not enough.
 
-A shared **master password stored in the sheet** was also considered and
-turned down: it can't be tied to a real person (no audit trail), leaks to
-anyone with sheet-viewer access, and grants the same access to whoever has
-it. Google's own sign-in, above, replaces it with something no one has to
-manage by hand.
+### 2. Guest password
+
+A shared password, checked **before the portal's HTML is ever served** —
+`doGet()`/`doPost()` route through `_handleWebAppRequest_()`
+(`SVMKPI_ACCESS.gs`), which serves `SVMI_LOCK.html` (a small password form)
+instead of `SVMI_PORTAL.html` until the password matches `SETTINGS!I2`. A
+correct submit gets remembered in the browser's `localStorage`, so it's a
+one-time prompt per browser, not per visit — and because it's a server-side
+gate, a browser that never enters the password never receives the code that
+could call `google.script.run` at all, not just a UI that hides the button.
+
+Run **STORE VISIT KPI → 🔐 Set Up Access Control** from the Sheets menu once
+to turn this on — it's off (no password required) until then, so the app
+never locks everyone out before you've set it up. That same menu item
+generates a random password into `SETTINGS!I2` and shows it once in a dialog;
+change it any time by editing that cell directly. Rotating it signs out every
+browser that had the old one remembered (they'll see the lock screen again).
+
+### 3. Admin list (destructive tools)
+
+`SETTINGS!G2:G` holds one admin email per row. `sl_isAdmin()` checks the
+signed-in email (from layer 1) against that list, and the three destructive
+System Tools — Executive Summary, KPI 2026, Data Headers rebuilds — hide
+their buttons in the UI for anyone not on it. That hiding is a convenience
+only: `portal_rebuildExecutiveSummary()`, `portal_rebuildKPI2026()`, and
+`portal_rebuildDataHeaders()` each call `sl_isAdmin()` again themselves before
+doing anything, since a hidden button doesn't stop a direct call to the
+function. The same **🔐 Set Up Access Control** menu item seeds whoever runs
+it as the first admin, so there's always at least one.
+
+Everything else — Input Portal, Store Insights, Unvisited This Month, the
+new Reports tab, and the two non-destructive System Tools (Store Master
+Insight, Store Health, both "Update" not "Rebuild") — stays open to anyone
+who gets past the password.
+
+---
+
+## Reports tab
+
+A 5th portal tab showing **Executive Summary**, **KPI 2026**, and **Store
+Health** read-only, straight from the Web App — no more opening the actual
+Spreadsheet just to check a number. `SVMKPI_REPORTS.gs` reads whatever is
+already in those three sheets (they're still built the same way they always
+were — `buildExecutiveSummaryLayout()`, `buildKPI2026()`, `refreshRiskEngine()`
+via System Tools or the Sheets menu) and returns it as JSON; this tab never
+writes anything. If a sheet doesn't exist yet, its report shows an error
+naming which System Tool to run first. The KPI 2026 view is monthly totals
+and Q1–Q4/YTD per visitor, not the full W1–W5 weekly grid — open the sheet
+itself for that level of detail.
 
 ---
 

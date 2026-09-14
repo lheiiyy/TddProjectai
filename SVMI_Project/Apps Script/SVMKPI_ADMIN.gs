@@ -28,6 +28,8 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('STORE VISIT KPI')
     .addItem('Open Command Center', 'openUnifiedPortal')
+    .addSeparator()
+    .addItem('🔐 Set Up Access Control', 'menuSetupAccessControl')
     .addToUi();
 }
 
@@ -43,57 +45,54 @@ function onOpen() {
  *                  Visits This Month | System Tools
  */
 function openUnifiedPortal() {
-  const html = HtmlService
-    .createHtmlOutputFromFile('SVMI_PORTAL')
+  // SVMI_PORTAL.html now has a template scriptlet (the "remember the
+  // guest password" line near the top of <body>), so this must go through
+  // createTemplateFromFile()/evaluate() like doGet()/doPost() do — plain
+  // createHtmlOutputFromFile() would leave that tag as literal broken JS.
+  // This dialog only opens from inside the Sheet itself (already
+  // collaborator-gated), so there's no password to remember here.
+  const tmpl = HtmlService.createTemplateFromFile('SVMI_PORTAL');
+  tmpl.enteredPassword = '';
+  const html = tmpl.evaluate()
     .setWidth(1100)
     .setHeight(700);
   SpreadsheetApp.getUi().showModelessDialog(html, 'SVMI Command Center');
 }
 
 /**
- * doGet(e)
- * Web App entry point. Lets this project be opened as a standalone
+ * doGet(e) / doPost(e)
+ * Web App entry points. Lets this project be opened as a standalone
  * page at its deployment URL (Deploy > New deployment > Web app),
  * instead of only via the in-Sheet "Open Command Center" menu item.
  *
+ * Both funnel through _handleWebAppRequest_() in SVMKPI_ACCESS.gs, which
+ * enforces the guest password (SETTINGS!I2) BEFORE serving SVMI_PORTAL.html
+ * — a wrong or missing password gets the lock screen (SVMI_LOCK.html)
+ * instead, so the portal's code (and everything it can call via
+ * google.script.run) is never sent to a browser that hasn't unlocked it.
+ * doPost exists so the lock screen's form can submit the password without
+ * putting it in the URL/browser history.
+ *
  * Serves the exact same SVMI_PORTAL.html used by openUnifiedPortal() —
- * all 4 tabs and every google.script.run call work identically, since
+ * all tabs and every google.script.run call work identically, since
  * this is a container-bound script: SpreadsheetApp.getActiveSpreadsheet()
  * still resolves to the Sheet this script is attached to, however the
  * script was invoked (menu, trigger, or web app request).
  *
- * @param {GoogleAppsScript.Events.DoGet} e  Unused — no query-param
- *        routing yet. Reserved for a future "?tab=" deep link.
+ * @param {GoogleAppsScript.Events.DoGet} e  e.parameter.pw carries the
+ *        guest password, from either the URL (GET) or the lock form (POST).
  * @returns {GoogleAppsScript.HTML.HtmlOutput}
  */
 function doGet(e) {
-  return HtmlService
-    .createHtmlOutputFromFile('SVMI_PORTAL')
-    .setTitle('SVMI Command Center')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  return _handleWebAppRequest_(e);
 }
 
-/**
- * sl_getCurrentUser()
- * Returns the Google account email of whoever is using the Web App right
- * now, for the "Signed in as" line in the top bar. Requires appsscript.json's
- * webapp.executeAs = "USER_ACCESSING" (each request runs as that person,
- * not as whoever deployed the script) — without it this reliably returns ''.
- *
- * A user with no email visible here (empty string) is signed in with Google
- * (access:"ANYONE" already requires that) but hasn't been individually
- * granted Viewer/Editor on this Spreadsheet, so their data calls will fail
- * with a permission error — see the "Access control" section in DEPLOY.md.
- *
- * @returns {string} email address, or '' if unavailable
- */
-function sl_getCurrentUser() {
-  try {
-    return Session.getActiveUser().getEmail() || '';
-  } catch (e) {
-    return '';
-  }
+function doPost(e) {
+  return _handleWebAppRequest_(e);
 }
+
+// sl_getCurrentUser(), sl_isAdmin(), and the guest-password gate all live
+// in SVMKPI_ACCESS.gs now — kept together since they're one concern.
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -158,9 +157,13 @@ function menuValidateMasterLog() {
 
 /**
  * portal_rebuildExecutiveSummary()
- * Called by System Tools tab in the portal.
+ * Called by System Tools tab in the portal. Admin-only (see
+ * SVMKPI_ACCESS.gs) — the client already hides this button for
+ * non-admins, this is the check that actually matters since a client
+ * check alone can't stop someone calling the function directly.
  */
 function portal_rebuildExecutiveSummary() {
+  if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
   try {
     buildExecutiveSummaryLayout();
     return { success: true, message: 'Executive Summary rebuilt with live formulas.' };
@@ -183,8 +186,10 @@ function portal_rebuildStoreHealth() {
 
 /**
  * portal_rebuildKPI2026()
+ * Admin-only — see portal_rebuildExecutiveSummary() above.
  */
 function portal_rebuildKPI2026() {
+  if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
   try {
     const result = buildKPI2026();
     return { success: result.success, message: 'KPI 2026 rebuilt. ' + result.visitors + ' visitors, SUMPRODUCT formulas written.' };
@@ -195,8 +200,10 @@ function portal_rebuildKPI2026() {
 
 /**
  * portal_rebuildDataHeaders()
+ * Admin-only — see portal_rebuildExecutiveSummary() above.
  */
 function portal_rebuildDataHeaders() {
+  if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
   try {
     const result = rebuildDataSheetHeaders();
     const msg = result.results.map(r =>

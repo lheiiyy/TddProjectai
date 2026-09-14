@@ -210,10 +210,10 @@ textarea.fi{resize:vertical;min-height:50px}
 .toolbar-title{font-size:11px;font-weight:700;color:var(--white)}
 .scroll-panel{flex:1;overflow-y:auto;padding:12px 14px 20px}
 .comp-filters{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
-.cf-btn{padding:5px 14px;border-radius:20px;font-size:10px;font-weight:700;border:1.5px solid var(--border);
+.cf-btn,.rep-btn{padding:5px 14px;border-radius:20px;font-size:10px;font-weight:700;border:1.5px solid var(--border);
   background:var(--card);color:var(--muted);cursor:pointer;transition:all .15s;white-space:nowrap;font-family:Arial;text-transform:uppercase}
-.cf-btn:hover{border-color:var(--navy);color:var(--navy)}
-.cf-btn.active{background:var(--navy);color:var(--white);border-color:var(--navy)}
+.cf-btn:hover,.rep-btn:hover{border-color:var(--navy);color:var(--navy)}
+.cf-btn.active,.rep-btn.active{background:var(--navy);color:var(--white);border-color:var(--navy)}
 .cf-btn.monthly.active{background:var(--blue);border-color:var(--blue)}
 .cf-btn.quarterly.active{background:var(--orange);border-color:var(--orange)}
 .cf-btn.semiannual.active{background:var(--purple);border-color:var(--purple)}
@@ -373,6 +373,9 @@ textarea.fi{padding-right:28px}
 .dup-submit.update{background:var(--tld)}
 .dup-submit.update:hover{background:var(--tld-d)}
 .tool-card.primary{border:2px solid var(--gold)}
+.tool-lock{font-size:10px;padding:6px 8px;border-radius:4px;margin-top:6px;
+  background:var(--bg);color:var(--muted);font-style:italic;text-align:center}
+.tool-lock[hidden]{display:none}
 
 /* ── Wide tables scroll inside their own box, never the page ── */
 .tbl-scroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -456,6 +459,7 @@ textarea.fi{padding-right:28px}
   <div class="tab active" id="tab-Input"   onclick="switchTab('Input')">📋 Input Portal</div>
   <div class="tab"        id="tab-Insights" onclick="switchTab('Insights')">🔍 Store Insights</div>
   <div class="tab"        id="tab-Visits"   onclick="switchTab('Visits')">📅 Unvisited This Month</div>
+  <div class="tab"        id="tab-Reports"  onclick="switchTab('Reports')">📊 Reports</div>
   <div class="tab"        id="tab-Tools"    onclick="switchTab('Tools')">⚙ System Tools</div>
 </div>
 
@@ -630,6 +634,23 @@ textarea.fi{padding-right:28px}
   </div>
 </div>
 
+<!-- TAB: REPORTS (Executive Summary / KPI 2026 / Store Health, read-only) -->
+<div class="tab-content" id="content-Reports">
+  <div class="toolbar">
+    <div class="toolbar-title">Reports —</div>
+    <button class="rep-btn active" id="repTab-es"     onclick="switchReport('es')">Executive Summary</button>
+    <button class="rep-btn"        id="repTab-kpi"     onclick="switchReport('kpi')">KPI 2026</button>
+    <button class="rep-btn"        id="repTab-health"  onclick="switchReport('health')">Store Health</button>
+    <button class="btn-gold" onclick="loadCurrentReport()" style="width:auto;margin-top:0;padding:5px 12px;margin-left:auto">↻ Refresh</button>
+  </div>
+  <div class="scroll-panel" id="reportsPanel">
+    <div class="state-msg">
+      <div class="spinner"></div>
+      <div class="title">Loading…</div>
+    </div>
+  </div>
+</div>
+
 <!-- TAB 4: SYSTEM TOOLS -->
 <div class="tab-content" id="content-Tools">
   <div class="tools-grid">
@@ -660,7 +681,7 @@ textarea.fi{padding-right:28px}
       </div>
     </div>
 
-    <div class="tool-card">
+    <div class="tool-card" data-admin-only="true">
       <div class="tool-hdr"><span class="tool-icon">📊</span>
         <div><div class="tool-title">Executive Summary</div>
         <div class="tool-desc-hdr">Layout + live GS formulas</div></div></div>
@@ -669,10 +690,11 @@ textarea.fi{padding-right:28px}
         <p>Rebuilds EXECUTIVE SUMMARY with COUNTIF/COUNTIFS/QUERY formulas that auto-update from MASTER_LOG.</p>
         <button class="tool-run" onclick="runTool('rebuildExecutiveSummary','stat-ES')">▶ Rebuild Executive Summary</button>
         <div class="tool-stat idle" id="stat-ES">Ready</div>
+        <div class="tool-lock" id="lock-ES" hidden>🔒 Admin access required to run this tool.</div>
       </div>
     </div>
 
-    <div class="tool-card">
+    <div class="tool-card" data-admin-only="true">
       <div class="tool-hdr"><span class="tool-icon">📈</span>
         <div><div class="tool-title">KPI 2026</div>
         <div class="tool-desc-hdr">SUMPRODUCT formulas from SETTINGS!F</div></div></div>
@@ -681,6 +703,7 @@ textarea.fi{padding-right:28px}
         <p>Rebuilds KPI 2026 weekly tracker. Reads visitor roster from SETTINGS!F and writes pipe-aware SUMPRODUCT formulas.</p>
         <button class="tool-run" onclick="runTool('rebuildKPI2026','stat-KPI')">▶ Rebuild KPI 2026</button>
         <div class="tool-stat idle" id="stat-KPI">Ready</div>
+        <div class="tool-lock" id="lock-KPI" hidden>🔒 Admin access required to run this tool.</div>
       </div>
     </div>
 
@@ -696,7 +719,7 @@ textarea.fi{padding-right:28px}
       </div>
     </div>
 
-    <div class="tool-card">
+    <div class="tool-card" data-admin-only="true">
       <div class="tool-hdr"><span class="tool-icon">🗂</span>
         <div><div class="tool-title">Data Sheet Headers</div>
         <div class="tool-desc-hdr">MASTER_LOG + SETTINGS headers</div></div></div>
@@ -705,6 +728,7 @@ textarea.fi{padding-right:28px}
         <p>Restores MASTER_LOG row 1 headers with brand color rules. Restores SETTINGS headers and rebuilds col D formula. Data rows untouched.</p>
         <button class="tool-run" onclick="runTool('rebuildDataHeaders','stat-DH')">▶ Rebuild Data Headers</button>
         <div class="tool-stat idle" id="stat-DH">Ready</div>
+        <div class="tool-lock" id="lock-DH" hidden>🔒 Admin access required to run this tool.</div>
       </div>
     </div>
 
@@ -1048,6 +1072,15 @@ textarea.fi{padding-right:28px}
       return 'preview.user@example.com';
     },
 
+    // Mirrors sl_isAdmin() in SVMKPI_ACCESS.gs. Defaults to false — false
+    // is what most real visitors see, so the preview shows the locked
+    // System Tools cards by default. Flip to true here (or set
+    // window.__testForceAdmin = true before load, used by the automated
+    // test suite) to see the admin view.
+    sl_isAdmin() {
+      return typeof window !== 'undefined' && window.__testForceAdmin === true;
+    },
+
     manageVisitor(action, visitorName) {
       const name = normUp(visitorName);
       if (!name) return { success: false, message: 'Visitor name cannot be blank.' };
@@ -1286,6 +1319,181 @@ textarea.fi{padding-right:28px}
       return gaps;
     },
 
+    // Mirrors getExecutiveSummaryReport() in SVMKPI_REPORTS.gs, computed
+    // from the sample MASTER_LOG instead of read off a sheet — same JSON
+    // shape, so the Reports tab's render functions work unmodified here.
+    getExecutiveSummaryReport() {
+      const year = 2026;
+      const MONTHS12 = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+      const yearLog = DB.log.filter(r => r.date.getFullYear() === year);
+      const total = yearLog.length;
+      const pct = (v) => total ? (v / total * 100).toFixed(1) + '%' : '0.0%';
+
+      const byPurpose = {};
+      APPROVED_PURPOSES.forEach(p => { byPurpose[p] = 0; });
+      yearLog.forEach(r => { byPurpose[r.purpose] = (byPurpose[r.purpose] || 0) + 1; });
+
+      const byRegion = {};
+      APPROVED_REGIONS.forEach(rg => { byRegion[rg] = 0; });
+      yearLog.forEach(r => { byRegion[r.region] = (byRegion[r.region] || 0) + 1; });
+
+      const kpi = [
+        { label: 'Total Visits',     value: String(total) },
+        { label: 'Store Visits',     value: String(byPurpose['STORE VISIT'] || 0) },
+        { label: 'TLTC',             value: String(byPurpose['TLTC'] || 0) },
+        { label: 'Failed QA/MS',     value: String(byPurpose['FAILED QA/MS'] || 0) },
+        { label: 'Curing/Support',   value: String(byPurpose['CURING/SUPPORT'] || 0) },
+        { label: 'NCR',              value: String(byRegion['NCR'] || 0) },
+        { label: 'Provincial',       value: String(byRegion['PROVINCIAL'] || 0) },
+      ];
+
+      const monthBrandLabels = APPROVED_BRANDS.slice();
+      const monthTotals = APPROVED_BRANDS.map(() => 0);
+      let grand = 0;
+      const monthly = MONTHS12.map((month, m) => {
+        const counts = APPROVED_BRANDS.map(b => yearLog.filter(r => r.date.getMonth() === m && r.brand === b).length);
+        const tot = counts.reduce((a, b) => a + b, 0);
+        counts.forEach((c, i) => { monthTotals[i] += c; });
+        grand += tot;
+        return { month, byBrand: counts.map(String), total: String(tot) };
+      });
+      const monthlyTotal = { byBrand: monthTotals.map(String), total: String(grand) };
+
+      const region = APPROVED_REGIONS.map(name => {
+        const v = byRegion[name] || 0;
+        return { name, visits: String(v), pct: pct(v) };
+      });
+      const regionTotal = { visits: String(total), pct: '100.0%' };
+
+      const purpose = APPROVED_PURPOSES.map(name => {
+        const v = byPurpose[name] || 0;
+        return { name, count: String(v), pct: pct(v) };
+      });
+      const purposeTotal = { count: String(total), pct: '100.0%' };
+
+      const storeCounts = {};
+      yearLog.forEach(r => { storeCounts[r.store] = (storeCounts[r.store] || 0) + 1; });
+      const topStores = Object.keys(storeCounts).sort((a, b) => storeCounts[b] - storeCounts[a]).slice(0, 10)
+        .map((name, i) => ({ rank: String(i + 1), name, visits: String(storeCounts[name]) }));
+
+      const visitorCounts = {};
+      yearLog.forEach(r => String(r.visitedBy || '').split('|').map(v => v.trim()).filter(Boolean)
+        .forEach(v => { visitorCounts[v] = (visitorCounts[v] || 0) + 1; }));
+      const leaderboard = Object.keys(visitorCounts).sort((a, b) => visitorCounts[b] - visitorCounts[a]).slice(0, 12)
+        .map((name, i) => ({ rank: String(i + 1), name, visits: String(visitorCounts[name]) }));
+
+      const brandPerformance = APPROVED_BRANDS.map(b => {
+        let peakMonth = '—', peakCount = 0;
+        for (let m = 0; m < 12; m++) {
+          const c = yearLog.filter(r => r.brand === b && r.date.getMonth() === m).length;
+          if (c > peakCount) { peakCount = c; peakMonth = MONTHS12[m]; }
+        }
+        const v = yearLog.filter(r => r.brand === b).length;
+        return { brand: b, total: String(v), pct: pct(v), peakMonth, peakCount: String(peakCount) };
+      });
+      const brandTotalCount = brandPerformance.reduce((a, r) => a + Number(r.total), 0);
+      const brandTotal = { total: String(brandTotalCount), pct: '100.0%', peakMonth: '', peakCount: '' };
+
+      return { kpi, monthBrandLabels, monthly, monthlyTotal, region, regionTotal, purpose, purposeTotal, topStores, leaderboard, brandPerformance, brandTotal };
+    },
+
+    // Mirrors getKPI2026Report() — aggregated monthly totals + Q1-Q4/YTD
+    // per visitor, computed from the sample MASTER_LOG. TEAM TOTAL sums
+    // the visitor rows (matching the real sheet's SUM formula), so a
+    // multi-visitor visit is counted once per visitor, same as live.
+    getKPI2026Report() {
+      const year = 2026;
+      const MONTHS12 = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+
+      function qSums(monthlyArr) {
+        const nums = monthlyArr.map(Number);
+        const q1 = nums.slice(0, 3).reduce((a, b) => a + b, 0);
+        const q2 = nums.slice(3, 6).reduce((a, b) => a + b, 0);
+        const q3 = nums.slice(6, 9).reduce((a, b) => a + b, 0);
+        const q4 = nums.slice(9, 12).reduce((a, b) => a + b, 0);
+        return { q1: String(q1), q2: String(q2), q3: String(q3), q4: String(q4), ytd: String(q1 + q2 + q3 + q4) };
+      }
+
+      const visitors = DB.visitors.slice().sort().map(name => {
+        const monthly = MONTHS12.map((_, m) => String(DB.log.filter(r =>
+          r.date.getFullYear() === year && r.date.getMonth() === m
+          && String(r.visitedBy || '').split('|').map(v => v.trim()).indexOf(name) !== -1
+        ).length));
+        return Object.assign({ name, monthly }, qSums(monthly));
+      });
+
+      const teamMonthly = MONTHS12.map((_, m) => String(visitors.reduce((sum, v) => sum + Number(v.monthly[m]), 0)));
+      const team = Object.assign({ monthly: teamMonthly }, qSums(teamMonthly));
+
+      return { year, months: MONTHS12, visitors, team };
+    },
+
+    // Mirrors getStoreHealthReport() — a simplified risk heuristic (the
+    // real SVMKPI_RISK.gs scoring is more involved) just to populate a
+    // representative Store Health view in the preview.
+    getStoreHealthReport() {
+      const now = new Date();
+      const year = 2026;
+      const qStart = new Date(year, Math.floor(now.getMonth() / 3) * 3, 1);
+      let high = 0, medium = 0, low = 0, noQuarterVisit = 0;
+
+      const rows = DB.stores.map(s => {
+        const storeLog = DB.log.filter(r => r.store === s.name);
+        let lastDate = null;
+        storeLog.forEach(r => { if (!lastDate || r.date > lastDate) lastDate = r.date; });
+        const daysSince = lastDate ? Math.floor((now - lastDate) / 86400000) : null;
+        const totalYtd = storeLog.filter(r => r.date.getFullYear() === year).length;
+        const storeYtd = storeLog.filter(r => r.purpose === 'STORE VISIT' && r.date.getFullYear() === year).length;
+        const failedCount = storeLog.filter(r => r.purpose === 'FAILED QA/MS').length;
+        const curingCount = storeLog.filter(r => r.purpose === 'CURING/SUPPORT').length;
+        const lastRow = lastDate ? storeLog.filter(r => r.date.getTime() === lastDate.getTime())[0] : null;
+
+        let tier, score, action, reason;
+        if (daysSince === null || daysSince > 90 || failedCount >= 2) {
+          tier = 'HIGH'; score = Math.min(100, 85 + failedCount * 5);
+          action = 'Schedule an urgent visit';
+          reason = daysSince === null ? 'Never visited' : failedCount >= 2 ? 'Repeated QA/MS failures' : 'Over 90 days since last visit';
+        } else if (daysSince > 45 || failedCount === 1) {
+          tier = 'MEDIUM'; score = 55;
+          action = 'Schedule a visit soon';
+          reason = failedCount === 1 ? 'One QA/MS failure on record' : 'Approaching overdue';
+        } else {
+          tier = 'LOW'; score = 20;
+          action = 'On track'; reason = '';
+        }
+        if (tier === 'HIGH') high++; else if (tier === 'MEDIUM') medium++; else low++;
+        if (!storeLog.some(r => r.date >= qStart)) noQuarterVisit++;
+
+        return {
+          store: s.name, brand: s.brand, region: s.region,
+          lastVisitDate: lastDate ? slFormatDate(lastDate) : '—',
+          lastPurpose: lastRow ? lastRow.purpose : '—',
+          daysSince: daysSince === null ? '—' : String(daysSince),
+          totalYtd: String(totalYtd), storeYtd: String(storeYtd),
+          failedCount: String(failedCount), curingCount: String(curingCount),
+          riskScore: score, riskTier: tier, action, attentionReason: reason,
+        };
+      }).sort((a, b) => b.riskScore - a.riskScore)
+        .map(r => Object.assign({}, r, { riskScore: String(r.riskScore) }));
+
+      const kpis = [
+        { label: 'TOTAL STORES', value: String(DB.stores.length) },
+        { label: 'HIGH RISK', value: String(high) },
+        { label: 'MEDIUM RISK', value: String(medium) },
+        { label: 'LOW RISK', value: String(low) },
+        { label: 'COVERAGE GAP (NO Q VISIT)', value: String(noQuarterVisit) },
+      ];
+
+      const headers = [
+        'Store Name', 'Brand', 'Region', 'Last Visit Date', 'Last Visit Purpose',
+        'Days Since Visit', 'Total Visits YTD', 'Store Visits YTD',
+        'Failed QA/MS Count', 'Curing/Support Count',
+        'Risk Score', 'Risk Tier', 'Recommended Action', 'Attention Reason',
+      ]; // mirrors RISK_HEADERS in SVMKPI_RISK.gs
+
+      return { kpis, headers, rows };
+    },
+
     portal_validateMasterLog() {
       const errors = [];
       DB.log.forEach((row, idx) => {
@@ -1387,6 +1595,8 @@ var MONTHS = ['January','February','March','April','May','June',
 
 var gBrands      = [];   // selected brands; empty array = All Brands (no filter)
 var allBrandList = [];
+var currentReport      = 'es';   // Reports tab: 'es' | 'kpi' | 'health'
+var reportsLoadedOnce  = false;  // lazy-load the Reports tab on first visit only
 var allStores    = [];
 var storeData    = {};
 var allVisitors  = [];
@@ -1406,8 +1616,30 @@ window.onload = function() {
   loadBrandList();
   loadSIStores();
   loadCurrentUser();
+  loadAdminStatus();
   syncFieldClears();
 };
+
+// Shows/hides the destructive System Tools (Executive Summary, KPI 2026,
+// Data Headers — the ones marked data-admin-only) based on whether this
+// Google account is on the SETTINGS!G admin list. Convenience only — the
+// portal_rebuild*() handlers for those three tools check sl_isAdmin()
+// again themselves, since hiding a button here can't stop a direct call.
+function applyAdminGating(isAdmin) {
+  document.querySelectorAll('.tool-card[data-admin-only]').forEach(function(card) {
+    var btn  = card.querySelector('.tool-run');
+    var lock = card.querySelector('.tool-lock');
+    if (btn)  btn.hidden  = !isAdmin;
+    if (lock) lock.hidden = isAdmin;
+  });
+}
+
+function loadAdminStatus() {
+  google.script.run
+    .withSuccessHandler(applyAdminGating)
+    .withFailureHandler(function(){ applyAdminGating(false); })   // fail closed
+    .sl_isAdmin();
+}
 
 // Shows who's actually signed in — confirms the Web App is running as the
 // visiting Google account (appsscript.json webapp.executeAs:
@@ -1441,6 +1673,7 @@ function switchTab(name) {
   document.getElementById('tab-'+name).classList.add('active');
   document.getElementById('content-'+name).classList.add('active');
   if (name === 'Visits') loadCompliance();
+  if (name === 'Reports' && !reportsLoadedOnce) { reportsLoadedOnce = true; loadCurrentReport(); }
 }
 
 // ═══════════════════════════════════════
@@ -2599,6 +2832,151 @@ function syncWindowButtons() {
   document.querySelectorAll('.cf-btn').forEach(function(b) {
     b.classList.toggle('active', b.dataset.f === active);
   });
+}
+
+// ═══════════════════════════════════════
+// TAB — REPORTS (Executive Summary / KPI 2026 / Store Health)
+// Read-only views of sheets that already exist — this tab never writes
+// anything, it only calls the get*Report() readers in SVMKPI_REPORTS.gs.
+// ═══════════════════════════════════════
+
+function switchReport(which) {
+  currentReport = which;
+  ['es','kpi','health'].forEach(function(k) {
+    document.getElementById('repTab-' + k).classList.toggle('active', k === which);
+  });
+  loadCurrentReport();
+}
+
+function loadCurrentReport() {
+  var panel = document.getElementById('reportsPanel');
+  panel.innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
+  var fnByReport     = { es: 'getExecutiveSummaryReport', kpi: 'getKPI2026Report', health: 'getStoreHealthReport' };
+  var renderByReport = { es: renderExecutiveSummaryReport, kpi: renderKPI2026Report, health: renderStoreHealthReport };
+  google.script.run
+    .withSuccessHandler(renderByReport[currentReport])
+    .withFailureHandler(function(err) {
+      panel.innerHTML = stateMsg('⚠️', 'Error', esc(err.message || String(err)));
+    })
+    [fnByReport[currentReport]]();
+}
+
+// KPI-card strip shared by all three reports — a row of {label, value} pairs.
+function repKpiRow(items) {
+  return '<div class="kpi-row" style="grid-template-columns:repeat(auto-fit,minmax(100px,1fr));margin-bottom:14px">'
+    + items.map(function(k) {
+        return '<div class="ck"><div class="ck-lbl">' + esc(k.label) + '</div><div class="ck-val">' + esc(k.value) + '</div></div>';
+      }).join('')
+    + '</div>';
+}
+
+function repCard(title, innerHtml) {
+  return '<div class="p-card" style="margin-bottom:14px"><div class="p-card-hdr">' + esc(title) + '</div>'
+    + '<div class="p-card-body">' + innerHtml + '</div></div>';
+}
+
+function renderExecutiveSummaryReport(data) {
+  var h = repKpiRow(data.kpi);
+
+  h += repCard('Monthly Visit Summary by Brand',
+    '<div class="tbl-scroll"><table class="data-tbl"><thead><tr><th>Month</th>'
+    + data.monthBrandLabels.map(function(b){ return '<th class="c">' + esc(b) + '</th>'; }).join('')
+    + '<th class="c">Total</th></tr></thead><tbody>'
+    + data.monthly.map(function(r) {
+        return '<tr><td>' + esc(r.month) + '</td>'
+          + r.byBrand.map(function(v){ return '<td class="c">' + esc(v) + '</td>'; }).join('')
+          + '<td class="c"><b>' + esc(r.total) + '</b></td></tr>';
+      }).join('')
+    + '<tr style="font-weight:700"><td>GRAND TOTAL</td>'
+      + data.monthlyTotal.byBrand.map(function(v){ return '<td class="c">' + esc(v) + '</td>'; }).join('')
+      + '<td class="c">' + esc(data.monthlyTotal.total) + '</td></tr>'
+    + '</tbody></table></div>');
+
+  h += '<div class="profile-grid">'
+    + repCard('Visits by Region',
+        '<div class="tbl-scroll"><table class="data-tbl"><thead><tr><th>Region</th><th class="c">Visits</th><th class="c">% Share</th></tr></thead><tbody>'
+        + data.region.map(function(r){ return '<tr><td>' + esc(r.name) + '</td><td class="c">' + esc(r.visits) + '</td><td class="c">' + esc(r.pct) + '</td></tr>'; }).join('')
+        + '<tr style="font-weight:700"><td>TOTAL</td><td class="c">' + esc(data.regionTotal.visits) + '</td><td class="c">' + esc(data.regionTotal.pct) + '</td></tr>'
+        + '</tbody></table></div>')
+    + repCard('Visit Purpose Breakdown',
+        '<div class="tbl-scroll"><table class="data-tbl"><thead><tr><th>Purpose</th><th class="c">Count</th><th class="c">% Share</th></tr></thead><tbody>'
+        + data.purpose.map(function(r){ return '<tr><td>' + esc(r.name) + '</td><td class="c">' + esc(r.count) + '</td><td class="c">' + esc(r.pct) + '</td></tr>'; }).join('')
+        + '<tr style="font-weight:700"><td>TOTAL</td><td class="c">' + esc(data.purposeTotal.count) + '</td><td class="c">' + esc(data.purposeTotal.pct) + '</td></tr>'
+        + '</tbody></table></div>')
+    + '</div>';
+
+  h += '<div class="profile-grid">'
+    + repCard('Top 10 Most Visited Stores',
+        '<div class="tbl-scroll"><table class="data-tbl"><thead><tr><th class="c">#</th><th>Store Name</th><th class="c">Visits</th></tr></thead><tbody>'
+        + data.topStores.map(function(r){ return '<tr><td class="c">' + esc(r.rank) + '</td><td>' + esc(r.name) + '</td><td class="c">' + esc(r.visits) + '</td></tr>'; }).join('')
+        + '</tbody></table></div>')
+    + repCard('Visitor Leaderboard (YTD)',
+        '<div class="tbl-scroll"><table class="data-tbl"><thead><tr><th class="c">#</th><th>Visitor</th><th class="c">Visits</th></tr></thead><tbody>'
+        + data.leaderboard.map(function(r){ return '<tr><td class="c">' + esc(r.rank) + '</td><td>' + esc(r.name) + '</td><td class="c">' + esc(r.visits) + '</td></tr>'; }).join('')
+        + '</tbody></table></div>')
+    + '</div>';
+
+  h += repCard('Brand Performance Summary',
+    '<div class="tbl-scroll"><table class="data-tbl"><thead><tr><th>Brand</th><th class="c">Total Visits</th><th class="c">% Share</th><th class="c">Peak Month</th><th class="c">Peak Count</th></tr></thead><tbody>'
+    + data.brandPerformance.map(function(r) {
+        return '<tr><td>' + esc(r.brand) + '</td><td class="c">' + esc(r.total) + '</td><td class="c">' + esc(r.pct)
+          + '</td><td class="c">' + esc(r.peakMonth) + '</td><td class="c">' + esc(r.peakCount) + '</td></tr>';
+      }).join('')
+    + '<tr style="font-weight:700"><td>TOTAL</td><td class="c">' + esc(data.brandTotal.total) + '</td><td class="c">' + esc(data.brandTotal.pct)
+      + '</td><td class="c">' + esc(data.brandTotal.peakMonth) + '</td><td class="c">' + esc(data.brandTotal.peakCount) + '</td></tr>'
+    + '</tbody></table></div>');
+
+  document.getElementById('reportsPanel').innerHTML = h;
+}
+
+function renderKPI2026Report(data) {
+  var h = repKpiRow([
+    { label: 'Reporting Year', value: data.year },
+    { label: 'Visitors Tracked', value: data.visitors.length },
+  ]);
+
+  function row(label, r, bold) {
+    return '<tr' + (bold ? ' style="font-weight:700"' : '') + '><td>' + esc(label) + '</td>'
+      + r.monthly.map(function(v){ return '<td class="c">' + esc(v) + '</td>'; }).join('')
+      + '<td class="c">' + esc(r.q1) + '</td><td class="c">' + esc(r.q2) + '</td>'
+      + '<td class="c">' + esc(r.q3) + '</td><td class="c">' + esc(r.q4) + '</td>'
+      + '<td class="c"><b>' + esc(r.ytd) + '</b></td></tr>';
+  }
+
+  h += repCard('Weekly KPI Tracker — Monthly Totals (' + esc(data.year) + ')',
+    '<p style="font-size:10px;color:var(--muted);margin-bottom:8px">Each cell is that visitor’s total for the month (the W1–W5 weekly breakdown stays in the KPI 2026 sheet itself).</p>'
+    + '<div class="tbl-scroll"><table class="data-tbl"><thead><tr><th>Visitor</th>'
+    + data.months.map(function(m){ return '<th class="c">' + esc(m.slice(0,3)) + '</th>'; }).join('')
+    + '<th class="c">Q1</th><th class="c">Q2</th><th class="c">Q3</th><th class="c">Q4</th><th class="c">YTD</th></tr></thead><tbody>'
+    + data.visitors.map(function(v){ return row(v.name, v); }).join('')
+    + row('TEAM TOTAL', data.team, true)
+    + '</tbody></table></div>');
+
+  document.getElementById('reportsPanel').innerHTML = h;
+}
+
+function renderStoreHealthReport(data) {
+  var tierClass = { HIGH: 'pill-critical', MEDIUM: 'pill-warning', LOW: 'pill-mild' };
+
+  var h = repKpiRow(data.kpis);
+
+  h += repCard('Store Health — ' + data.rows.length + ' store' + (data.rows.length !== 1 ? 's' : ''),
+    '<div class="tbl-scroll"><table class="data-tbl"><thead><tr>'
+    + '<th>Store</th><th>Brand</th><th>Region</th><th>Last Visit</th><th class="c">Days Since</th>'
+    + '<th class="c">Total YTD</th><th class="c">Score</th><th class="c">Tier</th><th>Action</th><th>Attention Reason</th>'
+    + '</tr></thead><tbody>'
+    + data.rows.map(function(r) {
+        var tier = String(r.riskTier || '').toUpperCase();
+        var pillClass = tierClass[tier] || 'pill-mild';
+        return '<tr><td>' + esc(r.store) + '</td><td>' + esc(r.brand) + '</td><td>' + esc(r.region) + '</td>'
+          + '<td>' + esc(r.lastVisitDate) + '</td><td class="c">' + esc(r.daysSince) + '</td>'
+          + '<td class="c">' + esc(r.totalYtd) + '</td><td class="c">' + esc(r.riskScore) + '</td>'
+          + '<td class="c"><span class="pill ' + pillClass + '">' + esc(r.riskTier) + '</span></td>'
+          + '<td>' + esc(r.action) + '</td><td>' + esc(r.attentionReason) + '</td></tr>';
+      }).join('')
+    + '</tbody></table></div>');
+
+  document.getElementById('reportsPanel').innerHTML = h;
 }
 
 // ═══════════════════════════════════════

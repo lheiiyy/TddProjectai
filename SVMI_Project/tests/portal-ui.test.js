@@ -30,6 +30,12 @@ function check(name, cond, extra) {
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
 
+  // Most of this suite exercises the admin-only System Tools (Executive
+  // Summary/KPI 2026/Data Headers rebuilds), so force the mock backend's
+  // sl_isAdmin() to true here — the separate "Admin gating" section below
+  // covers the default (locked, non-admin) state on its own page.
+  await page.addInitScript(() => { window.__testForceAdmin = true; });
+
   await page.goto(URL);
   await page.waitForTimeout(1200);   // mock backend has a simulated 260-680ms delay
 
@@ -497,6 +503,63 @@ function check(name, cond, extra) {
   check('validation produced a result', /Validation/i.test(valStat), valStat);
 
   await page.screenshot({ path: OUT + '/desktop-tools.png' });
+
+  console.log('\n── Admin gating (default, non-admin state) ──');
+  {
+    const guestCtx  = await browser.newContext({ viewport: { width: 1200, height: 780 } });
+    const guestPage = await guestCtx.newPage();
+    const guestErrors = [];
+    guestPage.on('pageerror', e => guestErrors.push(e.message));
+    // No addInitScript here — window.__testForceAdmin stays unset, so the
+    // mock sl_isAdmin() returns false, same as a real non-admin visitor.
+    await guestPage.goto(URL);
+    await guestPage.waitForTimeout(1200);
+    await guestPage.click('#tab-Tools');
+    await guestPage.waitForTimeout(200);
+
+    for (const id of ['ES', 'KPI', 'DH']) {
+      const btnHidden  = await guestPage.isHidden(`button[onclick*="rebuild${id === 'ES' ? 'ExecutiveSummary' : id === 'KPI' ? 'KPI2026' : 'DataHeaders'}"]`);
+      const lockShown  = await guestPage.isVisible('#lock-' + id);
+      check('non-admin: ' + id + ' tool is locked (button hidden, lock note shown)', btnHidden && lockShown,
+        'btnHidden=' + btnHidden + ' lockShown=' + lockShown);
+    }
+
+    const smiVisible = await guestPage.isVisible('button[onclick*="rebuildStoreMaster"]');
+    check('non-admin: non-critical tools stay usable', smiVisible);
+    check('no console/page errors for a non-admin guest', guestErrors.length === 0, guestErrors.slice(0, 3).join(' | '));
+
+    await guestCtx.close();
+  }
+
+  console.log('\n── Reports tab (Executive Summary / KPI 2026 / Store Health) ──');
+  await page.click('#tab-Reports');
+  await page.waitForTimeout(1000);   // first load, through the mock backend's simulated delay
+  check('Executive Summary sub-tab active by default', await page.evaluate(() =>
+    document.getElementById('repTab-es').classList.contains('active')));
+  const esKpiCount = await page.$$eval('#reportsPanel .kpi-row .ck', e => e.length);
+  check('Executive Summary renders KPI cards', esKpiCount === 7, 'count=' + esKpiCount);
+  const monthRows = await page.$$eval('#reportsPanel table.data-tbl tbody tr', e => e.length);
+  check('Executive Summary renders the monthly table', monthRows >= 12, 'rows=' + monthRows);
+
+  await page.click('#repTab-kpi');
+  await page.waitForTimeout(900);
+  check('KPI 2026 sub-tab becomes active', await page.evaluate(() =>
+    document.getElementById('repTab-kpi').classList.contains('active')));
+  const teamRowText = await page.evaluate(() => {
+    var rows = document.querySelectorAll('#reportsPanel table.data-tbl tbody tr');
+    var last = rows[rows.length - 1];
+    return last ? last.textContent : '';
+  });
+  check('KPI 2026 shows a TEAM TOTAL row', /TEAM TOTAL/.test(teamRowText), teamRowText.slice(0, 40));
+
+  await page.click('#repTab-health');
+  await page.waitForTimeout(900);
+  check('Store Health sub-tab becomes active', await page.evaluate(() =>
+    document.getElementById('repTab-health').classList.contains('active')));
+  const tierPills = await page.$$eval('#reportsPanel .pill', e => e.length);
+  check('Store Health renders a risk-tier pill per store', tierPills > 0, 'count=' + tierPills);
+
+  check('no console/page errors on the Reports tab', errors.length === 0, errors.slice(0, 3).join(' | '));
 
   console.log('\n── Input: Visited By reads as a dropdown ──');
   await page.click('#tab-Input');
