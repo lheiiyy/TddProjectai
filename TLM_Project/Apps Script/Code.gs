@@ -83,6 +83,7 @@ function onOpen() {
     .addSeparator()
     .addItem('Refresh Store Summary', 'refreshStoreSummary')
     .addItem('Set Up Sheets (first-time only)', 'setupSheets')
+    .addItem('Migrate Legacy Logs into MASTER_LOG (one-time)', 'migrateLegacyLogs')
     .addSeparator()
     .addItem('Set / Change Access PIN', 'setAccessPin')
     .addItem('Show Phone App Link', 'showWebAppUrl')
@@ -1047,4 +1048,205 @@ function refreshStoreSummary() {
   }
 
   SpreadsheetApp.getUi().alert('Store summary refreshed on the "Summary" tab.');
+}
+
+// =====================================================================
+// ONE-TIME MIGRATION — pulls the old sheet's separate probationary/
+// certified log tabs into MASTER_LOG under this script's own headers,
+// so New Entry / Certify / Reports / Monitoring all see real history
+// instead of starting from an empty sheet.
+//
+// Safe to run more than once: every row it's about to add is checked
+// against MASTER_LOG's existing Full Name + Mother Store + Date of
+// Entry (the same composite key submitNewEntry/submitCertification
+// use) and skipped if already present — so re-running after a partial
+// run, or after the source tabs changed, never duplicates anyone.
+// It only ever APPENDS to MASTER_LOG; the source tabs are never
+// edited or deleted.
+// =====================================================================
+
+// Case/whitespace-tolerant header map for a source tab whose exact
+// header spelling isn't guaranteed — trims like getHeaderMap, but also
+// keys everything uppercase so callers can match without worrying
+// about "Full name" vs "FULL NAME" vs a trailing space.
+function getHeaderMapCI_(sheet) {
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const map = {};
+  headers.forEach((h, i) => {
+    const key = h.toString().trim().toUpperCase();
+    if (key) map[key] = i;
+  });
+  return map;
+}
+
+// Reads one cell from a source row by trying a list of candidate header
+// names (in order) against a case-insensitive header map — tolerates
+// the source tab spelling a header slightly differently than expected.
+function pickCell_(row, ciMap, candidates) {
+  for (let i = 0; i < candidates.length; i++) {
+    const idx = ciMap[candidates[i].toUpperCase()];
+    if (idx != null) return row[idx];
+  }
+  return '';
+}
+
+// Finds the first sheet in this spreadsheet whose name matches one of
+// several candidate spellings — the exact tab name in a given copy of
+// this sheet isn't always the same (e.g. "PROBATIONARY" vs
+// "PROBATIONARY LOG").
+function findSheetByCandidates_(ss, candidates) {
+  for (let i = 0; i < candidates.length; i++) {
+    const sheet = ss.getSheetByName(candidates[i]);
+    if (sheet) return sheet;
+  }
+  return null;
+}
+
+// A date cell from the old sheet may already be a real Date (most
+// likely, if Sheets auto-parsed it on entry) or plain text like
+// "11 Feb 2026" — handle both, and never throw on a bad/blank cell.
+function parseDateCell_(value) {
+  if (value instanceof Date) return value;
+  if (!value) return null;
+  const parsed = new Date(value);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+// The old sheet's grade cells show up as "89%" text, a 0-1 fraction, or
+// a bare 89 depending on how they were typed — normalize all three to
+// the fraction MASTER_LOG's percent-formatted columns expect, or to the
+// raw 0-100 scale for the one column (TL Entry Average) this script has
+// always stored unscaled. Never throws on blank/unparseable input.
+function gradeForStorage_(value, keepRaw) {
+  if (value === '' || value === null || value === undefined) return '';
+  const num = Number(value.toString().replace('%', '').trim());
+  if (isNaN(num)) return '';
+  const fraction = num > 1 ? num / 100 : num; // "89" or "89%" -> 0.89; already-0.89 passes through
+  return keepRaw ? Math.round(fraction * 10000) / 100 : Math.round(fraction * 10000) / 10000;
+}
+
+function migrateLegacyLogs() {
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const probSheet = findSheetByCandidates_(ss, ['PROBATIONARY', 'PROBATIONARY LOG']);
+  const certSheet = findSheetByCandidates_(ss, ['CERTIFIED', 'CERTIFIED LOG', 'CERTIFICATION LOG']);
+
+  if (!probSheet && !certSheet) {
+    ui.alert('Nothing to migrate', 'Couldn\'t find a tab named "PROBATIONARY" or "CERTIFIED" (or "...LOG") in this spreadsheet. If your legacy tabs use different names, tell Claude the exact names and this function can be adjusted.', ui.ButtonSet.OK);
+    return;
+  }
+
+  const resp = ui.alert(
+    'Migrate legacy logs into MASTER_LOG?',
+    'Found: ' + (probSheet ? '"' + probSheet.getName() + '" ' : '(no probationary tab) ') +
+    (certSheet ? 'and "' + certSheet.getName() + '"' : '(no certified tab)') +
+    '.\n\nThis will APPEND every row from those tabs into MASTER_LOG under this script\'s column headers. It never edits or deletes the source tabs, and skips anyone already in MASTER_LOG. Continue?',
+    ui.ButtonSet.YES_NO
+  );
+  if (resp !== ui.Button.YES) return;
+
+  const masterSheet = getSheet_();
+  const masterMap = getHeaderMap(masterSheet);
+  const masterLastRow = masterSheet.getLastRow();
+
+  const existingKeys = {};
+  if (masterLastRow >= 2) {
+    masterSheet.getRange(2, 1, masterLastRow - 1, masterSheet.getLastColumn()).getValues().forEach(row => {
+      const name = row[masterMap['Full Name']];
+      if (!name) return;
+      existingKeys[makeKey_(name, row[masterMap['Mother Store']], row[masterMap['Date of Entry']])] = true;
+    });
+  }
+
+  let added = 0, skipped = 0, blankRows = 0;
+  const newRows = [];
+
+  if (probSheet) {
+    const ciMap = getHeaderMapCI_(probSheet);
+    const lastRow = probSheet.getLastRow();
+    if (lastRow >= 2) {
+      probSheet.getRange(2, 1, lastRow - 1, probSheet.getLastColumn()).getValues().forEach(srcRow => {
+        const name = pickCell_(srcRow, ciMap, ['Full name', 'Full Name']);
+        if (!name) { blankRows++; return; }
+        const entryDate = parseDateCell_(pickCell_(srcRow, ciMap, ['Date of Entry']));
+        const store = pickCell_(srcRow, ciMap, ['Mother Store']);
+        const key = makeKey_(name, store, entryDate);
+        if (existingKeys[key]) { skipped++; return; }
+        existingKeys[key] = true;
+
+        const row = new Array(masterSheet.getLastColumn()).fill('');
+        row[masterMap['Timestamp']] = new Date();
+        row[masterMap['Date of Entry']] = entryDate || '';
+        row[masterMap['Batch #']] = toUpperSafe(pickCell_(srcRow, ciMap, ['Batch #']));
+        row[masterMap['Mother Store']] = normalizeStore(store);
+        row[masterMap['Full Name']] = name;
+        row[masterMap['Mother Station']] = toUpperSafe(pickCell_(srcRow, ciMap, ['Mother Station']));
+        row[masterMap['Support Store']] = normalizeStore(pickCell_(srcRow, ciMap, ['Support Store']));
+        row[masterMap['Status']] = toUpperSafe(pickCell_(srcRow, ciMap, ['Result']));
+        row[masterMap['Uniform Release']] = pickCell_(srcRow, ciMap, ['Uniform Release']);
+        row[masterMap['Entry By']] = toUpperSafe(pickCell_(srcRow, ciMap, ['Entry By']));
+        row[masterMap['ISTV Grade']] = gradeForStorage_(pickCell_(srcRow, ciMap, ['ISTV Grade']), false);
+        row[masterMap['TechVal FP']] = gradeForStorage_(pickCell_(srcRow, ciMap, ['TechVal FP']), false);
+        row[masterMap['TechVal PM']] = gradeForStorage_(pickCell_(srcRow, ciMap, ['TechVal PM']), false);
+        row[masterMap['TL-Entry Food Prep Exam']] = gradeForStorage_(pickCell_(srcRow, ciMap, ['TL-Entry Food Prep Exam']), false);
+        row[masterMap['TL-Entry Pizza Maker Exam']] = gradeForStorage_(pickCell_(srcRow, ciMap, ['TL-Entry Pizza Maker Exam']), false);
+        row[masterMap['TL Entry Average']] = gradeForStorage_(pickCell_(srcRow, ciMap, ['TL Entry Average']), true);
+        const deadline = parseDateCell_(pickCell_(srcRow, ciMap, ['Certification Deadline']));
+        if (deadline) row[masterMap['Certification Deadline']] = deadline;
+        newRows.push(row);
+        added++;
+      });
+    }
+  }
+
+  if (certSheet) {
+    const ciMap = getHeaderMapCI_(certSheet);
+    const lastRow = certSheet.getLastRow();
+    if (lastRow >= 2) {
+      certSheet.getRange(2, 1, lastRow - 1, certSheet.getLastColumn()).getValues().forEach(srcRow => {
+        const name = pickCell_(srcRow, ciMap, ['Full name', 'Full Name']);
+        if (!name) { blankRows++; return; }
+        const entryDate = parseDateCell_(pickCell_(srcRow, ciMap, ['Date of Entry']));
+        const store = pickCell_(srcRow, ciMap, ['Mother Store']);
+        const key = makeKey_(name, store, entryDate);
+        if (existingKeys[key]) { skipped++; return; }
+        existingKeys[key] = true;
+
+        const row = new Array(masterSheet.getLastColumn()).fill('');
+        row[masterMap['Timestamp']] = new Date();
+        row[masterMap['Date of Entry']] = entryDate || '';
+        row[masterMap['Batch #']] = toUpperSafe(pickCell_(srcRow, ciMap, ['Batch #']));
+        row[masterMap['Mother Store']] = normalizeStore(store);
+        row[masterMap['Full Name']] = name;
+        row[masterMap['Mother Station']] = toUpperSafe(pickCell_(srcRow, ciMap, ['Mother Station']));
+        row[masterMap['Support Store']] = normalizeStore(pickCell_(srcRow, ciMap, ['Support Store']));
+        row[masterMap['Status']] = toUpperSafe(pickCell_(srcRow, ciMap, ['Result']));
+        row[masterMap['Uniform Release']] = pickCell_(srcRow, ciMap, ['Uniform Release']);
+        row[masterMap['Cert By']] = toUpperSafe(pickCell_(srcRow, ciMap, ['Cert By:', 'Cert By']));
+        const dateCertified = parseDateCell_(pickCell_(srcRow, ciMap, ['Date Certified']));
+        if (dateCertified) row[masterMap['Date Certified']] = dateCertified;
+        row[masterMap['Certification Grade']] = gradeForStorage_(pickCell_(srcRow, ciMap, ['Certfication Grade', 'Certification Grade']), false);
+        row[masterMap['Exam Grade']] = gradeForStorage_(pickCell_(srcRow, ciMap, ['Exam Grade']), false);
+        row[masterMap['Average']] = gradeForStorage_(pickCell_(srcRow, ciMap, ['Average']), false);
+        row[masterMap['Final Status']] = toUpperSafe(pickCell_(srcRow, ciMap, ['Signed Appointment Letter']));
+        newRows.push(row);
+        added++;
+      });
+    }
+  }
+
+  if (newRows.length) {
+    masterSheet.getRange(masterSheet.getLastRow() + 1, 1, newRows.length, masterSheet.getLastColumn()).setValues(newRows);
+  }
+
+  ui.alert(
+    'Migration finished',
+    'Added ' + added + ' row(s) to MASTER_LOG.' +
+    (skipped ? ' Skipped ' + skipped + ' already present.' : '') +
+    (blankRows ? ' Skipped ' + blankRows + ' blank/placeholder row(s) with no name.' : '') +
+    '\n\nSpot-check a few rows in MASTER_LOG before relying on Reports/Monitoring — this is a best-effort column mapping off text-based headers, not a guaranteed 1:1 copy.',
+    ui.ButtonSet.OK
+  );
 }
