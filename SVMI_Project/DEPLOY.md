@@ -143,8 +143,15 @@ done
 
 # drive the standalone preview in a headless browser (122 checks)
 node SVMI_Project/tests/portal-ui.test.js
+
+# same preview across 6 device profiles - phone/tablet, portrait/landscape,
+# desktop - checking touch-target sizing, no horizontal overflow, and that
+# nothing (dropdowns, filter popovers) gets clipped off-screen (54 checks)
+node SVMI_Project/tests/responsive-check.js
 ```
 
-The browser suite exercises the preview's in-memory sample data, not a real
-spreadsheet. **Nothing in this repo has been verified against a live Sheet** —
-deploy to the Copy and try it there first.
+Both suites exercise the preview's in-memory sample data, not a real
+spreadsheet — they catch UI/layout regressions, not data-correctness issues.
+`onOpen()`, the menu, and a real deploy via `clasp push` have since been
+verified against the Copy; still worth trying anything new there before the
+live sheet.

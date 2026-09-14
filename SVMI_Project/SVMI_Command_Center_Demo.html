@@ -376,7 +376,6 @@ textarea.fi{padding-right:28px}
   .brand-wrap{margin-left:0;width:100%}
   .brand-wrap .sel-dark{flex:1;min-width:0}
   .tab-bar{overflow-x:auto;-webkit-overflow-scrolling:touch}
-  .tab{padding:11px 14px;flex-shrink:0;white-space:nowrap}
   .tab-content.active{display:block}
   .portal-layout,.si-layout{display:block;overflow:visible}
   .portal-form,.portal-queue,.si-main{overflow:visible;border-right:none}
@@ -391,19 +390,31 @@ textarea.fi{padding-right:28px}
   .toolbar .btn-gold{margin-left:0}
   .data-tbl{min-width:620px}
   .dup-card{width:auto;max-width:92vw;margin:0 12px}
+  .ss-drop{max-height:240px}
+  .log-body{max-height:220px}
+}
+
+/* Tap-target and font sizing: keyed to touch capability (pointer:coarse),
+   not just narrow viewport. A landscape phone or tablet is wide enough to
+   skip the max-width:820px breakpoint above while still being 100% touch —
+   without this, that case got mouse-sized 33px buttons and 12px inputs
+   (which triggers iOS's zoom-on-focus). Layout stacking above stays
+   width-based since a wide touch device still has room for the two-pane
+   layout; only sizing needs to follow the input method. */
+@media (max-width:820px), (hover:none) and (pointer:coarse){
+  .tab{padding:11px 14px;flex-shrink:0;white-space:nowrap}
   /* 16px inputs stop iOS from auto-zooming on focus; 42px = comfortable tap target */
   .fi,.ss-input,.si-search,.sel-dark,.vm-input{font-size:16px;min-height:42px}
   textarea.fi{min-height:72px}
   .btn-primary,.btn-clear,.tool-run,.btn-gold,.btn-navy,.cf-btn,.vm-btn,
   .dup-cancel,.dup-submit{min-height:42px}
+  .combo-caret{min-width:32px;min-height:32px;font-size:12px}
   .ss-opt{padding:11px 12px;font-size:13px}
-  .ss-drop{max-height:240px}
   .chip{font-size:12px;padding:4px 10px}
   .chip-x{font-size:17px;padding:0 3px}
   .token-box{min-height:42px}
   .token-input{font-size:16px}
   .field-x{font-size:19px;padding:4px 7px}
-  .log-body{max-height:220px}
 }
 </style>
 </head>
