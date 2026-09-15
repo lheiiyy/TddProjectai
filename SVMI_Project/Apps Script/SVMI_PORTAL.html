@@ -657,7 +657,7 @@ textarea.fi{padding-right:28px}
 <div class="tab-content" id="content-Tools">
   <div class="tools-grid">
 
-    <div class="tool-card primary">
+    <div class="tool-card primary" data-admin-only="true">
       <div class="tool-hdr"><span class="tool-icon">📋</span>
         <div><div class="tool-title">Store Master Insight</div>
         <div class="tool-desc-hdr">All stores · visits · status · risk</div></div></div>
@@ -666,10 +666,11 @@ textarea.fi{padding-right:28px}
         <p>Rebuilds STORE MASTER INSIGHT sheet with per-store visit counts, last visit, risk tier, and compliance status.</p>
         <button class="tool-run" onclick="runTool('rebuildStoreMaster','stat-SMI')">▶ Rebuild Store Master</button>
         <div class="tool-stat idle" id="stat-SMI">Ready</div>
+        <div class="tool-lock" id="lock-SMI" hidden>🔒 Admin access required to run this tool.</div>
       </div>
     </div>
 
-    <div class="tool-card primary">
+    <div class="tool-card primary" data-admin-only="true">
       <div class="tool-hdr"><span class="tool-icon">🏥</span>
         <div><div class="tool-title">Store Health</div>
         <div class="tool-desc-hdr">Risk scores + sheet rebuild</div></div></div>
@@ -678,6 +679,7 @@ textarea.fi{padding-right:28px}
         <p>Reads MASTER_LOG, scores all stores by visit frequency and QA/MS history, writes STORE HEALTH sheet.</p>
         <button class="tool-run" onclick="runTool('rebuildStoreHealth','stat-SH')">▶ Rebuild Store Health</button>
         <div class="tool-stat idle" id="stat-SH">Ready</div>
+        <div class="tool-lock" id="lock-SH" hidden>🔒 Admin access required to run this tool.</div>
       </div>
     </div>
 
@@ -707,7 +709,7 @@ textarea.fi{padding-right:28px}
       </div>
     </div>
 
-    <div class="tool-card">
+    <div class="tool-card" data-admin-only="true">
       <div class="tool-hdr"><span class="tool-icon">✅</span>
         <div><div class="tool-title">Validate MASTER_LOG</div>
         <div class="tool-desc-hdr">Check for missing or invalid data</div></div></div>
@@ -716,6 +718,7 @@ textarea.fi{padding-right:28px}
         <p>Scans MASTER_LOG for rows with missing required fields, invalid dates, or unrecognized brand names. Changes nothing.</p>
         <button class="tool-run" onclick="runTool('validateMasterLog','stat-VAL')">▶ Run Validation</button>
         <div class="tool-stat idle" id="stat-VAL">Ready</div>
+        <div class="tool-lock" id="lock-VAL" hidden>🔒 Admin access required to run this tool.</div>
       </div>
     </div>
 

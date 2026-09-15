@@ -174,8 +174,11 @@ function portal_rebuildExecutiveSummary() {
 
 /**
  * portal_rebuildStoreHealth()
+ * Admin-only — see portal_rebuildExecutiveSummary() above. All six
+ * System Tools are now admin-only, not just the three destructive ones.
  */
 function portal_rebuildStoreHealth() {
+  if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
   try {
     const result = refreshRiskEngine();
     return { success: result.success, message: 'Store Health sheet refreshed. ' + result.rows + ' MASTER_LOG rows scanned.' };
@@ -217,8 +220,10 @@ function portal_rebuildDataHeaders() {
 
 /**
  * portal_rebuildStoreMaster()
+ * Admin-only — see portal_rebuildExecutiveSummary() above.
  */
 function portal_rebuildStoreMaster() {
+  if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
   try {
     const result = rebuildStoreMasterInsight();
     return { success: result.success, message: result.message };
@@ -229,8 +234,11 @@ function portal_rebuildStoreMaster() {
 
 /**
  * portal_validateMasterLog()
+ * Admin-only — see portal_rebuildExecutiveSummary() above. Read-only
+ * itself, but every System Tool is locked down the same way now.
  */
 function portal_validateMasterLog() {
+  if (!sl_isAdmin()) return { success: false, message: 'Admin access required.', errors: [] };
   try {
     const result = validateMasterLog();
     return { success: result.valid, message: result.summary, errors: result.errors ? result.errors.slice(0,20) : [] };

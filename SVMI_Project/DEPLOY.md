@@ -139,7 +139,7 @@ Three layers, each answering a different question:
 |---|---|---|
 | Google sign-in | Is this a real Google account? | `appsscript.json` |
 | Guest password | Should this account be using the app at all? | `SETTINGS!I2` |
-| Admin list | Should this account run the destructive System Tools? | `SETTINGS!G2:G` |
+| Admin list | Should this account see System Tools at all? | `SETTINGS!G2:G` |
 
 ### 1. Google sign-in
 
@@ -191,22 +191,30 @@ generates a random password into `SETTINGS!I2` and shows it once in a dialog;
 change it any time by editing that cell directly. Rotating it signs out every
 browser that had the old one remembered (they'll see the lock screen again).
 
-### 3. Admin list (destructive tools)
+### 3. Admin list (all of System Tools)
 
 `SETTINGS!G2:G` holds one admin email per row. `sl_isAdmin()` checks the
-signed-in email (from layer 1) against that list, and the three destructive
-System Tools — Executive Summary, KPI 2026, Data Headers rebuilds — hide
-their buttons in the UI for anyone not on it. That hiding is a convenience
-only: `portal_rebuildExecutiveSummary()`, `portal_rebuildKPI2026()`, and
-`portal_rebuildDataHeaders()` each call `sl_isAdmin()` again themselves before
-doing anything, since a hidden button doesn't stop a direct call to the
-function. The same **🔐 Set Up Access Control** menu item seeds whoever runs
-it as the first admin, so there's always at least one.
+signed-in email (from layer 1) against that list. **Every** System Tool —
+all six cards, not just the three destructive ones — hides its button in
+the UI for anyone not on the list. That hiding is a convenience only: each
+of the six `portal_*` handlers (`portal_rebuildStoreMaster`,
+`portal_rebuildStoreHealth`, `portal_rebuildExecutiveSummary`,
+`portal_rebuildKPI2026`, `portal_validateMasterLog`,
+`portal_rebuildDataHeaders`) calls `sl_isAdmin()` again itself before doing
+anything, since a hidden button doesn't stop a direct call to the function.
+The same **🔐 Set Up Access Control** menu item seeds whoever runs it as
+the first admin, so there's always at least one.
 
-Everything else — Input Portal, Store Insights, Unvisited This Month, the
-new Reports tab, and the two non-destructive System Tools (Store Master
-Insight, Store Health, both "Update" not "Rebuild") — stays open to anyone
-who gets past the password.
+**To restrict System Tools to a single account**, run 🔐 Set Up Access
+Control once (or confirm it's already run), then open `SETTINGS!G` and make
+sure that column has exactly one row — the one account that should have
+access — with any other admin emails removed. `sl_isAdmin()` reads that
+column fresh on every check, so this takes effect immediately, no
+redeploy needed.
+
+Everything else — Input Portal, Store Insights, Unvisited This Month, and
+the Reports tab — stays open to anyone who gets past the password; System
+Tools is the only tab gated by the admin list.
 
 ---
 

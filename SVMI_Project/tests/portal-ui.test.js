@@ -519,15 +519,18 @@ function check(name, cond, extra) {
     await guestPage.click('#tab-Tools');
     await guestPage.waitForTimeout(200);
 
-    for (const id of ['ES', 'KPI', 'DH']) {
-      const btnHidden  = await guestPage.isHidden(`button[onclick*="rebuild${id === 'ES' ? 'ExecutiveSummary' : id === 'KPI' ? 'KPI2026' : 'DataHeaders'}"]`);
+    // Every System Tool is admin-only now — the whole tab is locked for a
+    // non-admin, not just the three previously-destructive ones.
+    const toolFns = {
+      SMI: 'rebuildStoreMaster', SH: 'rebuildStoreHealth', ES: 'rebuildExecutiveSummary',
+      KPI: 'rebuildKPI2026', VAL: 'validateMasterLog', DH: 'rebuildDataHeaders',
+    };
+    for (const id in toolFns) {
+      const btnHidden  = await guestPage.isHidden(`button[onclick*="${toolFns[id]}"]`);
       const lockShown  = await guestPage.isVisible('#lock-' + id);
       check('non-admin: ' + id + ' tool is locked (button hidden, lock note shown)', btnHidden && lockShown,
         'btnHidden=' + btnHidden + ' lockShown=' + lockShown);
     }
-
-    const smiVisible = await guestPage.isVisible('button[onclick*="rebuildStoreMaster"]');
-    check('non-admin: non-critical tools stay usable', smiVisible);
     check('no console/page errors for a non-admin guest', guestErrors.length === 0, guestErrors.slice(0, 3).join(' | '));
 
     await guestCtx.close();
