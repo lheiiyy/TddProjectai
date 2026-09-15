@@ -468,6 +468,24 @@ function getOpenTLList() {
   return result;
 }
 
+// Count of open trainees (PROBATIONARY/EXTENDED) whose Certification Deadline
+// has already passed — drives the past-due warning badge on the burger menu
+// and mode indicator, so it's visible before opening the Monitoring tab.
+function getOverdueCount_() {
+  const sheet = getSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 0;
+  const now = new Date();
+  let count = 0;
+  sheet.getRange(2, 1, lastRow - 1, MASTER_LOG_LAST_COL).getValues().forEach(row => {
+    const status = toUpperSafe(row[COL.STATUS - 1]);
+    if (OPEN_STATUSES.indexOf(status) === -1) return;
+    const deadline = row[COL.CERT_DEADLINE - 1];
+    if (deadline instanceof Date && deadline < now) count++;
+  });
+  return count;
+}
+
 // Everyone in MASTER_LOG regardless of status, for the Uniform tab's picker —
 // uniforms get handed out to certified TLs too, not just open trainees.
 function getAllTLList() {
@@ -542,7 +560,8 @@ function getFormBootstrapData() {
     openList: getOpenTLList(),
     allList: getAllTLList(),
     uniformSizes: UNIFORM_SIZES,
-    inventorySummary: getInventorySummary()
+    inventorySummary: getInventorySummary(),
+    overdueCount: getOverdueCount_()
   };
 }
 

@@ -121,9 +121,36 @@
     /* stat tiles — SVMI's .ck KPI cards */
     .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
     .tile { background: var(--card); border: 1px solid var(--border); border-left: 4px solid var(--tld); border-radius: 5px; padding: 8px 10px; }
-    .tile.warn { border-left-color: #d97706; }
+    .tile.warn { border-left-color: #d97706; background: #FEF3E2; }
     .tile-val { font-size: 20px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
     .tile-lbl { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; margin-top: 2px; }
+
+    /* past-due warning banner (Monitoring tab) — a tappable filter, not just
+       a count: click toggles the list down to overdue trainees only. */
+    .warnBanner {
+      display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 10px 12px;
+      background: #FDECEA; border: 1px solid #f3b5ae; border-left: 4px solid #c53030; border-radius: 6px;
+      cursor: pointer;
+    }
+    .warnBanner:hover { background: #fbdbd6; }
+    .warnBanner .warnIcon { font-size: 16px; flex: none; line-height: 1; }
+    .warnBanner .warnText { flex: 1; font-size: 12.5px; font-weight: 700; color: #7a2020; }
+    .warnBanner .warnHint { flex: none; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: #a33; }
+    .warnBanner.active { background: #c53030; border-color: #c53030; }
+    .warnBanner.active .warnText, .warnBanner.active .warnHint { color: #fff; }
+
+    /* small red count badge — burger button (any overdue anywhere) and the
+       Monitoring row in the mode menu — visible before you even open the tab. */
+    .burgerBtn { position: relative; }
+    .navBadge {
+      position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 3px;
+      background: #c53030; color: #fff; border-radius: 9px; font-size: 9px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; line-height: 1; border: 1.5px solid var(--navy);
+    }
+    .modeMenu button.modeItem .itemBadge {
+      margin-left: auto; flex: none; background: #c53030; color: #fff; border-radius: 9px;
+      font-size: 9px; font-weight: 700; padding: 2px 6px; text-transform: uppercase; letter-spacing: .2px;
+    }
 
     /* status breakdown bars */
     .breakdown { margin-top: 4px; }
@@ -159,12 +186,15 @@
     /* monitoring list rows */
     .monlist { margin-top: 6px; }
     .monrow { background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--tld); border-radius: 5px; padding: 8px 10px; margin-top: 6px; font-size: 12.5px; }
-    .monrow.overdue { border-left-color: #c53030; }
+    .monrow.overdue { border-left-color: #c53030; background: #FFF9F8; }
     .monrow .mtop { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+    .monrow .mtop .mtopRight { display: flex; align-items: center; gap: 5px; flex: none; }
     .monrow .mname { font-weight: 700; color: var(--text); }
     .monrow .msub { color: var(--muted); margin-top: 2px; }
     .monrow .mmeta { display: flex; justify-content: space-between; margin-top: 5px; font-size: 11px; color: var(--muted); }
     .monrow .mmeta .mflag { color: #c53030; font-weight: 700; }
+    .monrow.overdue .mmeta { color: #c53030; font-weight: 700; }
+    .badge.badgeOverdue { background: #c53030; color: #fff; }
 
     /* stock table — styled like SVMI's data-tbl */
     .stocktable { margin-top: 10px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
@@ -238,7 +268,7 @@
   <div id="app">
     <div class="shell">
       <div class="topbar">
-        <button type="button" class="burgerBtn" onclick="toggleModeMenu()" aria-label="Open mode menu" aria-expanded="false" id="burgerBtn">☰</button>
+        <button type="button" class="burgerBtn" onclick="toggleModeMenu()" aria-label="Open mode menu" aria-expanded="false" id="burgerBtn">☰<span class="navBadge" id="navBadge" style="display:none;"></span></button>
         <div class="brandrow">
           <svg width="28" height="28" viewBox="0 0 40 40" aria-hidden="true" style="flex:none;">
             <circle cx="16" cy="14" r="11" fill="#C6D92E"/>
@@ -259,7 +289,7 @@
         <button type="button" class="modeItem" data-mode="uniform" onclick="selectMode('uniform')">👕 Uniform</button>
         <button type="button" class="modeItem" data-mode="stock" onclick="selectMode('stock')">📦 Stock</button>
         <button type="button" class="modeItem" data-mode="exec" onclick="selectMode('exec')">📊 Reports</button>
-        <button type="button" class="modeItem" data-mode="monitor" onclick="selectMode('monitor')">🔎 Monitoring</button>
+        <button type="button" class="modeItem" data-mode="monitor" onclick="selectMode('monitor')">🔎 Monitoring<span class="itemBadge" id="monitorItemBadge" style="display:none;"></span></button>
       </div>
     </div>
     <div class="modeOverlay" id="modeOverlay" onclick="closeModeMenu()"></div>
@@ -533,6 +563,8 @@
     <div id="panelMonitor" class="panel">
       <small class="hint">Every trainee, searchable and filterable — for trainers checking their own roster or execs scanning everyone.</small>
 
+      <div id="monWarnBanner"></div>
+
       <div class="searchRow">
         <input type="text" id="monSearch" placeholder="Search by name or store…" oninput="renderMonitoringList()">
         <button type="button" class="clearX" onclick="document.getElementById('monSearch').value=''; renderMonitoringList();" aria-label="Clear search">&times;</button>
@@ -731,10 +763,24 @@
         populateOpenList(data.openList);
         populateSelectOptions('uf_key', data.allList, 'No trainees yet');
         renderStockTable(data.inventorySummary);
+        updateOverdueNavBadge(data.overdueCount);
       }).withFailureHandler(function(err) {
         document.getElementById('msg').textContent = 'Could not load form data: ' + err.message;
         document.getElementById('msg').className = 'err';
       }).getFormBootstrapData();
+    }
+
+    // ---------- past-due nav badges (burger button + Monitoring menu row) ----------
+    // Visible the moment the app loads, before Monitoring is even opened.
+    function updateOverdueNavBadge(count) {
+      var navBadge = document.getElementById('navBadge');
+      var itemBadge = document.getElementById('monitorItemBadge');
+      var show = count > 0;
+      [navBadge, itemBadge].forEach(function(el) {
+        el.style.display = show ? 'flex' : 'none';
+        el.textContent = show ? count : '';
+      });
+      itemBadge.style.display = show ? 'inline-block' : 'none';
     }
 
     // ---------- stock table (Stock tab + reused on the Reports tab) ----------
@@ -893,12 +939,14 @@
 
     // ---------- 🔎 Monitoring tab ----------
     var monitoringData = [];
+    var monOverdueOnly = false; // toggled by tapping the past-due warning banner
 
     function loadMonitoringList() {
       var list = document.getElementById('monList');
       list.innerHTML = '<div class="histempty">Loading…</div>';
       google.script.run.withSuccessHandler(function(rows) {
         monitoringData = rows;
+        renderMonWarnBanner();
 
         var statusSel = document.getElementById('monStatusFilter');
         var keepStatus = statusSel.value;
@@ -924,6 +972,26 @@
       }).getMonitoringList();
     }
 
+    // Renders (or clears) the past-due banner from whatever monitoringData
+    // currently holds — no server round trip, so toggling it stays instant.
+    function renderMonWarnBanner() {
+      var banner = document.getElementById('monWarnBanner');
+      var overdueCount = monitoringData.filter(function(r) { return r.isOverdue; }).length;
+      if (overdueCount === 0) { banner.innerHTML = ''; monOverdueOnly = false; return; }
+      banner.innerHTML =
+        '<div class="warnBanner' + (monOverdueOnly ? ' active' : '') + '" onclick="toggleOverdueOnly()">' +
+        '<span class="warnIcon">⚠️</span>' +
+        '<span class="warnText">' + overdueCount + ' trainee' + (overdueCount === 1 ? '' : 's') + ' past certification deadline</span>' +
+        '<span class="warnHint">' + (monOverdueOnly ? 'Showing overdue · tap to clear' : 'Tap to filter') + '</span>' +
+        '</div>';
+    }
+
+    function toggleOverdueOnly() {
+      monOverdueOnly = !monOverdueOnly;
+      renderMonWarnBanner();
+      renderMonitoringList();
+    }
+
     function renderMonitoringList() {
       var list = document.getElementById('monList');
       var count = document.getElementById('monCount');
@@ -933,6 +1001,7 @@
       var sortBy = val('monSort') || 'name';
 
       var rows = monitoringData.filter(function(r) {
+        if (monOverdueOnly && !r.isOverdue) return false;
         if (statusFilter && r.status !== statusFilter) return false;
         if (storeFilter && r.motherStore !== storeFilter) return false;
         if (q && r.fullName.toUpperCase().indexOf(q) === -1 && r.motherStore.toUpperCase().indexOf(q) === -1) return false;
@@ -959,9 +1028,11 @@
       list.innerHTML = rows.map(function(r) {
         var meta = [];
         if (r.batch) meta.push(r.batch);
-        if (r.deadline) meta.push((r.isOverdue ? '<span class="mflag">OVERDUE — </span>' : '') + 'Due ' + r.deadline);
+        if (r.deadline) meta.push('Due ' + r.deadline);
+        var overdueBadge = r.isOverdue ? '<span class="badge badgeOverdue">⚠️ Past Due</span>' : '';
         return '<div class="monrow' + (r.isOverdue ? ' overdue' : '') + '">' +
-          '<div class="mtop"><span class="mname">' + r.fullName + '</span><span class="' + statusBadgeClass(r.status) + '">' + r.status + '</span></div>' +
+          '<div class="mtop"><span class="mname">' + r.fullName + '</span>' +
+          '<span class="mtopRight">' + overdueBadge + '<span class="' + statusBadgeClass(r.status) + '">' + r.status + '</span></span></div>' +
           '<div class="msub">' + r.motherStore + (r.motherStation ? ' · ' + r.motherStation : '') + '</div>' +
           (meta.length ? '<div class="mmeta"><span>' + meta.join(' · ') + '</span></div>' : '') +
           '</div>';
