@@ -18,6 +18,15 @@ function check(name, cond, extra) {
   else { console.log('  ✗ ' + name + (extra ? '  → ' + extra : '')); fail++; }
 }
 
+// Nav items live inside the burger-menu drawer now, off-screen (closed)
+// until #burgerBtn is clicked.
+async function goToTab(p, name) {
+  await p.click('#burgerBtn');
+  await p.waitForTimeout(300);
+  await p.click('#tab-' + name);
+  await p.waitForTimeout(150);
+}
+
 // Real device sizes, CSS pixels (what the breakpoint actually sees)
 const DEVICES = [
   { label: 'Phone portrait  (iPhone 14, 390×844)',      w: 390,  h: 844,  touch: true  },
@@ -97,7 +106,7 @@ const DEVICES = [
     await page.keyboard.press('Escape');
 
     // ── System Tools: cards readable, not so cramped text overlaps ──
-    await page.click('#tab-Tools');
+    await goToTab(page, 'Tools');
     await page.waitForTimeout(300);
     const toolsLayout = await page.evaluate(() => {
       const cards = [...document.querySelectorAll('.tool-card')];
@@ -109,7 +118,7 @@ const DEVICES = [
       toolsLayout && toolsLayout.aWidth >= 140, JSON.stringify(toolsLayout));
 
     // ── Unvisited tab: wide table must scroll in its own box, not the page ──
-    await page.click('#tab-Visits');
+    await goToTab(page, 'Visits');
     await page.waitForTimeout(1500);
     const tableCheck = await page.evaluate(() => {
       const w = document.querySelector('.tbl-scroll');

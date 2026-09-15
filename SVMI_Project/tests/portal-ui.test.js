@@ -18,6 +18,17 @@ function check(name, cond, extra) {
   else { console.log('  ✗ ' + name + (extra ? '  → ' + extra : '')); fail++; }
 }
 
+// Nav items live inside the burger-menu drawer now, off-screen (closed)
+// until #burgerBtn is clicked — every tab switch in these tests goes
+// through this instead of clicking #tab-X directly. switchTab() closes
+// the drawer again itself once the click lands.
+async function goToTab(p, name) {
+  await p.click('#burgerBtn');
+  await p.waitForTimeout(300); // let the 0.25s slide-in settle before clicking inside it
+  await p.click('#tab-' + name);
+  await p.waitForTimeout(150); // slide-out closing
+}
+
 (async () => {
   const browser = await chromium.launch();
 
@@ -291,7 +302,7 @@ function check(name, cond, extra) {
   await page.keyboard.press('Escape');
 
   console.log('\n── Store Insights: single combobox store picker ──');
-  await page.click('#tab-Insights');
+  await goToTab(page, 'Insights');
   await page.waitForTimeout(300);
   check('the old <select> is gone', (await page.$('#siSel')) === null);
   check('exactly one visible text input in the sidebar',
@@ -337,7 +348,7 @@ function check(name, cond, extra) {
     await page.isDisabled('#siBtn'));
 
   // cross-tab jump still works (it used to drive the <select>)
-  await page.click('#tab-Visits');
+  await goToTab(page, 'Visits');
   await page.waitForTimeout(1400);
   const link = await page.$('#visitsPanel .store-link');
   if (link) {
@@ -351,7 +362,7 @@ function check(name, cond, extra) {
   }
 
   console.log('\n── Store Insights: VISITED list ──');
-  await page.click('#tab-Insights');
+  await goToTab(page, 'Insights');
   await page.click('button.btn-navy');
   await page.waitForTimeout(1000);
   const siText = await page.textContent('#siMain');
@@ -366,7 +377,7 @@ function check(name, cond, extra) {
     JSON.stringify(hdrs));
 
   console.log('\n── Store Insights: header filters on the visited table ──');
-  await page.click('#tab-Insights');
+  await goToTab(page, 'Insights');
   await page.click('button.btn-navy');
   await page.waitForTimeout(1200);
   const visTotal = await page.$$eval('#ftTbl-vis tbody tr', e => e.length);
@@ -422,7 +433,7 @@ function check(name, cond, extra) {
   for (let i = 1; i < rBoxes; i++) await page.uncheck(`.colfBox >> nth=${i}`);
   await page.waitForTimeout(350);
   const visFilteredCount = await page.$$eval('#ftTbl-vis tbody tr', e => e.length);
-  await page.click('#tab-Visits');
+  await goToTab(page, 'Visits');
   await page.waitForTimeout(1400);
   const compUnaffected = await page.$$eval('#ftTbl-comp tbody tr', e => e.length);
   check('filtering one table does not leak into the other',
@@ -431,7 +442,7 @@ function check(name, cond, extra) {
     (await page.$$eval('#ftTbl-comp .fh-btn.on', e => e.length)) === 0);
 
   console.log('\n── System Tools: order + confirmation ──');
-  await page.click('#tab-Tools');
+  await goToTab(page, 'Tools');
   await page.waitForTimeout(200);
   const toolTitles = await page.$$eval('.tool-card .tool-title', e => e.map(x => x.textContent));
   check('1st card = Store Master Insight', toolTitles[0] === 'Store Master Insight', toolTitles[0]);
@@ -516,7 +527,7 @@ function check(name, cond, extra) {
     // mock sl_isAdmin() returns false, same as a real non-admin visitor.
     await guestPage.goto(URL);
     await guestPage.waitForTimeout(1200);
-    await guestPage.click('#tab-Tools');
+    await goToTab(guestPage, 'Tools');
     await guestPage.waitForTimeout(200);
 
     // Every System Tool is admin-only now — the whole tab is locked for a
@@ -537,7 +548,7 @@ function check(name, cond, extra) {
   }
 
   console.log('\n── Reports tab (Executive Summary / KPI 2026 / Store Health) ──');
-  await page.click('#tab-Reports');
+  await goToTab(page, 'Reports');
   await page.waitForTimeout(1000);   // first load, through the mock backend's simulated delay
   check('Executive Summary sub-tab active by default', await page.evaluate(() =>
     document.getElementById('repTab-es').classList.contains('active')));
@@ -610,7 +621,7 @@ function check(name, cond, extra) {
   check('no console/page errors on the Reports tab', errors.length === 0, errors.slice(0, 3).join(' | '));
 
   console.log('\n── Input: Visited By reads as a dropdown ──');
-  await page.click('#tab-Input');
+  await goToTab(page, 'Input');
   await page.waitForTimeout(200);
   const carets = await page.$$eval('.combo-caret', e => e.length);
   check('every combobox has a caret (store, visitors, purpose, SI store)', carets === 4, 'carets=' + carets);
@@ -631,7 +642,7 @@ function check(name, cond, extra) {
   await page.waitForTimeout(200);
 
   console.log('\n── Unvisited This Month: header filters + sorting ──');
-  await page.click('#tab-Visits');
+  await goToTab(page, 'Visits');
   await page.waitForTimeout(1500);
   const totalRows = await page.$$eval('#ftTbl-comp tbody tr', e => e.length);
   check('table rendered', totalRows > 1, 'rows=' + totalRows);
@@ -801,7 +812,7 @@ function check(name, cond, extra) {
   await mp.screenshot({ path: OUT + '/phone-input.png', fullPage: false });
 
   // tools tab on phone = single column
-  await mp.click('#tab-Tools');
+  await goToTab(mp, 'Tools');
   await mp.waitForTimeout(300);
   const oneCol = await mp.evaluate(() => {
     const cards = [...document.querySelectorAll('.tool-card')];
@@ -813,7 +824,7 @@ function check(name, cond, extra) {
   await mp.screenshot({ path: OUT + '/phone-tools.png' });
 
   // wide table scrolls inside its own box on the unvisited tab
-  await mp.click('#tab-Visits');
+  await goToTab(mp, 'Visits');
   await mp.waitForTimeout(1400);
   const tableContained = await mp.evaluate(() => {
     const w = document.querySelector('.tbl-scroll');
