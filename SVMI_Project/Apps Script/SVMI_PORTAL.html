@@ -2154,7 +2154,7 @@ function renderKPI2026Report(data) {
     { label: 'Visitors Tracked', value: data.visitors.length },
   ]);
 
-  function row(label, r, bold) {
+  function monthRow(label, r, bold) {
     return '<tr' + (bold ? ' style="font-weight:700"' : '') + '><td>' + esc(label) + '</td>'
       + r.monthly.map(function(v){ return '<td class="c">' + esc(v) + '</td>'; }).join('')
       + '<td class="c">' + esc(r.q1) + '</td><td class="c">' + esc(r.q2) + '</td>'
@@ -2163,39 +2163,85 @@ function renderKPI2026Report(data) {
   }
 
   h += repCard('Weekly KPI Tracker — Monthly Totals (' + esc(data.year) + ')',
-    '<p style="font-size:10px;color:var(--muted);margin-bottom:8px">Each cell is that visitor’s total for the month (the W1–W5 weekly breakdown stays in the KPI 2026 sheet itself).</p>'
+    '<p style="font-size:10px;color:var(--muted);margin-bottom:8px">Each cell is that visitor’s total for the month; the per-week breakdown is below.</p>'
     + '<div class="tbl-scroll"><table class="data-tbl"><thead><tr><th>Visitor</th>'
     + data.months.map(function(m){ return '<th class="c">' + esc(m.slice(0,3)) + '</th>'; }).join('')
     + '<th class="c">Q1</th><th class="c">Q2</th><th class="c">Q3</th><th class="c">Q4</th><th class="c">YTD</th></tr></thead><tbody>'
-    + data.visitors.map(function(v){ return row(v.name, v); }).join('')
-    + row('TEAM TOTAL', data.team, true)
+    + data.visitors.map(function(v){ return monthRow(v.name, v); }).join('')
+    + monthRow('TEAM TOTAL', data.team, true)
+    + '</tbody></table></div>');
+
+  function weekRow(label, r, bold) {
+    return '<tr' + (bold ? ' style="font-weight:700"' : '') + '><td>' + esc(label) + '</td>'
+      + r.weekly.map(function(v){ return '<td class="c">' + esc(v) + '</td>'; }).join('')
+      + '</tr>';
+  }
+
+  h += repCard('Weekly Summary per Roster — P{Period}W{Week} (' + esc(data.year) + ')',
+    '<p style="font-size:10px;color:var(--muted);margin-bottom:8px">Period = month (P1 = January); week counts continuously across the year, so P1W1 is the year’s first week, not each month’s own first week. Same Sun–Sat weeks as the KPI 2026 sheet’s W1–W5 columns.</p>'
+    + '<div class="tbl-scroll"><table class="data-tbl"><thead><tr><th>Visitor</th>'
+    + data.weekLabels.map(function(lbl){ return '<th class="c">' + esc(lbl) + '</th>'; }).join('')
+    + '</tr></thead><tbody>'
+    + data.visitors.map(function(v){ return weekRow(v.name, v); }).join('')
+    + weekRow('TEAM TOTAL', data.team, true)
     + '</tbody></table></div>');
 
   document.getElementById('reportsPanel').innerHTML = h;
 }
 
+// Store Health's own column set for the FT filter/sort engine (same one
+// Unvisited This Month and the Store Insights visited table use) — a
+// standalone table id ('health'), not scoped to any other tab.
+var HEALTH_COLS = [
+  { key:'_n',              label:'#',                type:null,   sortable:false },
+  { key:'store',           label:'Store',            type:'text', sortable:true },
+  { key:'brand',           label:'Brand',            type:'set',  sortable:true },
+  { key:'region',          label:'Region',           type:'set',  sortable:true },
+  { key:'lastVisitDate',   label:'Last Visit',       type:'text', sortable:true },
+  { key:'daysSince',       label:'Days Since',       type:'num',  sortable:true, center:true },
+  { key:'totalYtd',        label:'Total YTD',        type:'num',  sortable:true, center:true },
+  { key:'riskScore',       label:'Score',            type:'num',  sortable:true, center:true },
+  { key:'riskTier',        label:'Tier',             type:'set',  sortable:true, center:true },
+  { key:'action',          label:'Action',           type:'set',  sortable:true },
+  { key:'attentionReason', label:'Attention Reason', type:'text', sortable:true }
+];
+
+var HEALTH_TIER_CLASS = { HIGH: 'pill-critical', MEDIUM: 'pill-warning', LOW: 'pill-mild' };
+
+function healthRenderRow(r, i) {
+  var tier = String(r.riskTier || '').toUpperCase();
+  var pillClass = HEALTH_TIER_CLASS[tier] || 'pill-mild';
+  return '<tr>'
+    + '<td class="crn">' + (i + 1) + '</td>'
+    + '<td>' + esc(r.store) + '</td>'
+    + '<td>' + esc(r.brand) + '</td>'
+    + '<td>' + esc(r.region) + '</td>'
+    + '<td>' + esc(r.lastVisitDate) + '</td>'
+    + '<td class="c">' + pill(r.daysSince) + '</td>'
+    + '<td class="c" style="font-weight:700;color:var(--navy)">' + r.totalYtd + '</td>'
+    + '<td class="c" style="font-weight:700;color:var(--navy)">' + r.riskScore + '</td>'
+    + '<td class="c"><span class="pill ' + pillClass + '">' + esc(r.riskTier) + '</span></td>'
+    + '<td>' + esc(r.action) + '</td>'
+    + '<td>' + esc(r.attentionReason) + '</td>'
+    + '</tr>';
+}
+
 function renderStoreHealthReport(data) {
-  var tierClass = { HIGH: 'pill-critical', MEDIUM: 'pill-warning', LOW: 'pill-mild' };
-
   var h = repKpiRow(data.kpis);
-
-  h += repCard('Store Health — ' + data.rows.length + ' store' + (data.rows.length !== 1 ? 's' : ''),
-    '<div class="tbl-scroll"><table class="data-tbl"><thead><tr>'
-    + '<th>Store</th><th>Brand</th><th>Region</th><th>Last Visit</th><th class="c">Days Since</th>'
-    + '<th class="c">Total YTD</th><th class="c">Score</th><th class="c">Tier</th><th>Action</th><th>Attention Reason</th>'
-    + '</tr></thead><tbody>'
-    + data.rows.map(function(r) {
-        var tier = String(r.riskTier || '').toUpperCase();
-        var pillClass = tierClass[tier] || 'pill-mild';
-        return '<tr><td>' + esc(r.store) + '</td><td>' + esc(r.brand) + '</td><td>' + esc(r.region) + '</td>'
-          + '<td>' + esc(r.lastVisitDate) + '</td><td class="c">' + esc(r.daysSince) + '</td>'
-          + '<td class="c">' + esc(r.totalYtd) + '</td><td class="c">' + esc(r.riskScore) + '</td>'
-          + '<td class="c"><span class="pill ' + pillClass + '">' + esc(r.riskTier) + '</span></td>'
-          + '<td>' + esc(r.action) + '</td><td>' + esc(r.attentionReason) + '</td></tr>';
-      }).join('')
-    + '</tbody></table></div>');
-
+  h += '<div class="p-card" style="margin-bottom:14px">'
+    + '<div class="p-card-hdr">Store Health — ' + data.rows.length + ' store' + (data.rows.length !== 1 ? 's' : '') + '</div>'
+    + '<div class="p-card-body"><div id="healthBody"></div></div></div>';
   document.getElementById('reportsPanel').innerHTML = h;
+
+  // Same filter/sort engine as the Unvisited tab and Store Insights
+  // visited table — headers filter and sort here too.
+  ftCreate('health', {
+    cols:      HEALTH_COLS,
+    rows:      data.rows,
+    mount:     'healthBody',
+    renderRow: healthRenderRow,
+    empty:     'No stores in Store Health yet — run "Rebuild Store Health" from System Tools.'
+  });
 }
 
 // ═══════════════════════════════════════

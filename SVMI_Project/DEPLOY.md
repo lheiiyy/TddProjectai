@@ -227,9 +227,18 @@ already in those three sheets (they're still built the same way they always
 were — `buildExecutiveSummaryLayout()`, `buildKPI2026()`, `refreshRiskEngine()`
 via System Tools or the Sheets menu) and returns it as JSON; this tab never
 writes anything. If a sheet doesn't exist yet, its report shows an error
-naming which System Tool to run first. The KPI 2026 view is monthly totals
-and Q1–Q4/YTD per visitor, not the full W1–W5 weekly grid — open the sheet
-itself for that level of detail.
+naming which System Tool to run first.
+
+- **KPI 2026** shows both a monthly-totals table and a per-week table
+  labeled **P{period}W{week}** — period = calendar month (P1 = January),
+  week = a continuous count across the whole year (P1W1 is the year's
+  first week; if January has 5 weeks, February's first real week is
+  P2W6, not "P2W1"). Same Sun–Sat week boundaries as the sheet's own
+  W1–W5 columns; a short month's unused W5 slot (a disabled static 0 in
+  the sheet, not real data) is skipped rather than mislabeled.
+- **Store Health** uses the same header filter/sort engine as the
+  Unvisited This Month and Store Insights tables — every column has a
+  ▼ filter button and is sortable by clicking its label.
 
 ---
 

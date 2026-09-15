@@ -557,12 +557,55 @@ function check(name, cond, extra) {
   });
   check('KPI 2026 shows a TEAM TOTAL row', /TEAM TOTAL/.test(teamRowText), teamRowText.slice(0, 40));
 
+  const weekHeaders = await page.evaluate(() => {
+    var tables = document.querySelectorAll('#reportsPanel table.data-tbl');
+    var weekly = tables[1];
+    return weekly ? [...weekly.querySelectorAll('thead th')].slice(1, 6).map(function(x){ return x.textContent.trim(); }) : [];
+  });
+  check('KPI 2026 weekly table labels start P1W1, P1W2… (period=month, continuous week-of-year)',
+    weekHeaders[0] === 'P1W1' && weekHeaders[1] === 'P1W2' && weekHeaders.every(function(l){ return /^P\d+W\d+$/.test(l); }),
+    JSON.stringify(weekHeaders));
+  const weekTeamRow = await page.evaluate(() => {
+    var tables = document.querySelectorAll('#reportsPanel table.data-tbl');
+    var weekly = tables[1];
+    var rows = weekly ? weekly.querySelectorAll('tbody tr') : [];
+    var last = rows[rows.length - 1];
+    return last ? last.textContent.slice(0, 20) : '';
+  });
+  check('KPI 2026 weekly table also has a TEAM TOTAL row', /TEAM TOTAL/.test(weekTeamRow), weekTeamRow);
+
   await page.click('#repTab-health');
   await page.waitForTimeout(900);
   check('Store Health sub-tab becomes active', await page.evaluate(() =>
     document.getElementById('repTab-health').classList.contains('active')));
   const tierPills = await page.$$eval('#reportsPanel .pill', e => e.length);
   check('Store Health renders a risk-tier pill per store', tierPills > 0, 'count=' + tierPills);
+
+  // Store Health table uses the same FT filter/sort engine as the other
+  // tables — filter buttons on headers, and a working Tier filter.
+  const healthTotalRows = await page.$$eval('#ftTbl-health tbody tr', e => e.length);
+  check('Store Health table has filter buttons on its headers',
+    (await page.$$eval('#ftTbl-health .fh-btn', e => e.length)) > 0);
+  await page.click('#ftTbl-health .fh-btn[onclick*="riskTier"]');
+  await page.waitForTimeout(250);
+  const tierBoxes = await page.$$eval('.colfBox', e => e.map(x => x.value));
+  for (let i = 1; i < tierBoxes.length; i++) await page.uncheck(`.colfBox >> nth=${i}`);
+  await page.waitForTimeout(300);
+  const tierFiltered = await page.$$eval('#ftTbl-health tbody tr td:nth-child(9)', e => [...new Set(e.map(x => x.textContent.trim()))]);
+  check('Store Health Tier filter narrows to the ticked tier',
+    tierFiltered.length === 1 && tierFiltered[0] === tierBoxes[0],
+    JSON.stringify(tierFiltered) + ' expected ' + tierBoxes[0]);
+  await page.click('.colf-clear');
+  await page.waitForTimeout(300);
+  check('Store Health Clear restores every row',
+    (await page.$$eval('#ftTbl-health tbody tr', e => e.length)) === healthTotalRows);
+
+  // Never-visited store's blank Days Since sorts last, same fix as the
+  // Unvisited This Month table.
+  await page.click('#ftTbl-health .fh-lbl >> nth=5');   // Days Since header
+  await page.waitForTimeout(300);
+  const healthDaysAsc = await page.$$eval('#ftTbl-health tbody tr td:nth-child(6)', e => e.map(x => x.textContent.trim()));
+  check('Store Health never-visited row sorts last (ascending)', healthDaysAsc[healthDaysAsc.length - 1] === 'Never', JSON.stringify(healthDaysAsc));
 
   check('no console/page errors on the Reports tab', errors.length === 0, errors.slice(0, 3).join(' | '));
 

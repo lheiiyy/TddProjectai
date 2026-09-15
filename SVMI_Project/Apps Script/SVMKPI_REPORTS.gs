@@ -101,13 +101,19 @@ function getExecutiveSummaryReport() {
 
 /**
  * getKPI2026Report()
- * Aggregated view only — each visitor's monthly TOTAL column and their
- * Q1–Q4/YTD summary, not the full W1–W5 weekly breakdown (that stays a
- * working-sheet detail; open KPI 2026 itself for that level).
+ * Each visitor's monthly TOTAL column, Q1–Q4/YTD summary, AND a per-week
+ * breakdown labeled "P{period}W{week}" — period = calendar month (P1 =
+ * January), week = a continuous count across the whole year (P1W1 is the
+ * year's first week, not "January's first week" restarting every month;
+ * so e.g. if January has 5 weeks, February's first real week is P2W6).
+ * Reuses the same Sun–Sat week boundaries the sheet's own W1–W5 columns
+ * are built from (_weekRanges(), SVMKPI_KPI_REBUILD.gs) — a short
+ * month's unused W5 slot (a disabled, static 0 in the sheet, not a real
+ * formula) is skipped rather than given a fake label.
  * @returns {{
- *   year: number, months: string[],
- *   visitors: {name:string, monthly:string[], q1:string, q2:string, q3:string, q4:string, ytd:string}[],
- *   team: {monthly:string[], q1:string, q2:string, q3:string, q4:string, ytd:string}
+ *   year: number, months: string[], weekLabels: string[],
+ *   visitors: {name:string, monthly:string[], weekly:string[], q1:string, q2:string, q3:string, q4:string, ytd:string}[],
+ *   team: {monthly:string[], weekly:string[], q1:string, q2:string, q3:string, q4:string, ytd:string}
  * }}
  */
 function getKPI2026Report() {
@@ -127,16 +133,39 @@ function getKPI2026Report() {
   const DATA_ROW_START = 6; // matches buildKPI2026() in SVMKPI_KPI_REBUILD.gs
   const monthTotCols = KPI_MONTHS.map((_, mi) => KPI_MON_START + mi * KPI_BLOCK + 5); // W1-W5,TOT,spacer — offset 5 = TOT
 
+  // Period/Week columns — see the "P{period}W{week}" note above.
+  const weekCols = []; // { col, label }
+  let weekCounter = 0;
+  for (let mi = 0; mi < 12; mi++) {
+    const month = mi + 1;
+    const weeks = _weekRanges(DATA_YEAR, month);
+    const sc = KPI_MON_START + mi * KPI_BLOCK;
+    weeks.forEach((_, wi) => {
+      weekCounter++;
+      weekCols.push({ col: sc + wi, label: 'P' + month + 'W' + weekCounter });
+    });
+  }
+
+  // One getDisplayValues() call per row (instead of one per cell — a cell
+  // read per week/month/quarter column would be 60+ calls per row) —
+  // read the whole data span once, then slice out what's needed by index.
+  const rowStartCol = KPI_MON_START;
+  const rowWidth     = KPI_YTD_COL - KPI_MON_START + 1;
+
   const readRow = (row) => {
-    const monthly = monthTotCols.map(col => sheet.getRange(row, col).getDisplayValue());
-    const q = SUMCOLS.map(col => sheet.getRange(row, col).getDisplayValue());
-    return { monthly, q1: q[0], q2: q[1], q3: q[2], q4: q[3], ytd: q[4] };
+    const vals = sheet.getRange(row, rowStartCol, 1, rowWidth).getDisplayValues()[0];
+    const at = (col) => vals[col - rowStartCol];
+    return {
+      monthly: monthTotCols.map(at),
+      weekly:  weekCols.map(w => at(w.col)),
+      q1: at(SUMCOLS[0]), q2: at(SUMCOLS[1]), q3: at(SUMCOLS[2]), q4: at(SUMCOLS[3]), ytd: at(SUMCOLS[4]),
+    };
   };
 
   const visitors = visitorNames.map((name, i) => Object.assign({ name }, readRow(DATA_ROW_START + i)));
   const team = readRow(DATA_ROW_START + visitorNames.length);
 
-  return { year: DATA_YEAR, months: KPI_MONTHS, visitors, team };
+  return { year: DATA_YEAR, months: KPI_MONTHS, weekLabels: weekCols.map(w => w.label), visitors, team };
 }
 
 
@@ -146,12 +175,19 @@ function getKPI2026Report() {
 
 /**
  * getStoreHealthReport()
+ * Numeric fields (daysSince, totalYtd, storeYtd, failedCount, curingCount,
+ * riskScore) come back as actual numbers (daysSince is null for a
+ * never-visited store, matching the same null-means-blank convention the
+ * Unvisited This Month table's daysSince already uses) rather than
+ * display strings — the Reports tab's Store Health table sorts/filters
+ * this data through the same FT engine those tables use, which needs
+ * real numbers to sort and filter correctly, not "—" or "NEVER VISITED".
  * @returns {{
  *   kpis: {label:string, value:string}[],
  *   headers: string[],
  *   rows: {store:string, brand:string, region:string, lastVisitDate:string,
- *          lastPurpose:string, daysSince:string, totalYtd:string, storeYtd:string,
- *          failedCount:string, curingCount:string, riskScore:string, riskTier:string,
+ *          lastPurpose:string, daysSince:(number|null), totalYtd:number, storeYtd:number,
+ *          failedCount:number, curingCount:number, riskScore:number, riskTier:string,
  *          action:string, attentionReason:string}[]
  * }}
  */
@@ -165,24 +201,33 @@ function getStoreHealthReport() {
     value: sheet.getRange(RISK_ROW.KPI_VALUE, card.colStart).getDisplayValue(),
   }));
 
+  // Numeric columns read via getValues() (real numbers) rather than
+  // getDisplayValues() — DAYS_SINCE holds the literal string 'NEVER
+  // VISITED' for a never-visited store (see populateRiskEngine()), so
+  // that one column gets a null instead.
+  const numToNull = (v) => (typeof v === 'number' ? v : null);
+
   const lastRow = sheet.getLastRow();
   const rows = [];
   if (lastRow >= RISK_ROW.DATA_START) {
-    const data = sheet.getRange(RISK_ROW.DATA_START, 1, lastRow - RISK_ROW.DATA_START + 1, RISK_HEADERS.length).getDisplayValues();
-    data.forEach(r => {
+    const numRows = lastRow - RISK_ROW.DATA_START + 1;
+    const display = sheet.getRange(RISK_ROW.DATA_START, 1, numRows, RISK_HEADERS.length).getDisplayValues();
+    const values  = sheet.getRange(RISK_ROW.DATA_START, 1, numRows, RISK_HEADERS.length).getValues();
+    display.forEach((r, i) => {
       if (!String(r[RISK_COL.STORE - 1] || '').trim()) return; // skip blank trailing rows
+      const v = values[i];
       rows.push({
         store:           r[RISK_COL.STORE - 1],
         brand:           r[RISK_COL.BRAND - 1],
         region:          r[RISK_COL.REGION - 1],
         lastVisitDate:   r[RISK_COL.LAST_DATE - 1],
         lastPurpose:     r[RISK_COL.LAST_PURPOSE - 1],
-        daysSince:       r[RISK_COL.DAYS_SINCE - 1],
-        totalYtd:        r[RISK_COL.TOTAL_YTD - 1],
-        storeYtd:        r[RISK_COL.STORE_YTD - 1],
-        failedCount:     r[RISK_COL.FAILED_COUNT - 1],
-        curingCount:     r[RISK_COL.CURING_COUNT - 1],
-        riskScore:       r[RISK_COL.RISK_SCORE - 1],
+        daysSince:       numToNull(v[RISK_COL.DAYS_SINCE - 1]),
+        totalYtd:        Number(v[RISK_COL.TOTAL_YTD - 1])    || 0,
+        storeYtd:        Number(v[RISK_COL.STORE_YTD - 1])    || 0,
+        failedCount:     Number(v[RISK_COL.FAILED_COUNT - 1]) || 0,
+        curingCount:     Number(v[RISK_COL.CURING_COUNT - 1]) || 0,
+        riskScore:       Number(v[RISK_COL.RISK_SCORE - 1])   || 0,
         riskTier:        r[RISK_COL.RISK_TIER - 1],
         action:          r[RISK_COL.ACTION - 1],
         attentionReason: r[RISK_COL.ATTENTION_REASON - 1],
