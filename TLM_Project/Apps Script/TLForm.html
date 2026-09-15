@@ -105,6 +105,19 @@
     .modeMenu button.modeItem:hover { color: #fff; background: rgba(255,255,255,.06); }
     .modeMenu button.modeItem.active { color: var(--gold); background: rgba(198,217,46,.1); }
 
+    /* Reports tab sub-view switch — "choices what to see" (Overview vs.
+       the full, filterable Store Coverage table) instead of one fixed report. */
+    .segRow { display: flex; gap: 6px; margin-top: 10px; }
+    .segBtn {
+      flex: 1; margin: 0; padding: 9px 6px; background: var(--card); color: var(--muted);
+      border: 1px solid var(--border); border-radius: 5px; font-weight: 700; font-size: 11px;
+      text-transform: uppercase; letter-spacing: .2px; min-height: 0;
+    }
+    .segBtn:hover { color: var(--text); }
+    .segBtn.active { background: var(--navy); color: var(--gold); border-color: var(--navy); }
+    .execView { display: none; }
+    .execView.active { display: block; }
+
     /* stat tiles — SVMI's .ck KPI cards */
     .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
     .tile { background: var(--card); border: 1px solid var(--border); border-left: 4px solid var(--tld); border-radius: 5px; padding: 8px 10px; }
@@ -459,17 +472,57 @@
     <div id="panelExec" class="panel">
       <small class="hint">Live snapshot computed from MASTER_LOG — same numbers "Refresh Store Summary" writes to the Summary tab, shown here without leaving the phone.</small>
 
-      <div class="tiles" id="execTiles"></div>
+      <div class="segRow" id="execSegRow">
+        <button type="button" class="segBtn active" data-view="overview" onclick="switchExecView('overview')">Overview</button>
+        <button type="button" class="segBtn" data-view="stores" onclick="switchExecView('stores')">🏬 Store Coverage</button>
+      </div>
 
-      <div class="sectionLabel" style="margin-top:16px;">Status Breakdown</div>
-      <div class="breakdown" id="execBreakdown"></div>
+      <!-- ---- Overview: KPI tiles, status breakdown, uniform stock ---- -->
+      <div id="execViewOverview" class="execView active">
+        <div class="tiles" id="execTiles"></div>
 
-      <div class="card" id="execTopStores" style="display:none;"></div>
+        <div class="sectionLabel" style="margin-top:16px;">Status Breakdown</div>
+        <div class="breakdown" id="execBreakdown"></div>
 
-      <div class="sectionLabel">Uniform Stock On Hand</div>
-      <div id="execStockTable"></div>
+        <div class="sectionLabel">Uniform Stock On Hand</div>
+        <div id="execStockTable"></div>
+      </div>
 
-      <button type="button" class="linklike" style="width:100%; margin-top:14px; text-align:center;" onclick="loadExecutiveSummary()">↻ Refresh Report</button>
+      <!-- ---- Store Coverage: EVERY store from SVMI's SETTINGS tab, not just
+           ones that already have a MASTER_LOG row — searchable/filterable so
+           "which stores have no active TL right now" is actually answerable. ---- -->
+      <div id="execViewStores" class="execView">
+        <div id="storeCoverageNotice"></div>
+        <div class="tiles" id="storeCoverageTiles"></div>
+
+        <div class="searchRow">
+          <input type="text" id="storeSearch" placeholder="Search store…" oninput="renderStoreCoverageList()">
+          <button type="button" class="clearX" onclick="document.getElementById('storeSearch').value=''; renderStoreCoverageList();" aria-label="Clear search">&times;</button>
+        </div>
+        <div class="filterRow">
+          <select id="storeBrandFilter" onchange="renderStoreCoverageList()">
+            <option value="">All brands</option>
+          </select>
+          <select id="storeRegionFilter" onchange="renderStoreCoverageList()">
+            <option value="">All regions</option>
+          </select>
+          <select id="storeCoverageFilter" onchange="renderStoreCoverageList()">
+            <option value="">All stores</option>
+            <option value="active">Has active TL</option>
+            <option value="none">No active TL</option>
+            <option value="unlisted">Not in SVMI store list</option>
+          </select>
+          <select id="storeSort" onchange="renderStoreCoverageList()">
+            <option value="name">Sort: Name</option>
+            <option value="activeDesc">Sort: Most Active TL</option>
+            <option value="activeAsc">Sort: Least Active TL</option>
+          </select>
+        </div>
+        <div class="resultCount" id="storeCoverageCount"></div>
+        <div class="monlist" id="storeCoverageList"></div>
+      </div>
+
+      <button type="button" class="linklike" style="width:100%; margin-top:14px; text-align:center;" onclick="refreshExecReport()">↻ Refresh Report</button>
       <div id="execUpdated" style="text-align:center; font-size:10px; color:var(--muted); margin-top:6px; text-transform:uppercase; letter-spacing:.3px;"></div>
     </div>
 
@@ -599,8 +652,23 @@
       document.getElementById('modeIndicator').textContent = MODE_LABEL[mode] + ' ▾';
       document.getElementById('msg').textContent = '';
       // both report tabs compute live from MASTER_LOG, so reload on every visit
-      if (mode === 'exec') loadExecutiveSummary();
+      if (mode === 'exec') { loadExecutiveSummary(); loadStoreCoverage(); }
       if (mode === 'monitor') loadMonitoringList();
+    }
+
+    // ---------- Reports tab: Overview / Store Coverage switch ----------
+    function switchExecView(view) {
+      document.querySelectorAll('#execSegRow .segBtn').forEach(function(btn) {
+        btn.classList.toggle('active', btn.dataset.view === view);
+      });
+      document.getElementById('execViewOverview').classList.toggle('active', view === 'overview');
+      document.getElementById('execViewStores').classList.toggle('active', view === 'stores');
+      if (view === 'stores' && !storeCoverageData) loadStoreCoverage();
+    }
+
+    function refreshExecReport() {
+      loadExecutiveSummary();
+      loadStoreCoverage();
     }
 
     function val(id) { return document.getElementById(id).value.trim(); }
@@ -701,7 +769,9 @@
           tile(d.statusCounts.CERTIFIED, 'Certified') +
           tile(d.certRate === null ? '—' : d.certRate + '%', 'Certification Rate') +
           tile(d.overdueCount, 'Overdue', d.overdueCount > 0) +
-          tile(d.storeCount, 'Stores Covered') +
+          tile(d.totalStoreCount, 'Total Stores') +
+          tile(d.storeCount, 'Stores w/ Active TL') +
+          tile(d.storeCoverageGap, 'Stores w/ No Active TL', d.storeCoverageGap > 0) +
           tile(d.avgEntryScore === null ? '—' : d.avgEntryScore + '%', 'Avg Entry Score') +
           tile(d.avgFinalScore === null ? '—' : d.avgFinalScore + '%', 'Avg Final Score');
 
@@ -714,19 +784,9 @@
             '<span class="bct">' + ct + '</span></div>';
         }).join('');
 
-        var topStores = document.getElementById('execTopStores');
-        if (d.topStores.length) {
-          topStores.style.display = 'block';
-          topStores.innerHTML = '<div class="cardhdr">Top Stores by Active TL</div><div class="cardbody">' +
-            d.topStores.map(function(s) {
-              return '<div class="histrow"><span class="who">' + s.store + '</span><span class="when">' + s.count + '</span></div>';
-            }).join('') + '</div>';
-        } else {
-          topStores.style.display = 'none';
-        }
-
         renderStockTable(d.uniform, 'execStockTable');
-        document.getElementById('execUpdated').textContent = 'As of ' + d.generatedAt;
+        document.getElementById('execUpdated').textContent = 'As of ' + d.generatedAt +
+          (d.storeCoverageFallback ? ' — link the SVMI store list (see 🏬 Store Coverage) for full store totals' : '');
       }).withFailureHandler(function(err) {
         tiles.innerHTML = '<div class="histempty err">' + err.message + '</div>';
       }).getExecutiveSummary();
@@ -734,6 +794,98 @@
       function tile(val, label, isWarn) {
         return '<div class="tile' + (isWarn ? ' warn' : '') + '"><div class="tile-val">' + val + '</div><div class="tile-lbl">' + label + '</div></div>';
       }
+    }
+
+    // ---------- 🏬 Store Coverage sub-view ----------
+    var storeCoverageData = null;
+
+    function loadStoreCoverage() {
+      var list = document.getElementById('storeCoverageList');
+      list.innerHTML = '<div class="histempty">Loading…</div>';
+      google.script.run.withSuccessHandler(function(d) {
+        storeCoverageData = d;
+
+        document.getElementById('storeCoverageNotice').innerHTML = d.usingFallback
+          ? '<div class="histempty err" style="padding:6px 0 2px;">' + (d.fallbackMessage || 'Store list not linked yet.') + '</div>'
+          : '';
+
+        document.getElementById('storeCoverageTiles').innerHTML =
+          tile(d.totalStores, 'Total Stores') +
+          tile(d.storesWithActiveTL, 'With Active TL') +
+          tile(d.storesWithNoActiveTL, 'No Active TL', d.storesWithNoActiveTL > 0) +
+          tile(d.unlistedCount, 'Not In Store List', d.unlistedCount > 0);
+
+        var brandSel = document.getElementById('storeBrandFilter');
+        var keepBrand = brandSel.value;
+        brandSel.innerHTML = '<option value="">All brands</option>' +
+          d.brands.map(function(b) { return '<option value="' + b + '">' + b + '</option>'; }).join('');
+        brandSel.value = keepBrand;
+
+        var regionSel = document.getElementById('storeRegionFilter');
+        var keepRegion = regionSel.value;
+        regionSel.innerHTML = '<option value="">All regions</option>' +
+          d.regions.map(function(r) { return '<option value="' + r + '">' + r + '</option>'; }).join('');
+        regionSel.value = keepRegion;
+
+        renderStoreCoverageList();
+      }).withFailureHandler(function(err) {
+        list.innerHTML = '<div class="histempty err">' + err.message + '</div>';
+      }).getStoreCoverageReport();
+
+      function tile(val, label, isWarn) {
+        return '<div class="tile' + (isWarn ? ' warn' : '') + '"><div class="tile-val">' + val + '</div><div class="tile-lbl">' + label + '</div></div>';
+      }
+    }
+
+    function renderStoreCoverageList() {
+      if (!storeCoverageData) return;
+      var list = document.getElementById('storeCoverageList');
+      var count = document.getElementById('storeCoverageCount');
+      var q = val('storeSearch').toUpperCase();
+      var brandFilter = val('storeBrandFilter');
+      var regionFilter = val('storeRegionFilter');
+      var covFilter = val('storeCoverageFilter');
+      var sortBy = val('storeSort') || 'name';
+
+      var rows = storeCoverageData.stores.filter(function(s) {
+        if (brandFilter && (s.brand || '').split(' / ').indexOf(brandFilter) === -1) return false;
+        if (regionFilter && s.region !== regionFilter) return false;
+        if (covFilter === 'active' && s.activeTL <= 0) return false;
+        if (covFilter === 'none' && s.activeTL > 0) return false;
+        if (covFilter === 'unlisted' && s.inCanonicalList) return false;
+        if (q && s.name.toUpperCase().indexOf(q) === -1) return false;
+        return true;
+      });
+
+      rows.sort(function(a, b) {
+        if (sortBy === 'activeDesc') return b.activeTL - a.activeTL || a.name.localeCompare(b.name);
+        if (sortBy === 'activeAsc') return a.activeTL - b.activeTL || a.name.localeCompare(b.name);
+        return a.name.localeCompare(b.name);
+      });
+
+      count.textContent = 'Showing ' + rows.length + ' of ' + storeCoverageData.stores.length + ' stores';
+
+      if (!rows.length) {
+        list.innerHTML = '<div class="histempty">No stores match this search/filter.</div>';
+        return;
+      }
+
+      list.innerHTML = rows.map(function(s) {
+        var meta = [];
+        if (s.probationary) meta.push('Prob ' + s.probationary);
+        if (s.extended) meta.push('Ext ' + s.extended);
+        if (s.certified) meta.push('Cert ' + s.certified);
+        var closed = (s.failed || 0) + (s.quit || 0) + (s.disqualified || 0);
+        if (closed) meta.push('Closed ' + closed);
+        if (!meta.length) meta.push('No trainees logged yet');
+        return '<div class="monrow' + (s.activeTL <= 0 ? ' overdue' : '') + '">' +
+          '<div class="mtop"><span class="mname">' + s.name + '</span>' +
+          '<span class="' + (s.activeTL > 0 ? 'badge st-certified' : 'badge st-failed') + '">' + s.activeTL + ' ACTIVE</span></div>' +
+          '<div class="msub">' + (s.brand || '—') + (s.region ? ' · ' + s.region : '') + '</div>' +
+          '<div class="mmeta"><span>' + meta.join(' · ') + '</span>' +
+          (s.inCanonicalList ? '' : '<span class="mflag">NOT IN STORE LIST</span>') + '</div>' +
+          '</div>';
+      }).join('');
     }
 
     // ---------- 🔎 Monitoring tab ----------

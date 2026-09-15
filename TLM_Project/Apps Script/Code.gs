@@ -102,6 +102,16 @@ const UNIFORM_SIZES = ['XSMALL', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE', 'XXLARGE'
 const PIN_PROPERTY_KEY = 'TL_TRACKER_PIN';
 const LOCK_WAIT_MS = 10000; // how long a phone submit waits for another one to finish
 
+// Spreadsheet ID of the SVMI Command Center — its SETTINGS tab (Store |
+// Brand | Region) is the canonical, company-wide store roster. TL Tracker
+// reads it so the Reports tab's Store Coverage view can show every real
+// store (including ones with zero active TL right now), instead of only
+// whatever store names happen to already appear in MASTER_LOG. Set via
+// "🍕 TL Tracker → Link SVMI Store List" — see setSvmiLink().
+const SVMI_LINK_PROPERTY_KEY = 'SVMI_SPREADSHEET_ID';
+const SVMI_STORE_CACHE_KEY = 'svmi_store_list_v1';
+const SVMI_STORE_CACHE_SECONDS = 21600; // 6 hours — SETTINGS rarely changes day to day
+
 // MASTER_LOG's real, fixed column layout (1-based, matches getRange).
 // Confirmed against a full export of the live production spreadsheet —
 // see the file header comment above for why this is fixed-position
@@ -146,6 +156,9 @@ function onOpen() {
     .addItem('Set Up Sheets (first-time only)', 'setupSheets')
     .addItem('Migrate Legacy Logs into MASTER_LOG (one-time)', 'migrateLegacyLogs')
     .addItem('Audit & Fix MASTER_LOG (one-time)', 'auditAndFixMasterLog')
+    .addSeparator()
+    .addItem('Link SVMI Store List (Settings)…', 'setSvmiLink')
+    .addItem('Refresh SVMI Store List Cache', 'refreshSvmiStoreListCache')
     .addSeparator()
     .addItem('Set / Change Access PIN', 'setAccessPin')
     .addItem('Show Phone App Link', 'showWebAppUrl')
@@ -577,6 +590,195 @@ function getInventorySummary() {
 }
 
 // =====================================================================
+// SVMI STORE LIST — the canonical, company-wide store roster lives in
+// the SVMI Command Center's own spreadsheet (SETTINGS tab: Store |
+// Brand | Region), not in TL Tracker's MASTER_LOG. Reading it here lets
+// the Reports tab show every real store — including the ones with zero
+// active TL right now, which never showed up before because that list
+// was only ever built from whichever store names already had a
+// MASTER_LOG row.
+// =====================================================================
+
+function setSvmiLink() {
+  const ui = SpreadsheetApp.getUi();
+  const resp = ui.prompt(
+    'Link SVMI Store List',
+    'Paste the SVMI Command Center spreadsheet\'s URL (or just its ID) — the one with the SETTINGS tab listing every store, brand, and region. The Reports tab\'s Store Coverage view will read that list from here on.',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  const raw = resp.getResponseText().trim();
+  if (!raw) { ui.alert('Nothing entered — link not changed.'); return; }
+
+  const id = extractSpreadsheetId_(raw);
+  if (!id) {
+    ui.alert('Could not find a spreadsheet ID in that text. Paste the full URL (the one with /d/.../edit in it) or just the ID by itself.');
+    return;
+  }
+
+  try {
+    const ss = SpreadsheetApp.openById(id);
+    const settings = ss.getSheetByName('SETTINGS');
+    if (!settings) throw new Error('That spreadsheet has no "SETTINGS" tab.');
+    if (settings.getLastRow() < 2) throw new Error('Its SETTINGS tab has no store rows yet.');
+  } catch (err) {
+    ui.alert('Could not link that spreadsheet: ' + err.message + '\n\nMake sure this script\'s owner also has access to it, then try again.');
+    return;
+  }
+
+  PropertiesService.getScriptProperties().setProperty(SVMI_LINK_PROPERTY_KEY, id);
+  clearSvmiStoreListCache_();
+  ui.alert('Linked. The Reports tab\'s Store Coverage view will now show every store from that spreadsheet\'s SETTINGS tab.');
+}
+
+function refreshSvmiStoreListCache() {
+  clearSvmiStoreListCache_();
+  SpreadsheetApp.getUi().alert('Store list cache cleared — the next Reports tab load will re-read SVMI\'s SETTINGS tab fresh.');
+}
+
+function clearSvmiStoreListCache_() {
+  CacheService.getScriptCache().remove(SVMI_STORE_CACHE_KEY);
+}
+
+// Pulls a spreadsheet ID out of a pasted URL, or accepts a bare ID.
+function extractSpreadsheetId_(text) {
+  const match = text.match(/[-\w]{25,}/);
+  return match ? match[0] : null;
+}
+
+// Returns { list: [{name, brand, region}], usingFallback, fallbackMessage }.
+// list is deduped by store name (a store with more than one brand row in
+// SETTINGS — e.g. a shared location — gets its brands joined with " / ").
+// Cached for SVMI_STORE_CACHE_SECONDS so every Reports tab load doesn't
+// re-read another spreadsheet's 1000+ row SETTINGS tab.
+function getCanonicalStoreList_() {
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get(SVMI_STORE_CACHE_KEY);
+  if (cached) {
+    try { return JSON.parse(cached); } catch (e) { /* fall through and rebuild */ }
+  }
+
+  const svmiId = PropertiesService.getScriptProperties().getProperty(SVMI_LINK_PROPERTY_KEY);
+  let result;
+  if (!svmiId) {
+    result = {
+      list: [],
+      usingFallback: true,
+      fallbackMessage: 'No SVMI store list linked yet — run "🍕 TL Tracker → Link SVMI Store List" from the menu. Showing only stores that already have TL Tracker data, so stores with no trainees yet won\'t appear.'
+    };
+  } else {
+    try {
+      const settings = SpreadsheetApp.openById(svmiId).getSheetByName('SETTINGS');
+      if (!settings) throw new Error('linked spreadsheet has no "SETTINGS" tab');
+      const lastRow = settings.getLastRow();
+      if (lastRow < 2) throw new Error('its SETTINGS tab has no store rows');
+
+      const data = settings.getRange(2, 1, lastRow - 1, 3).getValues(); // A: Store, B: Brand, C: Region
+      const byName = new Map();
+      data.forEach(row => {
+        const name = String(row[0] || '').trim().toUpperCase();
+        if (!name) return;
+        const brand = String(row[1] || '').trim().toUpperCase();
+        const region = String(row[2] || '').trim().toUpperCase();
+        if (!byName.has(name)) byName.set(name, { name: name, brands: [], region: region });
+        const rec = byName.get(name);
+        if (brand && rec.brands.indexOf(brand) === -1) rec.brands.push(brand);
+        if (!rec.region && region) rec.region = region;
+      });
+
+      const list = Array.from(byName.values())
+        .map(r => ({ name: r.name, brand: r.brands.join(' / '), region: r.region }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      result = { list: list, usingFallback: false, fallbackMessage: '' };
+    } catch (err) {
+      result = {
+        list: [],
+        usingFallback: true,
+        fallbackMessage: 'Could not read the linked SVMI store list (' + err.message + '). Showing only stores that already have TL Tracker data.'
+      };
+    }
+  }
+
+  cache.put(SVMI_STORE_CACHE_KEY, JSON.stringify(result), SVMI_STORE_CACHE_SECONDS);
+  return result;
+}
+
+// One row per store — every store SVMI knows about, PLUS any store name
+// that shows up in MASTER_LOG but isn't in SVMI's list (flagged, not
+// hidden — that's a data-quality signal, likely a typo'd store name).
+// Shared by getExecutiveSummary() (for its coverage KPI tiles) and
+// getStoreCoverageReport() (the Reports tab's full, filterable table).
+function buildStoreCoverage_() {
+  const canonical = getCanonicalStoreList_();
+  const sheet = getSheet_();
+  const lastRow = sheet.getLastRow();
+
+  const perStore = {};
+  const ensure = (name) => {
+    if (!perStore[name]) {
+      perStore[name] = { name: name, brand: '', region: '', inCanonicalList: false, total: 0 };
+      STATUS_VALUES.forEach(s => perStore[name][s] = 0);
+    }
+    return perStore[name];
+  };
+
+  canonical.list.forEach(s => {
+    const rec = ensure(s.name);
+    rec.brand = s.brand;
+    rec.region = s.region;
+    rec.inCanonicalList = true;
+  });
+
+  if (lastRow >= 2) {
+    sheet.getRange(2, 1, lastRow - 1, MASTER_LOG_LAST_COL).getValues().forEach(row => {
+      const name = row[COL.FULL_NAME - 1];
+      if (!name) return;
+      const store = normalizeStore(row[COL.MOTHER_STORE - 1]);
+      if (!store) return;
+      const status = toUpperSafe(row[COL.STATUS - 1]);
+      const rec = ensure(store);
+      rec.total++;
+      if (rec[status] !== undefined) rec[status]++;
+    });
+  }
+
+  const stores = Object.keys(perStore).map(name => {
+    const r = perStore[name];
+    const activeTL = (r.PROBATIONARY || 0) + (r.EXTENDED || 0) + (r.CERTIFIED || 0);
+    return {
+      name: r.name, brand: r.brand, region: r.region, inCanonicalList: r.inCanonicalList,
+      activeTL: activeTL, total: r.total,
+      probationary: r.PROBATIONARY || 0, extended: r.EXTENDED || 0, certified: r.CERTIFIED || 0,
+      failed: r.FAILED || 0, quit: r.QUIT || 0, disqualified: r.DISQUALIFIED || 0, promotion: r.PROMOTION || 0
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+
+  const brandsSeen = {}, regionsSeen = {};
+  stores.forEach(s => {
+    if (s.brand) s.brand.split(' / ').forEach(b => { brandsSeen[b] = true; });
+    if (s.region) regionsSeen[s.region] = true;
+  });
+
+  return {
+    stores: stores,
+    brands: Object.keys(brandsSeen).sort(),
+    regions: Object.keys(regionsSeen).sort(),
+    totalStores: stores.length,
+    storesWithActiveTL: stores.filter(s => s.activeTL > 0).length,
+    storesWithNoActiveTL: stores.filter(s => s.activeTL === 0).length,
+    unlistedCount: stores.filter(s => !s.inCanonicalList).length,
+    usingFallback: canonical.usingFallback,
+    fallbackMessage: canonical.fallbackMessage
+  };
+}
+
+// Called from TLForm.html's Reports tab ("🏬 Store Coverage" view).
+function getStoreCoverageReport() {
+  return buildStoreCoverage_();
+}
+
+// =====================================================================
 // EXECUTIVE SUMMARY & TRAINERS MONITORING — the web app's two read-only
 // report tabs. Both compute live from MASTER_LOG on every load instead
 // of relying on the desktop-only "Refresh Store Summary" sheet, so a
@@ -599,10 +801,11 @@ function average0_(nums) {
   return Math.round((clean.reduce((a, b) => a + b, 0) / clean.length) * 10) / 10;
 }
 
-// One aggregate snapshot for the "📊 Reports" tab: status breakdown,
-// certification rate, overdue count, average scores, and top stores by
-// active headcount. Reuses the same MASTER_LOG pass "Refresh Store
-// Summary" does, just returned as JSON instead of written to a sheet.
+// One aggregate snapshot for the "📊 Reports" tab's Overview sub-view:
+// status breakdown, certification rate, overdue count, average scores,
+// and store-coverage KPIs (full detail lives in getStoreCoverageReport(),
+// the Store Coverage sub-view). Reuses the same MASTER_LOG pass "Refresh
+// Store Summary" does, just returned as JSON instead of written to a sheet.
 function getExecutiveSummary() {
   const sheet = getSheet_();
   const lastRow = sheet.getLastRow();
@@ -611,7 +814,6 @@ function getExecutiveSummary() {
 
   const statusCounts = {};
   STATUS_VALUES.forEach(s => statusCounts[s] = 0);
-  const perStoreActive = {};
   let total = 0;
   let overdueCount = 0;
   const entryScores = [];
@@ -625,11 +827,6 @@ function getExecutiveSummary() {
 
       const status = toUpperSafe(row[COL.STATUS - 1]);
       if (statusCounts[status] !== undefined) statusCounts[status]++;
-
-      const store = normalizeStore(row[COL.MOTHER_STORE - 1]);
-      if (store && (OPEN_STATUSES.indexOf(status) !== -1 || status === 'CERTIFIED')) {
-        perStoreActive[store] = (perStoreActive[store] || 0) + 1;
-      }
 
       const deadline = row[COL.CERT_DEADLINE - 1];
       if (OPEN_STATUSES.indexOf(status) !== -1 && deadline instanceof Date && deadline < now) overdueCount++;
@@ -645,10 +842,7 @@ function getExecutiveSummary() {
   const closedOutcomes = certified + (statusCounts['FAILED'] || 0) + (statusCounts['QUIT'] || 0) + (statusCounts['DISQUALIFIED'] || 0);
   const certRate = closedOutcomes > 0 ? Math.round((certified / closedOutcomes) * 1000) / 10 : null;
 
-  const topStores = Object.keys(perStoreActive)
-    .map(store => ({ store: store, count: perStoreActive[store] }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 8);
+  const coverage = buildStoreCoverage_();
 
   return {
     generatedAt: Utilities.formatDate(now, tz, 'dd MMM yyyy, h:mm a'),
@@ -659,8 +853,10 @@ function getExecutiveSummary() {
     certRate: certRate,
     avgEntryScore: average0_(entryScores),
     avgFinalScore: average0_(finalScores),
-    storeCount: Object.keys(perStoreActive).length,
-    topStores: topStores,
+    totalStoreCount: coverage.totalStores,
+    storeCount: coverage.storesWithActiveTL,
+    storeCoverageGap: coverage.storesWithNoActiveTL,
+    storeCoverageFallback: coverage.usingFallback,
     uniform: getInventorySummary()
   };
 }
