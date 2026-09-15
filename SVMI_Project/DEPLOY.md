@@ -244,7 +244,7 @@ naming which System Tool to run first.
 
 ## Checks before you push
 
-No linter or unit tests here, but two checks are worth running:
+No linter, but three checks are worth running:
 
 ```bash
 # every .gs file parses as valid JavaScript
@@ -252,17 +252,26 @@ for f in "SVMI_Project/Apps Script"/*.gs; do
   node -e "new Function(require('fs').readFileSync('$f','utf8'))" || echo "FAILED: $f"
 done
 
-# drive the standalone preview in a headless browser (122 checks)
+# drive the standalone preview in a headless browser
 node SVMI_Project/tests/portal-ui.test.js
 
 # same preview across 6 device profiles - phone/tablet, portrait/landscape,
 # desktop - checking touch-target sizing, no horizontal overflow, and that
-# nothing (dropdowns, filter popovers) gets clipped off-screen (54 checks)
+# nothing (dropdowns, filter popovers) gets clipped off-screen
 node SVMI_Project/tests/responsive-check.js
+
+# unit tests for the Store Health scoring engine (SVMKPI_RISK.gs) — runs
+# the REAL Apps Script code (not a mock) in a Node vm sandbox with
+# SpreadsheetApp/SHEET/DATA_YEAR stubbed; no browser involved
+node SVMI_Project/tests/risk-scoring.test.js
 ```
 
-Both suites exercise the preview's in-memory sample data, not a real
-spreadsheet — they catch UI/layout regressions, not data-correctness issues.
+The first two suites exercise the preview's in-memory sample data, not a
+real spreadsheet — they catch UI/layout regressions, not data-correctness
+issues. `risk-scoring.test.js` is the exception: it runs the actual
+`SVMKPI_RISK.gs` scoring functions directly, so it does catch scoring
+logic bugs (this is how the "never-visited stores silently scored better
+than overdue ones" regression was caught before a push, not after).
 `onOpen()`, the menu, and a real deploy via `clasp push` have since been
 verified against the Copy; still worth trying anything new there before the
 live sheet.

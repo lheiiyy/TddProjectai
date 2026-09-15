@@ -1,26 +1,45 @@
 // ============================================================
 // SVMKPI_RISK.gs
-// Store Visit Monitoring KPI — Store Health v1
+// Store Visit Monitoring KPI — Store Health v2.0.0
 // Pilot module: STORE VISIT MONITORING INITIATIVE (SVMI)
 // Source of truth: SVMI Project Handoff — Store Health v1 (approved)
+// Scoring revision v2.0.0: cadence-based compliance (per-category visit
+// window, replacing the old flat day-buckets) + monthly Failed QA/MS
+// decay (a failure's +5 penalty fades by 1 point per clean month that
+// follows — 5 clean months to fully decay one failure — replacing a
+// flat, permanent +5/failure).
 // ------------------------------------------------------------
 // Contains:
 //   1. Constants (Store Health only — no overlap with CORE.gs)
-//   2. Risk Computation
-//   3. Sheet Build + Populate (presentation delegated to RISK_LAYOUT.gs)
-//   4. Orchestrator
+//   2. Helpers
+//   3. Risk Core Formulas
+//   4. Risk Computation
+//   5. Sheet Build + Populate (presentation delegated to RISK_LAYOUT.gs)
+//   6. Orchestrator
 // ------------------------------------------------------------
 // Reuses from SVMKPI_CORE.gs (read-only — never redeclared here):
 //   SHEET.MASTER_LOG, SHEET.SETTINGS, COL, _getSheet(), _getData(),
 //   _normalizeEnum(), APPROVED_PURPOSES, DATA_YEAR, _log()
 // Reuses from SVMKPI_RISK_LAYOUT.gs (read-only — never redeclared here):
-//   RISK_ROW, buildRiskEngineLayout(), applyRiskLastRefreshed(),
-//   applyRiskKPICards(), applyRiskExecutiveFocus(), applyRiskTableFormatting()
+//   RISK_ROW, RISK_KPI_CARDS, buildRiskEngineLayout(),
+//   applyRiskLastRefreshed(), applyRiskKPICards(),
+//   applyRiskExecutiveFocus(), applyRiskTableFormatting()
+// Reuses from SVMKPI_STORE_LOOKUP.gs (read-only — never redeclared here):
+//   _sl_formatDate() — NOT redeclared here even though this file's
+//   helpers otherwise use an _sl_ prefix, since a second same-named
+//   function in a different file would silently shadow one or the
+//   other depending on load order (see DEPLOY.md / past incidents:
+//   RISK_COL_WIDTHS, KPI_YEAR). One shared copy, reused.
 //
 // Does NOT contain:
 //   - Menus / triggers           → SVMKPI_ADMIN.gs (menu patch only)
 //   - Executive Summary logic    → SVMKPI_CORE.gs / SVMKPI_LAYOUT.gs (untouched)
 //   - Presentation / formatting  → SVMKPI_RISK_LAYOUT.gs
+//   - Compliance-gap windows     → SVMKPI_STORE_LOOKUP.gs's
+//     sl_getComplianceGaps()/sl_getUnvisitedThisMonth() (untouched) —
+//     those already exist there with the calendar-month-aligned window
+//     this project standardized on; not duplicated here with a
+//     different cadence-day-threshold definition.
 // ============================================================
 
 
@@ -58,7 +77,7 @@ const RISK_HEADERS = [
 // Approved last-visit-purpose tiebreaker (highest priority first)
 const RISK_PURPOSE_PRIORITY = ['FAILED QA/MS', 'CURING/SUPPORT', 'TLTC', 'STORE VISIT'];
 
-// Approved risk tiers
+// Approved risk tiers — cutoffs unchanged from v1; only what feeds them changed
 const RISK_TIER_LABEL = { LOW: 'LOW', MEDIUM: 'MEDIUM', HIGH: 'HIGH' };
 
 // Approved recommended actions
@@ -68,136 +87,73 @@ const RISK_ACTION_LABEL = {
   HIGH:   'Immediate Intervention',
 };
 
+// Per-visit-purpose score, applied every month Jan through the current
+// month. STORE VISIT/CURING/TLTC actively lower risk (real coverage
+// happened); FAILED QA/MS raises it, but decays — see
+// _sl_computeMonthlyPurposeScores().
+const RISK_PURPOSE_SCORE = {
+  'FAILED QA/MS':    5,
+  'STORE VISIT':    -2,
+  'CURING/SUPPORT': -4,
+  'TLTC':           -1,
+};
+
+// Required visit cadence per store category, in days.
+const RISK_CADENCE = {
+  MONTHLY: 31,
+  QUARTERLY: 92,
+  SEMI_ANNUAL: 183,
+};
+
 
 // ═══════════════════════════════════════════════════════════════
-// SECTION 2: RISK COMPUTATION
+// SECTION 2: HELPERS
 // ═══════════════════════════════════════════════════════════════
 
-/**
- * _computeStoreRisk(data, today)
- * Groups MASTER_LOG data (from CORE.gs _getData()) by store and
- * computes the approved Store Health v1 metrics for each store.
- * @param {object} data  - Parsed data object from CORE.gs _getData()
- * @param {Date}   today - Reference date for "days since visit"
- * @returns {object[]} One row object per store, unsorted
- */
-function _computeStoreRisk(data, today) {
-  const byStore = {};
-  const quarter = _getCurrentQuarterRange(today);
+function _sl_isValidDate(d) {
+  return d instanceof Date && !isNaN(d.getTime());
+}
 
-  // Seed every store from SETTINGS first, not just ones with a MASTER_LOG
-  // row: a store with zero visits ever previously got no entry at all here,
-  // silently missing from Store Health entirely — exactly the store this
-  // model should flag first (see _riskScore()'s "never visited" bucket).
-  // sl_getComplianceGaps() and rebuildStoreMasterInsight() already seed
-  // from SETTINGS the same way; this brings Store Health in line with them.
-  const settings = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET.SETTINGS);
-  if (settings && settings.getLastRow() >= 2) {
-    const roster = settings.getRange(2, 1, settings.getLastRow() - 1, 3).getValues();
-    roster.forEach(row => {
-      const name = String(row[0] || '').trim().toUpperCase();
-      if (!name || byStore[name]) return;
-      byStore[name] = {
-        store: name,
-        brand:  String(row[1] || '').trim().toUpperCase(),
-        region: String(row[2] || '').trim().toUpperCase(),
-        lastDate: null, lastPurposes: [],
-        totalYTD: 0, storeYTD: 0, failedCount: 0, curingCount: 0,
-        hasQuarterVisit: false,
-      };
-    });
-  }
+function _sl_startOfDay(d) {
+  if (!_sl_isValidDate(d)) return null;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+}
 
-  for (let i = 0; i < data.stores.length; i++) {
-    const store = data.stores[i];
-    if (!store) continue;
-
-    const date    = data.dates[i];
-    const purpose = data.purposes[i];
-    const isYTD   = (date instanceof Date) && !isNaN(date) && date.getFullYear() === DATA_YEAR;
-    const isValidDate = (date instanceof Date) && !isNaN(date);
-    const isQualifying = APPROVED_PURPOSES.indexOf(purpose) !== -1;
-    const inCurrentQuarter = isValidDate && isQualifying &&
-      date >= quarter.start && date <= quarter.end;
-
-    if (!byStore[store]) {
-      byStore[store] = {
-        store, brand: data.brands[i], region: data.regions[i],
-        lastDate: null, lastPurposes: [],
-        totalYTD: 0, storeYTD: 0, failedCount: 0, curingCount: 0,
-        hasQuarterVisit: false,
-      };
-    }
-    const s = byStore[store];
-
-    // Keep most recent brand/region seen (current state)
-    s.brand  = data.brands[i]  || s.brand;
-    s.region = data.regions[i] || s.region;
-
-    if (isValidDate) {
-      if (!s.lastDate || date > s.lastDate) {
-        s.lastDate     = date;
-        s.lastPurposes = [purpose];
-      } else if (date.getTime() === s.lastDate.getTime()) {
-        s.lastPurposes.push(purpose);
-      }
-    }
-
-    if (inCurrentQuarter) s.hasQuarterVisit = true;
-
-    if (isYTD) {
-      s.totalYTD++;
-      if (purpose === 'STORE VISIT')    s.storeYTD++;
-      if (purpose === 'FAILED QA/MS')   s.failedCount++;
-      if (purpose === 'CURING/SUPPORT') s.curingCount++;
-    }
-  }
-
-  return Object.values(byStore).map(s => {
-    const lastPurpose = _resolveTiebreak(s.lastPurposes);
-    const daysSince    = s.lastDate
-      ? Math.floor((today - s.lastDate) / 86400000)
-      : null;
-
-    const score = _riskScore(s.failedCount, daysSince, s.hasQuarterVisit);
-    const tier  = _riskTier(score);
-    const reason = _attentionReason(s.failedCount, s.hasQuarterVisit, daysSince);
-
-    return {
-      store: s.store, brand: s.brand, region: s.region,
-      lastDate: s.lastDate, lastPurpose,
-      daysSince, totalYTD: s.totalYTD, storeYTD: s.storeYTD,
-      failedCount: s.failedCount, curingCount: s.curingCount,
-      hasQuarterVisit: s.hasQuarterVisit,
-      riskScore: score, riskTier: tier,
-      action: RISK_ACTION_LABEL[tier],
-      attentionReason: reason,
-    };
-  });
+function _sl_normalizeText(value) {
+  return String(value || '').trim().toUpperCase();
 }
 
 /**
- * _getCurrentQuarterRange(today)
- * Returns the start/end Date bounds of today's calendar quarter.
- * @param {Date} today
- * @returns {{ start: Date, end: Date }}
+ * _sl_getCadenceDays(category)
+ * @param {string} category — SETTINGS category (NCR, NEAR PROVINCIAL,
+ *   FAR PROVINCIAL, FLIGHT PROVINCIAL — or already-normalized MONTHLY/
+ *   QUARTERLY/SEMI-ANNUAL)
+ * @returns {number} required days between visits, or 0 if unrecognized
  */
-function _getCurrentQuarterRange(today) {
-  const year = today.getFullYear();
-  const q    = Math.floor(today.getMonth() / 3);  // 0-3
-  const start = new Date(year, q * 3, 1, 0, 0, 0, 0);
-  const end   = new Date(year, q * 3 + 3, 0, 23, 59, 59, 999);  // last day of quarter
-  return { start, end };
+function _sl_getCadenceDays(category) {
+  const cat = _sl_normalizeText(category);
+  if (cat === 'NCR' || cat === 'NEAR PROVINCIAL' || cat === 'MONTHLY') return RISK_CADENCE.MONTHLY;
+  if (cat === 'FAR PROVINCIAL' || cat === 'QUARTERLY') return RISK_CADENCE.QUARTERLY;
+  if (cat === 'FLIGHT PROVINCIAL' || cat === 'SEMI-ANNUAL' || cat === 'SEMI ANNUAL') return RISK_CADENCE.SEMI_ANNUAL;
+  return 0;
+}
+
+function _sl_getCategoryLabel(category) {
+  const cat = _sl_normalizeText(category);
+  if (cat === 'NCR' || cat === 'NEAR PROVINCIAL' || cat === 'MONTHLY') return 'Monthly';
+  if (cat === 'FAR PROVINCIAL' || cat === 'QUARTERLY') return 'Quarterly';
+  if (cat === 'FLIGHT PROVINCIAL' || cat === 'SEMI-ANNUAL' || cat === 'SEMI ANNUAL') return 'Semi-Annual';
+  return 'Unknown';
 }
 
 /**
- * _resolveTiebreak(purposes)
+ * _sl_resolveTiebreak(purposes)
  * Picks the highest-priority purpose among same-day visits.
  * Approved order: FAILED QA/MS → CURING/SUPPORT → TLTC → STORE VISIT.
  * @param {string[]} purposes
  * @returns {string}
  */
-function _resolveTiebreak(purposes) {
+function _sl_resolveTiebreak(purposes) {
   if (!purposes || purposes.length === 0) return '';
   for (const p of RISK_PURPOSE_PRIORITY) {
     if (purposes.indexOf(p) !== -1) return p;
@@ -206,83 +162,295 @@ function _resolveTiebreak(purposes) {
 }
 
 /**
- * _riskScore(failedCount, daysSince, hasQuarterVisit)
- * Final approved Risk Scoring model:
- *   FAILED QA/MS                = +5 each
- *   No current-quarter visit    = +3
- *   Recency: 0-14 days  = +0
- *            15-30 days = +1
- *            31-90 days = +2
- *            91+ days   = +4
- *   Never visited treated as 91+ recency bucket.
- *   CURING/SUPPORT = informational only (no score impact)
- *
- * Guarantees:
- *   - Max score with zero Failed QA/MS history = 3 + 4 = 7 (MEDIUM ceiling)
- *     → coverage/recency alone can never reach HIGH.
- *   - Repeated Failed QA/MS remains the only path to HIGH.
- * @returns {number}
+ * _sl_getStoreMetaLookup()
+ * @returns {object} store name (uppercase) -> {store, brand, region, category}
  */
-function _riskScore(failedCount, daysSince, hasQuarterVisit) {
-  let score = failedCount * 5;
+function _sl_getStoreMetaLookup() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const settings = ss.getSheetByName(SHEET.SETTINGS);
+  const lookup = {};
 
-  if (!hasQuarterVisit) score += 3;
+  if (!settings || settings.getLastRow() < 2) return lookup;
 
-  if (daysSince === null) {
-    score += 4;                      // never visited — most severe recency bucket
-  } else if (daysSince >= 91) {
-    score += 4;
-  } else if (daysSince >= 31) {
-    score += 2;
-  } else if (daysSince >= 15) {
-    score += 1;
+  const rows = settings.getRange(2, 1, settings.getLastRow() - 1, 5).getValues();
+  rows.forEach(row => {
+    const store = _sl_normalizeText(row[0]);
+    if (!store) return;
+    lookup[store] = {
+      store,
+      brand: _sl_normalizeText(row[1]) || '—',
+      region: _sl_normalizeText(row[2]) || '—',
+      category: _sl_normalizeText(row[4]) || '—',
+    };
+  });
+
+  return lookup;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 3: RISK CORE FORMULAS
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * _sl_computeComplianceScore(lastDate, category, today)
+ * Compares the store's last visit against its category's required
+ * cadence. A store with NO visit history at all scores the same as one
+ * that's OVERDUE (+3) — never visited is not better than merely late;
+ * v1 of this model scored "no history" as 0 (neutral), which ranked a
+ * never-visited store as less urgent than one just past its window.
+ * @returns {{score:number, status:string, cadenceDays:number, daysSince:(number|null), label:string}}
+ */
+function _sl_computeComplianceScore(lastDate, category, today) {
+  const cadenceDays = _sl_getCadenceDays(category);
+  const categoryLabel = _sl_getCategoryLabel(category);
+
+  if (!cadenceDays) {
+    return { score: 0, status: 'UNKNOWN', cadenceDays: 0, daysSince: null, label: categoryLabel };
   }
 
-  return score;
+  if (!_sl_isValidDate(lastDate)) {
+    return { score: 3, status: 'NO HISTORY', cadenceDays, daysSince: null, label: categoryLabel };
+  }
+
+  const d = _sl_startOfDay(lastDate);
+  const ref = _sl_startOfDay(today) || new Date();
+  const daysSince = Math.max(0, Math.floor((ref - d) / 86400000));
+  const withinTimeFrame = daysSince <= cadenceDays;
+
+  return {
+    score: withinTimeFrame ? -3 : 3,
+    status: withinTimeFrame ? 'WITHIN TIME FRAME' : 'OVERDUE',
+    cadenceDays,
+    daysSince,
+    label: categoryLabel,
+  };
 }
 
 /**
- * _attentionReason(failedCount, hasQuarterVisit, daysSince)
- * Returns the single most important reason a store needs attention,
- * using the approved priority order:
- *   1. Repeated QA/MS Interventions (failedCount >= 2)
- *   2. QA/MS Intervention (failedCount === 1)
- *   3. No Visit This Quarter (!hasQuarterVisit)
- *   4. Long Recency Gap — 91+ Days (daysSince >= 91, or never visited)
+ * _sl_riskTier(score)
+ * Approved Risk Tier: 0-4 LOW, 5-9 MEDIUM, 10+ HIGH. Cutoffs unchanged
+ * from v1 — only the score feeding them is new.
+ * @returns {string}
+ */
+function _sl_riskTier(score) {
+  if (score >= 10) return RISK_TIER_LABEL.HIGH;
+  if (score >= 5) return RISK_TIER_LABEL.MEDIUM;
+  return RISK_TIER_LABEL.LOW;
+}
+
+/**
+ * _sl_attentionReason(activeFailedPenalty, complianceStatus, categoryLabel, hasHistory)
+ * Single most important reason a store needs attention, in priority order:
+ *   1. Repeated QA/MS Interventions (undecayed penalty >= 10, i.e. 2+ live failures)
+ *   2. QA/MS Intervention (some undecayed penalty)
+ *   3. {Category} Visit Overdue (past its cadence window)
+ *   4. No Visit History (never visited)
  *   5. No Risk Factors
  * @returns {string}
  */
-function _attentionReason(failedCount, hasQuarterVisit, daysSince) {
-  if (failedCount >= 2) return failedCount + ' QA/MS Interventions';
-  if (failedCount === 1) return 'QA/MS Intervention';
-  if (!hasQuarterVisit) return 'No Visit This Quarter';
-  if (daysSince !== null && daysSince >= 91) return daysSince + ' Days Since Last Visit';
+function _sl_attentionReason(activeFailedPenalty, complianceStatus, categoryLabel, hasHistory) {
+  if (activeFailedPenalty >= 10) return 'Repeated QA/MS Interventions';
+  if (activeFailedPenalty > 0) return 'QA/MS Intervention';
+  if (complianceStatus === 'OVERDUE') return categoryLabel + ' Visit Overdue';
+  if (complianceStatus === 'NO HISTORY' && !hasHistory) return 'No Visit History';
   return 'No Risk Factors';
 }
 
 /**
- * _riskTier(score)
- * Approved Risk Tier: 0-4 LOW, 5-9 MEDIUM, 10+ HIGH.
- * @returns {string}
+ * _sl_computeMonthlyPurposeScores(monthBuckets, monthLimit)
+ * Walks January through the reference month, summing RISK_PURPOSE_SCORE
+ * for every visit (basePurposeScore — permanent, no decay: more good
+ * visits over the year keeps lowering it). Failed QA/MS is tracked
+ * separately as activeFailedPenalty: +5 per failure in a month that had
+ * one, but any month with ZERO failures decays the running penalty by
+ * just 1 point (floored at 0) — a single failure (+5) takes 5 clean
+ * months to fully decay, not one; repeated failing months never get the
+ * chance to decay at all.
+ * @param {object[]} monthBuckets — 12 entries: {failedCount, storeVisitCount, curingCount, tltcCount}
+ * @param {number} monthLimit — 0-based index of the last month to include
+ * @returns {{basePurposeScore:number, activeFailedPenalty:number, totalPurposeScore:number}}
  */
-function _riskTier(score) {
-  if (score >= 10) return RISK_TIER_LABEL.HIGH;
-  if (score >= 5)  return RISK_TIER_LABEL.MEDIUM;
-  return RISK_TIER_LABEL.LOW;
+function _sl_computeMonthlyPurposeScores(monthBuckets, monthLimit) {
+  let activeFailedPenalty = 0;
+  let basePurposeScore = 0;
+
+  for (let m = 0; m <= monthLimit; m++) {
+    const b = monthBuckets[m];
+    if (!b) continue;
+
+    basePurposeScore += (b.storeVisitCount * RISK_PURPOSE_SCORE['STORE VISIT']);
+    basePurposeScore += (b.curingCount * RISK_PURPOSE_SCORE['CURING/SUPPORT']);
+    basePurposeScore += (b.tltcCount * RISK_PURPOSE_SCORE['TLTC']);
+
+    if (b.failedCount > 0) {
+      activeFailedPenalty += (b.failedCount * RISK_PURPOSE_SCORE['FAILED QA/MS']);
+    } else if (activeFailedPenalty > 0) {
+      activeFailedPenalty = Math.max(0, activeFailedPenalty - 1);
+    }
+  }
+
+  return {
+    basePurposeScore: parseFloat(basePurposeScore.toFixed(2)),
+    activeFailedPenalty: parseFloat(activeFailedPenalty.toFixed(2)),
+    totalPurposeScore: parseFloat((basePurposeScore + activeFailedPenalty).toFixed(2)),
+  };
 }
 
 
 // ═══════════════════════════════════════════════════════════════
-// SECTION 3: SHEET BUILD + POPULATE
+// SECTION 4: RISK COMPUTATION
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * buildRiskEngineSheet()
- * Creates the STORE HEALTH sheet if missing, clears it otherwise,
- * and writes the approved header row. Layout is owned by this file
- * only — does not touch SVMKPI_LAYOUT.gs or EXECUTIVE SUMMARY.
- * @returns {GoogleAppsScript.Spreadsheet.Sheet}
+ * _computeStoreRisk(data, today)
+ * Groups MASTER_LOG data (from CORE.gs _getData()) by store and
+ * computes the v2.0.0 Store Health metrics for each store.
+ * @param {object} data  - Parsed data object from CORE.gs _getData()
+ * @param {Date}   today - Reference date for "days since visit"
+ * @returns {object[]} One row object per store, unsorted
  */
+function _computeStoreRisk(data, today) {
+  const byStore = {};
+  const metaLookup = _sl_getStoreMetaLookup();
+  const evaluationYear = DATA_YEAR;
+  const monthLimit = (today.getFullYear && today.getFullYear() === evaluationYear)
+    ? today.getMonth()
+    : 11;
+
+  const freshBucket = () => ({ failedCount: 0, storeVisitCount: 0, curingCount: 0, tltcCount: 0 });
+  const freshStore = (name, meta) => ({
+    store: name,
+    brand: (meta && meta.brand !== '—') ? meta.brand : '—',
+    region: (meta && meta.region !== '—') ? meta.region : '—',
+    category: (meta && meta.category) || '—',
+    lastDate: null,
+    lastPurposes: [],
+    totalYTD: 0,
+    storeYTD: 0,
+    failedCount: 0,
+    curingCount: 0,
+    tltcCount: 0,
+    storeVisitCount: 0,
+    monthlyBuckets: Array.from({ length: 12 }, freshBucket),
+    hasHistory: false,
+  });
+
+  // Seed every store from SETTINGS first, not just ones with a MASTER_LOG
+  // row: a store with zero visits ever previously got no entry at all
+  // here, silently missing from Store Health entirely — exactly the
+  // store this model should flag first. sl_getComplianceGaps() and
+  // rebuildStoreMasterInsight() already seed from SETTINGS the same way.
+  Object.keys(metaLookup).forEach(name => {
+    if (!byStore[name]) byStore[name] = freshStore(name, metaLookup[name]);
+  });
+
+  for (let i = 0; i < data.stores.length; i++) {
+    const store = _sl_normalizeText(data.stores[i]);
+    if (!store) continue;
+
+    const date = data.dates[i];
+    const purpose = _sl_normalizeText(data.purposes[i]);
+    const brand = _sl_normalizeText(data.brands[i]) || '—';
+    const region = _sl_normalizeText(data.regions[i]) || '—';
+    const meta = metaLookup[store];
+
+    if (!byStore[store]) byStore[store] = freshStore(store, meta);
+    const s = byStore[store];
+    if (meta) {
+      s.brand = meta.brand !== '—' ? meta.brand : (brand || s.brand);
+      s.region = meta.region !== '—' ? meta.region : (region || s.region);
+      s.category = meta.category || s.category;
+    } else {
+      s.brand = brand || s.brand;
+      s.region = region || s.region;
+    }
+
+    if (_sl_isValidDate(date)) {
+      s.hasHistory = true;
+      if (!s.lastDate || date > s.lastDate) {
+        s.lastDate = date;
+        s.lastPurposes = [purpose];
+      } else if (date.getTime() === s.lastDate.getTime()) {
+        s.lastPurposes.push(purpose);
+      }
+    }
+
+    const isYTD = _sl_isValidDate(date) && date.getFullYear() === evaluationYear && date.getMonth() <= monthLimit;
+    if (isYTD) {
+      const monthIdx = date.getMonth();
+      s.totalYTD++;
+
+      if (purpose === 'STORE VISIT') {
+        s.storeYTD++;
+        s.storeVisitCount++;
+        s.monthlyBuckets[monthIdx].storeVisitCount++;
+      }
+      if (purpose === 'FAILED QA/MS') {
+        s.failedCount++;
+        s.monthlyBuckets[monthIdx].failedCount++;
+      }
+      if (purpose === 'CURING/SUPPORT') {
+        s.curingCount++;
+        s.monthlyBuckets[monthIdx].curingCount++;
+      }
+      if (purpose === 'TLTC') {
+        s.tltcCount++;
+        s.monthlyBuckets[monthIdx].tltcCount++;
+      }
+    }
+  }
+
+  return Object.values(byStore).map(s => {
+    const lastPurpose = _sl_resolveTiebreak(s.lastPurposes);
+    const monthlyScore = _sl_computeMonthlyPurposeScores(s.monthlyBuckets, monthLimit);
+    const compliance = _sl_computeComplianceScore(s.lastDate, s.category, today);
+
+    const rawScore = monthlyScore.totalPurposeScore + compliance.score;
+    const totalScore = Math.max(0, parseFloat(rawScore.toFixed(2)));
+    const tier = _sl_riskTier(totalScore);
+    const reason = _sl_attentionReason(
+      monthlyScore.activeFailedPenalty,
+      compliance.status,
+      compliance.label,
+      s.hasHistory
+    );
+
+    return {
+      store: s.store,
+      brand: s.brand,
+      region: s.region,
+      category: s.category,
+      lastDate: s.lastDate,
+      lastPurpose,
+      daysSince: compliance.daysSince,
+      totalYTD: s.totalYTD,
+      storeYTD: s.storeYTD,
+      failedCount: s.failedCount,
+      curingCount: s.curingCount,
+      tltcCount: s.tltcCount,
+      storeVisitCount: s.storeVisitCount,
+      purposeScore: monthlyScore.totalPurposeScore,
+      activeFailedPenalty: monthlyScore.activeFailedPenalty,
+      basePurposeScore: monthlyScore.basePurposeScore,
+      complianceScore: compliance.score,
+      complianceStatus: compliance.status,
+      complianceLabel: compliance.label,
+      cadenceDays: compliance.cadenceDays,
+      hasHistory: s.hasHistory,
+      riskScore: totalScore,
+      riskTier: tier,
+      action: RISK_ACTION_LABEL[tier],
+      attentionReason: reason,
+    };
+  });
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 5: SHEET BUILD + POPULATE
+// ═══════════════════════════════════════════════════════════════
+
 /**
  * buildRiskEngineSheet()
  * Creates the STORE HEALTH sheet if missing, clears it otherwise,
@@ -340,13 +508,13 @@ function populateRiskEngine(sheet, data) {
   sheet.getRange(RISK_ROW.DATA_START, 1, values.length, RISK_HEADERS.length).setValues(values);
   sheet.getRange(RISK_ROW.DATA_START, RISK_COL.LAST_DATE, values.length, 1).setNumberFormat('yyyy-mm-dd');
 
-  // KPI tallies — pure counts of already-computed tiers, no new scoring
+  // KPI tallies — pure counts of already-computed tiers/status, no new scoring
   const kpis = {
     total:       rows.length,
     high:        rows.filter(r => r.riskTier === 'HIGH').length,
     medium:      rows.filter(r => r.riskTier === 'MEDIUM').length,
     low:         rows.filter(r => r.riskTier === 'LOW').length,
-    coverageGap: rows.filter(r => !r.hasQuarterVisit).length,
+    coverageGap: rows.filter(r => r.complianceStatus === 'OVERDUE' || r.complianceStatus === 'NO HISTORY').length,
   };
 
   // Top 5 — same already-sorted array, no duplicate computation
@@ -366,7 +534,7 @@ function populateRiskEngine(sheet, data) {
 
 
 // ═══════════════════════════════════════════════════════════════
-// SECTION 4: ORCHESTRATOR
+// SECTION 6: ORCHESTRATOR
 // ═══════════════════════════════════════════════════════════════
 
 /**
@@ -383,6 +551,10 @@ function refreshRiskEngine() {
   populateRiskEngine(sheet, data);
   SpreadsheetApp.flush();
 
-  _log('Store Health refreshed. ' + Object.keys(data.stores).length + ' rows scanned.');
-  return { success: true, rows: data.totalRows };
+  const scannedRows = (data && typeof data.totalRows === 'number')
+    ? data.totalRows
+    : (data && Array.isArray(data.stores) ? data.stores.length : 0);
+
+  _log('Store Health refreshed. ' + scannedRows + ' rows scanned.');
+  return { success: true, rows: scannedRows };
 }

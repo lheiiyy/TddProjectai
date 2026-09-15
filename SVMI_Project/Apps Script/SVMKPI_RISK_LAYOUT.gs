@@ -1,6 +1,6 @@
 // ============================================================
 // SVMKPI_RISK_LAYOUT.gs
-// Store Health v1 — Final Presentation Layout
+// Store Health v2.0.0 — Final Presentation Layout
 // ------------------------------------------------------------
 // Owns ONLY visual presentation of the STORE HEALTH sheet:
 //   - Title section + Last Refreshed timestamp
@@ -13,10 +13,10 @@
 //   - Row banding / borders / row height / alignment
 //
 // Does NOT contain and MUST NOT contain:
-//   - Risk scoring          → _riskScore() in SVMKPI_RISK.gs (untouched)
-//   - Risk tiering           → _riskTier() in SVMKPI_RISK.gs (untouched)
+//   - Risk scoring          → _sl_computeComplianceScore() / _sl_computeMonthlyPurposeScores() in SVMKPI_RISK.gs (untouched)
+//   - Risk tiering           → _sl_riskTier() in SVMKPI_RISK.gs (untouched)
 //   - Sorting                → populateRiskEngine() in SVMKPI_RISK.gs (untouched)
-//   - Attention Reason text  → _attentionReason() in SVMKPI_RISK.gs (untouched)
+//   - Attention Reason text  → _sl_attentionReason() in SVMKPI_RISK.gs (untouched)
 //   - RISK_COL / column mapping for the detailed table — unchanged,
 //     defined exclusively in SVMKPI_RISK.gs. The Top 5 section's
 //     "Rank" is a presentation-only index (array position), it does
@@ -70,7 +70,7 @@ const RISK_KPI_CARDS = [
   { label: 'HIGH RISK',                   colStart: 4,  colSpan: 3, bg: 'BURNT_ORANGE'  },
   { label: 'MEDIUM RISK',                 colStart: 7,  colSpan: 3, bg: 'AMBER'         },
   { label: 'LOW RISK',                    colStart: 10, colSpan: 3, bg: 'EMERALD_GREEN' },
-  { label: 'COVERAGE GAP (NO Q VISIT)',   colStart: 13, colSpan: 2, bg: 'PURPLE'        },
+  { label: 'COVERAGE GAP (OVERDUE)',      colStart: 13, colSpan: 2, bg: 'PURPLE'        },
 ];
 
 // Executive Focus section column groups — presentation-only grouping,
