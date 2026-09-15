@@ -149,8 +149,11 @@
       position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
       background: none; border: none; color: var(--muted); font-size: 16px; padding: 4px 6px; margin: 0; width: auto; min-height: 0; cursor: pointer;
     }
-    .filterRow { display: flex; gap: 6px; margin-top: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
-    .filterRow select { margin-top: 0; flex: 0 0 auto; width: auto; min-width: 118px; font-size: 12px; padding: 7px 8px; }
+    /* Wraps (instead of horizontal-scrolling) so every filter is visible without
+       a swipe hint on phone widths — checked at 320-430px, where 3-4 selects at
+       their natural width never fit on one row without cutting the last one off. */
+    .filterRow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .filterRow select { margin-top: 0; flex: 1 1 130px; min-width: 130px; font-size: 12px; padding: 7px 8px; }
     .resultCount { font-size: 10.5px; color: var(--muted); margin-top: 8px; text-transform: uppercase; letter-spacing: .3px; }
 
     /* monitoring list rows */
