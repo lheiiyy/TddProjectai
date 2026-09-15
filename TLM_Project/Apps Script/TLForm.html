@@ -64,23 +64,46 @@
     .ok { color: #276749; }
     .warn { color: #b06000; }
 
-    /* header shell — top bar + tab bar, styled like SVMI's, sticking as one unit */
-    .shell { position: sticky; top: 0; z-index: 20; margin: 0 -16px 12px; }
-    .topbar { background: var(--navy); padding: 10px 16px 8px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 2px solid var(--gold); }
-    .brandrow { display: flex; align-items: center; gap: 9px; }
+    /* header shell — top bar + mode menu, styled like SVMI's, sticking as one unit */
+    /* z-index higher than .modeOverlay's — .shell creates its own stacking
+       context (position:sticky + z-index), so without this the overlay
+       (a sibling outside it) would paint over the mode menu it contains. */
+    .shell { position: sticky; top: 0; z-index: 30; margin: 0 -16px 12px; }
+    .topbar { background: var(--navy); padding: 10px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 2px solid var(--gold); }
+    .brandrow { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; }
     .brandrow small.hint { color: var(--light); }
     .deptTag { font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--tld-d); }
 
-    /* tab bar — scrolls sideways instead of squeezing 6 tabs to fit */
-    .switch { display: flex; background: var(--navy-d); border-bottom: 2px solid var(--border-d); overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-    .switch::-webkit-scrollbar { display: none; }
-    .switch button.tab {
-      flex: 0 0 auto; margin: 0; padding: 10px 14px; background: transparent; color: var(--light);
-      border: none; border-bottom: 3px solid transparent; border-radius: 0; font-weight: 700; font-size: 10.5px;
-      text-transform: uppercase; letter-spacing: .3px; min-height: 40px; white-space: nowrap;
+    /* hamburger button — opens the mode menu */
+    .burgerBtn {
+      flex: none; margin: 0; width: auto; min-height: 0; padding: 8px 10px; background: transparent;
+      border: 1px solid var(--border-d); border-radius: 5px; color: #fff; font-size: 17px; line-height: 1;
     }
-    .switch button.tab:hover { color: #fff; background: rgba(255,255,255,.06); }
-    .switch button.tab.active { color: var(--gold); border-bottom-color: var(--gold); background: rgba(198,217,46,.1); }
+    .burgerBtn:hover { background: rgba(255,255,255,.08); }
+    #modeIndicator { color: var(--gold) !important; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; font-size: 10.5px; cursor: pointer; }
+
+    /* slide-down mode menu — a backdrop-covered dropdown under the top bar,
+       so switching modes doesn't need 6 tabs fighting for space side by side. */
+    .modeOverlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 24;
+      opacity: 0; visibility: hidden; transition: opacity .2s ease;
+    }
+    .modeOverlay.open { opacity: 1; visibility: visible; }
+    .modeMenu {
+      position: absolute; left: 0; right: 0; top: 100%; z-index: 25;
+      background: var(--navy-d); overflow: hidden; max-height: 0;
+      transition: max-height .28s ease; box-shadow: 0 8px 16px -6px rgba(0,0,0,.35);
+    }
+    .modeMenu.open { max-height: 360px; border-bottom: 2px solid var(--gold); }
+    .modeMenu button.modeItem {
+      display: flex; align-items: center; width: 100%; margin: 0; padding: 13px 16px;
+      background: transparent; color: var(--light); border: none; border-bottom: 1px solid var(--border-d);
+      border-radius: 0; font-weight: 700; font-size: 13px; text-transform: none; letter-spacing: 0;
+      text-align: left; min-height: 0;
+    }
+    .modeMenu button.modeItem:last-child { border-bottom: none; }
+    .modeMenu button.modeItem:hover { color: #fff; background: rgba(255,255,255,.06); }
+    .modeMenu button.modeItem.active { color: var(--gold); background: rgba(198,217,46,.1); }
 
     /* stat tiles — SVMI's .ck KPI cards */
     .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
@@ -199,6 +222,7 @@
   <div id="app">
     <div class="shell">
       <div class="topbar">
+        <button type="button" class="burgerBtn" onclick="toggleModeMenu()" aria-label="Open mode menu" aria-expanded="false" id="burgerBtn">☰</button>
         <div class="brandrow">
           <svg width="28" height="28" viewBox="0 0 40 40" aria-hidden="true" style="flex:none;">
             <circle cx="16" cy="14" r="11" fill="#C6D92E"/>
@@ -207,21 +231,22 @@
           </svg>
           <div>
             <h3>🍕 TL Tracker</h3>
-            <small class="hint">Choose what you're doing, then fill in the form.</small>
+            <small class="hint" id="modeIndicator" onclick="toggleModeMenu()">🆕 New Entry ▾</small>
           </div>
         </div>
         <button type="button" class="linklike" onclick="lockApp()">🔒 Lock</button>
       </div>
 
-      <div class="switch">
-        <button type="button" class="tab active" data-mode="entry" onclick="switchMode('entry')">🆕 New Entry</button>
-        <button type="button" class="tab" data-mode="update" onclick="switchMode('update')">✅ Certify</button>
-        <button type="button" class="tab" data-mode="uniform" onclick="switchMode('uniform')">👕 Uniform</button>
-        <button type="button" class="tab" data-mode="stock" onclick="switchMode('stock')">📦 Stock</button>
-        <button type="button" class="tab" data-mode="exec" onclick="switchMode('exec')">📊 Reports</button>
-        <button type="button" class="tab" data-mode="monitor" onclick="switchMode('monitor')">🔎 Monitoring</button>
+      <div class="modeMenu" id="modeMenu">
+        <button type="button" class="modeItem active" data-mode="entry" onclick="selectMode('entry')">🆕 New Entry</button>
+        <button type="button" class="modeItem" data-mode="update" onclick="selectMode('update')">✅ Certify</button>
+        <button type="button" class="modeItem" data-mode="uniform" onclick="selectMode('uniform')">👕 Uniform</button>
+        <button type="button" class="modeItem" data-mode="stock" onclick="selectMode('stock')">📦 Stock</button>
+        <button type="button" class="modeItem" data-mode="exec" onclick="selectMode('exec')">📊 Reports</button>
+        <button type="button" class="modeItem" data-mode="monitor" onclick="selectMode('monitor')">🔎 Monitoring</button>
       </div>
     </div>
+    <div class="modeOverlay" id="modeOverlay" onclick="closeModeMenu()"></div>
 
     <!-- ============================= NEW ENTRY PANEL ============================= -->
     <div id="panelEntry" class="panel active">
@@ -539,14 +564,39 @@
     // ============================= MAIN APP =============================
     var MODES = ['entry', 'update', 'uniform', 'stock', 'exec', 'monitor'];
     var PANEL_ID = { entry: 'panelEntry', update: 'panelUpdate', uniform: 'panelUniform', stock: 'panelStock', exec: 'panelExec', monitor: 'panelMonitor' };
+    var MODE_LABEL = { entry: '🆕 New Entry', update: '✅ Certify', uniform: '👕 Uniform', stock: '📦 Stock', exec: '📊 Reports', monitor: '🔎 Monitoring' };
+
+    // ---------- burger menu open/close ----------
+    function toggleModeMenu() {
+      var menu = document.getElementById('modeMenu');
+      if (menu.classList.contains('open')) closeModeMenu();
+      else openModeMenu();
+    }
+    function openModeMenu() {
+      document.getElementById('modeMenu').classList.add('open');
+      document.getElementById('modeOverlay').classList.add('open');
+      document.getElementById('burgerBtn').setAttribute('aria-expanded', 'true');
+    }
+    function closeModeMenu() {
+      document.getElementById('modeMenu').classList.remove('open');
+      document.getElementById('modeOverlay').classList.remove('open');
+      document.getElementById('burgerBtn').setAttribute('aria-expanded', 'false');
+    }
+
+    // Called from the mode menu's own buttons — switches mode, then slides the menu shut.
+    function selectMode(mode) {
+      switchMode(mode);
+      closeModeMenu();
+    }
 
     function switchMode(mode) {
-      document.querySelectorAll('.switch .tab').forEach(function(btn) {
+      document.querySelectorAll('.modeMenu .modeItem').forEach(function(btn) {
         btn.classList.toggle('active', btn.dataset.mode === mode);
       });
       MODES.forEach(function(m) {
         document.getElementById(PANEL_ID[m]).classList.toggle('active', m === mode);
       });
+      document.getElementById('modeIndicator').textContent = MODE_LABEL[mode] + ' ▾';
       document.getElementById('msg').textContent = '';
       // both report tabs compute live from MASTER_LOG, so reload on every visit
       if (mode === 'exec') loadExecutiveSummary();
