@@ -128,6 +128,19 @@ const MONTH_NAMES = [
 // Data year — update annually or derive from config cell
 const DATA_YEAR = 2026;
 
+/**
+ * sl_getDataYear()
+ * Exposes DATA_YEAR to the client — SVMI_PORTAL.html's Unvisited This
+ * Month month label used to hardcode the literal 2026 instead of reading
+ * this, so it would keep saying "2026" for every year after DATA_YEAR is
+ * next bumped. Trivial read-only getter; no reason to route it through
+ * sl_getComplianceGaps()'s response shape instead.
+ * @returns {number}
+ */
+function sl_getDataYear() {
+  return DATA_YEAR;
+}
+
 
 // ═══════════════════════════════════════════════════════════════
 // SECTION 2: SHARED HELPERS

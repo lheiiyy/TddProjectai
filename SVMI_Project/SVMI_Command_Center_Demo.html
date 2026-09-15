@@ -1072,6 +1072,11 @@ textarea.fi{padding-right:28px}
       return 'preview.user@example.com';
     },
 
+    // Mirrors sl_getDataYear() in SVMKPI_CORE.gs.
+    sl_getDataYear() {
+      return 2026;
+    },
+
     // Mirrors sl_isAdmin() in SVMKPI_ACCESS.gs. Defaults to false — false
     // is what most real visitors see, so the preview shows the locked
     // System Tools cards by default. Flip to true here (or set
@@ -1597,6 +1602,7 @@ var gBrands      = [];   // selected brands; empty array = All Brands (no filter
 var allBrandList = [];
 var currentReport      = 'es';   // Reports tab: 'es' | 'kpi' | 'health'
 var reportsLoadedOnce  = false;  // lazy-load the Reports tab on first visit only
+var dataYear = new Date().getFullYear();   // replaced by the real DATA_YEAR once loadDataYear() resolves
 var allStores    = [];
 var storeData    = {};
 var allVisitors  = [];
@@ -1617,8 +1623,24 @@ window.onload = function() {
   loadSIStores();
   loadCurrentUser();
   loadAdminStatus();
+  loadDataYear();
   syncFieldClears();
 };
+
+// Keeps the Unvisited This Month month label ("January 2026") honest once
+// DATA_YEAR (SVMKPI_CORE.gs) is next bumped, instead of a hardcoded literal.
+function loadDataYear() {
+  google.script.run
+    .withSuccessHandler(function(year) {
+      if (!year) return;
+      dataYear = year;
+      // Re-render the label if the Unvisited tab is already showing one —
+      // otherwise the next loadCompliance() call picks it up naturally.
+      if (document.getElementById('content-Visits').classList.contains('active')) loadCompliance();
+    })
+    .withFailureHandler(function(){})   // keep the current-year fallback
+    .sl_getDataYear();
+}
 
 // Shows/hides the destructive System Tools (Executive Summary, KPI 2026,
 // Data Headers — the ones marked data-admin-only) based on whether this
@@ -2546,10 +2568,18 @@ function ftRows(id) {
     var flip = col.sortFlip ? -1 : 1;
     rows = rows.slice().sort(function(a, b) {
       var av = a[sk], bv = b[sk];
-      if (col.type === 'num' || col.sortBy) {   // numeric: blanks ("never visited") sort last
-        av = (av === null || av === undefined || av === '') ? -Infinity : Number(av);
-        bv = (bv === null || bv === undefined || bv === '') ? -Infinity : Number(bv);
-        return (av - bv) * t.sort.dir * flip;
+      if (col.type === 'num' || col.sortBy) {
+        // Blanks ("never visited") always sort last, in either direction —
+        // handled as its own case rather than substituting a sentinel
+        // number, since a sentinel gets scaled by dir*flip like any other
+        // value and can't land in a fixed position across every
+        // direction/flip combination the way an explicit check can.
+        var aBlank = (av === null || av === undefined || av === '');
+        var bBlank = (bv === null || bv === undefined || bv === '');
+        if (aBlank && bBlank) return 0;
+        if (aBlank) return 1;
+        if (bBlank) return -1;
+        return (Number(av) - Number(bv)) * t.sort.dir * flip;
       }
       return String(av == null ? '' : av).localeCompare(String(bv == null ? '' : bv)) * t.sort.dir * flip;
     });
@@ -2738,7 +2768,7 @@ function loadCompliance() {
   var mo = parseInt(document.getElementById('monthSel').value);
   var lbl = document.getElementById('monthLbl');
   var now = new Date();
-  lbl.textContent = (!mo ? MONTHS[now.getMonth()]+' '+now.getFullYear() : MONTHS[mo-1]+' 2026');
+  lbl.textContent = (!mo ? MONTHS[now.getMonth()]+' '+now.getFullYear() : MONTHS[mo-1]+' '+dataYear);
   var brand = gBrands;
   document.getElementById('visitsPanel').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
   google.script.run

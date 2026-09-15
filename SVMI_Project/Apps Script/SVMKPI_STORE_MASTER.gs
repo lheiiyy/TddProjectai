@@ -121,9 +121,17 @@ function rebuildStoreMasterInsight() {
   }
 
   // ── Window boundaries ─────────────────────────────────────────
+  // Calendar-month-aligned, matching sl_getComplianceGaps()
+  // (SVMKPI_STORE_LOOKUP.gs) exactly — that function drives the live
+  // Unvisited This Month tab, so the two must agree on what "compliant"
+  // means for the same store on the same day. This used to be
+  // `new Date(now.getFullYear(), now.getMonth()-6, now.getDate())` — an
+  // exact 6-calendar-month lookback from today's day-of-month, rather
+  // than a month-aligned window — which could call a store compliant
+  // here while the Unvisited tab called the same store non-compliant.
   const monthStart   = new Date(now.getFullYear(), now.getMonth(), 1);
   const quarterStart = new Date(now.getFullYear(), Math.floor(now.getMonth()/3)*3, 1);
-  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth()-6, now.getDate());
+  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
 
   // ── Build data rows ───────────────────────────────────────────
   const dataRows = storeList.map((name, idx) => {

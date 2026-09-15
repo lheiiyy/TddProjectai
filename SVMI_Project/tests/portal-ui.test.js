@@ -80,6 +80,8 @@ function check(name, cond, extra) {
   const focusedAfterEnter = await page.evaluate(() => document.activeElement.id);
   check('Enter advances focus to Date', focusedAfterEnter === 'dateVisited', 'focus=' + focusedAfterEnter);
   check('store info panel is shown', await page.isVisible('#storeInfo'));
+  check('store info panel shows a real Category, not the "—" placeholder',
+    (await page.textContent('#iCat')).trim() !== '—', await page.textContent('#iCat'));
 
   // Enter on date advances to visitors
   await page.keyboard.press('Enter');
@@ -646,6 +648,16 @@ function check(name, cond, extra) {
     ytdDesc.every((v, i) => i === 0 || ytdDesc[i - 1] >= v), JSON.stringify(ytdDesc).slice(0, 90));
   check('sort arrow marks the active column',
     (await page.$$eval('#ftTbl-comp .fh-arrow.on', e => e.length)) === 1);
+
+  // --- never-visited stores (blank Days Since) always sort last, either direction
+  await page.click('#ftTbl-comp .fh-lbl >> nth=7');   // Days Since header
+  await page.waitForTimeout(300);
+  const daysAsc = await page.$$eval('#ftTbl-comp tbody tr td:nth-child(8)', e => e.map(x => x.textContent.trim()));
+  check('never-visited row sorts last (ascending)', daysAsc[daysAsc.length - 1] === 'Never', JSON.stringify(daysAsc));
+  await page.click('#ftTbl-comp .fh-lbl >> nth=7');
+  await page.waitForTimeout(300);
+  const daysDesc = await page.$$eval('#ftTbl-comp tbody tr td:nth-child(8)', e => e.map(x => x.textContent.trim()));
+  check('never-visited row sorts last (descending)', daysDesc[daysDesc.length - 1] === 'Never', JSON.stringify(daysDesc));
 
   // --- pill buttons and the Required column filter stay in agreement
   await page.click('.cf-btn[data-f="Monthly"]');

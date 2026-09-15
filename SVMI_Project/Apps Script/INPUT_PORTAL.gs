@@ -38,11 +38,13 @@ var COL_REMARKS     = 8;
 //  A=1  Store
 //  B=2  Brand
 //  C=3  Region
+//  E=5  Category
 //  F=6  Visitor Roster
 //  H=8  Purpose List
 var COL_S_STORE    = 1;
 var COL_S_BRAND    = 2;
 var COL_S_REGION   = 3;
+var COL_S_CATEGORY = 5;
 var COL_S_VISITOR  = 6;
 var COL_S_PURPOSE  = 8;
 
@@ -50,7 +52,7 @@ var COL_S_PURPOSE  = 8;
 // ============================================================
 //  getSidebarData()
 //  Called by the sidebar on load.
-//  Returns { stores: [{store, brand, region}], visitors: [string], purposes: [string] }
+//  Returns { stores: [{store, brand, region, category}], visitors: [string], purposes: [string] }
 // ============================================================
 function getSidebarData() {
   try {
@@ -78,15 +80,16 @@ function getSidebarData() {
 
     data.forEach(function (row) {
       // Normalize to uppercase to match SVMKPI_CORE enum values
-      var store   = String(row[COL_S_STORE   - 1] || '').trim().toUpperCase();
-      var brand   = String(row[COL_S_BRAND   - 1] || '').trim().toUpperCase();
-      var region  = String(row[COL_S_REGION  - 1] || '').trim().toUpperCase();
-      var visitor = String(row[COL_S_VISITOR - 1] || '').trim().toUpperCase();
-      var purpose = String(row[COL_S_PURPOSE - 1] || '').trim().toUpperCase();
+      var store    = String(row[COL_S_STORE    - 1] || '').trim().toUpperCase();
+      var brand    = String(row[COL_S_BRAND    - 1] || '').trim().toUpperCase();
+      var region   = String(row[COL_S_REGION   - 1] || '').trim().toUpperCase();
+      var category = String(row[COL_S_CATEGORY - 1] || '').trim().toUpperCase();
+      var visitor  = String(row[COL_S_VISITOR  - 1] || '').trim().toUpperCase();
+      var purpose  = String(row[COL_S_PURPOSE  - 1] || '').trim().toUpperCase();
 
       if (store && !storeSet[store]) {
         storeSet[store] = true;
-        stores.push({ store: store, brand: brand, region: region });
+        stores.push({ store: store, brand: brand, region: region, category: category });
       }
 
       if (visitor && !visitorSet[visitor]) {

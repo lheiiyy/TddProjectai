@@ -11,7 +11,7 @@
 //   4. Orchestrator
 // ------------------------------------------------------------
 // Reuses from SVMKPI_CORE.gs (read-only — never redeclared here):
-//   SHEET.MASTER_LOG, COL, _getSheet(), _getData(),
+//   SHEET.MASTER_LOG, SHEET.SETTINGS, COL, _getSheet(), _getData(),
 //   _normalizeEnum(), APPROVED_PURPOSES, DATA_YEAR, _log()
 // Reuses from SVMKPI_RISK_LAYOUT.gs (read-only — never redeclared here):
 //   RISK_ROW, buildRiskEngineLayout(), applyRiskLastRefreshed(),
@@ -84,6 +84,29 @@ const RISK_ACTION_LABEL = {
 function _computeStoreRisk(data, today) {
   const byStore = {};
   const quarter = _getCurrentQuarterRange(today);
+
+  // Seed every store from SETTINGS first, not just ones with a MASTER_LOG
+  // row: a store with zero visits ever previously got no entry at all here,
+  // silently missing from Store Health entirely — exactly the store this
+  // model should flag first (see _riskScore()'s "never visited" bucket).
+  // sl_getComplianceGaps() and rebuildStoreMasterInsight() already seed
+  // from SETTINGS the same way; this brings Store Health in line with them.
+  const settings = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET.SETTINGS);
+  if (settings && settings.getLastRow() >= 2) {
+    const roster = settings.getRange(2, 1, settings.getLastRow() - 1, 3).getValues();
+    roster.forEach(row => {
+      const name = String(row[0] || '').trim().toUpperCase();
+      if (!name || byStore[name]) return;
+      byStore[name] = {
+        store: name,
+        brand:  String(row[1] || '').trim().toUpperCase(),
+        region: String(row[2] || '').trim().toUpperCase(),
+        lastDate: null, lastPurposes: [],
+        totalYTD: 0, storeYTD: 0, failedCount: 0, curingCount: 0,
+        hasQuarterVisit: false,
+      };
+    });
+  }
 
   for (let i = 0; i < data.stores.length; i++) {
     const store = data.stores[i];
