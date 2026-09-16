@@ -1511,57 +1511,115 @@ textarea.fi{padding-right:28px}
       return { year, months: MONTHS12, weekLabels, visitors, team };
     },
 
-    // Mirrors getStoreHealthReport() — a simplified risk heuristic (the
-    // real SVMKPI_RISK.gs scoring is more involved) just to populate a
-    // representative Store Health view in the preview.
+    // Mirrors getStoreHealthReport() / _computeStoreRisk() — Store Health
+    // v2.0.0's cadence-based compliance score (per-category required
+    // visit window) plus a monthly Failed QA/MS penalty that decays by 1
+    // point per clean month, computed from the sample MASTER_LOG. Kept in
+    // lockstep with SVMKPI_RISK.gs so the preview's scores/tiers genuinely
+    // match the live algorithm rather than a simplified stand-in.
     getStoreHealthReport() {
-      const now = new Date();
       const year = 2026;
-      const qStart = new Date(year, Math.floor(now.getMonth() / 3) * 3, 1);
-      let high = 0, medium = 0, low = 0, noQuarterVisit = 0;
+      const today = new Date();
+      const monthLimit = today.getFullYear() === year ? today.getMonth() : 11;
+
+      const CADENCE_DAYS   = { MONTHLY: 31, QUARTERLY: 92, SEMI_ANNUAL: 183 };
+      const PURPOSE_SCORE  = { 'FAILED QA/MS': 5, 'STORE VISIT': -2, 'CURING/SUPPORT': -4, 'TLTC': -1 };
+      const PURPOSE_PRIORITY = ['FAILED QA/MS', 'CURING/SUPPORT', 'TLTC', 'STORE VISIT'];
+      const ACTION_LABEL   = { LOW: 'Monitor', MEDIUM: 'Planned Follow-up', HIGH: 'Immediate Intervention' };
+
+      function cadenceInfo(category) {
+        if (category === 'NCR' || category === 'NEAR PROVINCIAL') return { days: CADENCE_DAYS.MONTHLY, label: 'Monthly' };
+        if (category === 'FAR PROVINCIAL') return { days: CADENCE_DAYS.QUARTERLY, label: 'Quarterly' };
+        if (category === 'FLIGHT PROVINCIAL') return { days: CADENCE_DAYS.SEMI_ANNUAL, label: 'Semi-Annual' };
+        return { days: 0, label: 'Unknown' };
+      }
 
       const rows = DB.stores.map(s => {
         const storeLog = DB.log.filter(r => r.store === s.name);
-        let lastDate = null;
-        storeLog.forEach(r => { if (!lastDate || r.date > lastDate) lastDate = r.date; });
-        const daysSince = lastDate ? Math.floor((now - lastDate) / 86400000) : null;
-        const totalYtd = storeLog.filter(r => r.date.getFullYear() === year).length;
-        const storeYtd = storeLog.filter(r => r.purpose === 'STORE VISIT' && r.date.getFullYear() === year).length;
-        const failedCount = storeLog.filter(r => r.purpose === 'FAILED QA/MS').length;
-        const curingCount = storeLog.filter(r => r.purpose === 'CURING/SUPPORT').length;
-        const lastRow = lastDate ? storeLog.filter(r => r.date.getTime() === lastDate.getTime())[0] : null;
+        const cadence = cadenceInfo(s.category);
 
-        let tier, score, action, reason;
-        if (daysSince === null || daysSince > 90 || failedCount >= 2) {
-          tier = 'HIGH'; score = Math.min(100, 85 + failedCount * 5);
-          action = 'Schedule an urgent visit';
-          reason = daysSince === null ? 'Never visited' : failedCount >= 2 ? 'Repeated QA/MS failures' : 'Over 90 days since last visit';
-        } else if (daysSince > 45 || failedCount === 1) {
-          tier = 'MEDIUM'; score = 55;
-          action = 'Schedule a visit soon';
-          reason = failedCount === 1 ? 'One QA/MS failure on record' : 'Approaching overdue';
-        } else {
-          tier = 'LOW'; score = 20;
-          action = 'On track'; reason = '';
+        let lastDate = null, lastPurposes = [];
+        const buckets = Array.from({ length: 12 }, () => ({ storeVisitCount: 0, curingCount: 0, tltcCount: 0, failedCount: 0 }));
+        let totalYtd = 0, storeYtd = 0, failedCount = 0, curingCount = 0;
+
+        storeLog.forEach(r => {
+          if (!lastDate || r.date > lastDate) { lastDate = r.date; lastPurposes = [r.purpose]; }
+          else if (r.date.getTime() === lastDate.getTime()) lastPurposes.push(r.purpose);
+
+          if (r.date.getFullYear() === year && r.date.getMonth() <= monthLimit) {
+            totalYtd++;
+            const m = r.date.getMonth();
+            if (r.purpose === 'STORE VISIT')    { storeYtd++; buckets[m].storeVisitCount++; }
+            if (r.purpose === 'FAILED QA/MS')   { failedCount++; buckets[m].failedCount++; }
+            if (r.purpose === 'CURING/SUPPORT') { curingCount++; buckets[m].curingCount++; }
+            if (r.purpose === 'TLTC')           { buckets[m].tltcCount++; }
+          }
+        });
+
+        const lastPurpose = lastPurposes.length
+          ? (PURPOSE_PRIORITY.find(p => lastPurposes.indexOf(p) !== -1) || lastPurposes[0])
+          : '';
+
+        // Permanent base score (more coverage keeps lowering it) plus a
+        // Failed QA/MS penalty that decays 1 point per clean month —
+        // mirrors _sl_computeMonthlyPurposeScores() in SVMKPI_RISK.gs.
+        let basePurposeScore = 0, activeFailedPenalty = 0;
+        for (let m = 0; m <= monthLimit; m++) {
+          const b = buckets[m];
+          basePurposeScore += b.storeVisitCount * PURPOSE_SCORE['STORE VISIT'];
+          basePurposeScore += b.curingCount * PURPOSE_SCORE['CURING/SUPPORT'];
+          basePurposeScore += b.tltcCount * PURPOSE_SCORE['TLTC'];
+          if (b.failedCount > 0) activeFailedPenalty += b.failedCount * PURPOSE_SCORE['FAILED QA/MS'];
+          else if (activeFailedPenalty > 0) activeFailedPenalty = Math.max(0, activeFailedPenalty - 1);
         }
-        if (tier === 'HIGH') high++; else if (tier === 'MEDIUM') medium++; else low++;
-        if (!storeLog.some(r => r.date >= qStart)) noQuarterVisit++;
+        const purposeScore = basePurposeScore + activeFailedPenalty;
+
+        // Never-visited scores the same +3 as overdue, not a neutral 0 —
+        // coverage alone can't hide a never-visited store from Store Health.
+        let complianceScore, complianceStatus, daysSince = null;
+        if (!cadence.days) {
+          complianceScore = 0; complianceStatus = 'UNKNOWN';
+        } else if (!lastDate) {
+          complianceScore = 3; complianceStatus = 'NO HISTORY';
+        } else {
+          daysSince = Math.max(0, Math.floor((today - lastDate) / 86400000));
+          const within = daysSince <= cadence.days;
+          complianceScore = within ? -3 : 3;
+          complianceStatus = within ? 'WITHIN TIME FRAME' : 'OVERDUE';
+        }
+
+        const riskScore = Math.max(0, purposeScore + complianceScore);
+        const riskTier = riskScore >= 10 ? 'HIGH' : riskScore >= 5 ? 'MEDIUM' : 'LOW';
+
+        let attentionReason;
+        if (activeFailedPenalty >= 10) attentionReason = 'Repeated QA/MS Interventions';
+        else if (activeFailedPenalty > 0) attentionReason = 'QA/MS Intervention';
+        else if (complianceStatus === 'OVERDUE') attentionReason = cadence.label + ' Visit Overdue';
+        else if (complianceStatus === 'NO HISTORY') attentionReason = 'No Visit History';
+        else attentionReason = 'No Risk Factors';
 
         return {
           store: s.name, brand: s.brand, region: s.region,
           lastVisitDate: lastDate ? slFormatDate(lastDate) : '—',
-          lastPurpose: lastRow ? lastRow.purpose : '—',
+          lastPurpose: lastPurpose || '—',
           daysSince, totalYtd, storeYtd, failedCount, curingCount,
-          riskScore: score, riskTier: tier, action, attentionReason: reason,
+          riskScore, riskTier, action: ACTION_LABEL[riskTier], attentionReason,
+          complianceStatus, // internal only — stripped below, drives the coverage-gap KPI
         };
-      }).sort((a, b) => b.riskScore - a.riskScore);
+      }).sort((a, b) => b.riskScore - a.riskScore || a.store.localeCompare(b.store));
+
+      const high        = rows.filter(r => r.riskTier === 'HIGH').length;
+      const medium       = rows.filter(r => r.riskTier === 'MEDIUM').length;
+      const low          = rows.filter(r => r.riskTier === 'LOW').length;
+      const coverageGap  = rows.filter(r => r.complianceStatus === 'OVERDUE' || r.complianceStatus === 'NO HISTORY').length;
+      rows.forEach(r => { delete r.complianceStatus; });
 
       const kpis = [
         { label: 'TOTAL STORES', value: String(DB.stores.length) },
         { label: 'HIGH RISK', value: String(high) },
         { label: 'MEDIUM RISK', value: String(medium) },
         { label: 'LOW RISK', value: String(low) },
-        { label: 'COVERAGE GAP (NO Q VISIT)', value: String(noQuarterVisit) },
+        { label: 'COVERAGE GAP (OVERDUE)', value: String(coverageGap) },
       ];
 
       const headers = [

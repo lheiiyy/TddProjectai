@@ -131,6 +131,47 @@ Command Center from a phone.
 
 ---
 
+## Navigation
+
+The portal's five sections (Input Portal, Store Insights, Unvisited This
+Month, Reports, System Tools) live in a slide-out drawer, not a side-by-side
+tab bar. A single burger button (☰) in the tab bar shows the current
+section's name; clicking it slides the drawer in from the left with a
+dimming scrim behind it, and it closes on selecting an item, pressing
+Escape, or clicking the scrim. The drawer's menu order is Reports, Store
+Insights, Unvisited This Month, Input Portal, System Tools — Input Portal
+still loads by default when the app opens; only the list order changed.
+
+---
+
+## Annual rollover
+
+`DATA_YEAR` (`SVMKPI_CORE.gs`) is the single source of truth for the
+reporting year — every date calculation (Unvisited This Month's window, the
+KPI 2026 report's P{period}W{week} labels, Store Health's cadence math) reads
+from it, so bumping that one constant is enough to make the underlying
+numbers correct for the new year.
+
+Two things follow that constant automatically, so nothing else needs
+editing by hand:
+
+- **The KPI sheet name** — `_kpiSheetName()` (`SVMKPI_KPI_REBUILD.gs`)
+  returns `'KPI ' + DATA_YEAR`, not a hardcoded `'KPI 2026'`. The next
+  "Rebuild KPI 2026" after a `DATA_YEAR` bump creates a fresh `KPI 2027` tab
+  rather than continuing to write into the old year's sheet — last year's
+  tab is left behind as-is, as a historical record.
+- **The portal's top-bar year** — the "Store Visit Monitoring Initiative ·
+  2026 · …" subtitle reads the same `dataYear` value the Unvisited tab's
+  month label already uses (via `sl_getDataYear()`), instead of a static
+  string.
+
+What still needs a manual look after bumping `DATA_YEAR`: menu items, tool
+labels and confirmation dialogs that say "KPI 2026" by name (e.g. "Rebuild
+KPI 2026") are just display text — cosmetic, not wired to `DATA_YEAR` — and
+are fine to leave as a familiar label or reword at your discretion.
+
+---
+
 ## Access control
 
 Three layers, each answering a different question:
