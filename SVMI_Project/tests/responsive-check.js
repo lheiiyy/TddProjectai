@@ -52,6 +52,7 @@ const DEVICES = [
     page.on('pageerror', e => errors.push(e.message));
     await page.goto(URL);
     await page.waitForTimeout(1100);
+    await goToTab(page, 'Input');   // Reports is the landing tab now, not Input Portal
 
     // ── universal: no horizontal page scroll at any size ──
     const overflow = await page.evaluate(() => ({

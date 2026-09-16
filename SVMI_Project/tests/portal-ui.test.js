@@ -63,6 +63,7 @@ async function goToTab(p, name) {
     await page.textContent('#userEmail'));
 
   console.log('\n── Input: store dropdown shows brand ──');
+  await goToTab(page, 'Input');   // Reports is the landing tab now, not Input Portal
   await page.click('#storeSearch');
   await page.fill('#storeSearch', 'MAKATI');
   await page.waitForTimeout(150);
@@ -787,6 +788,7 @@ async function goToTab(p, name) {
   mp.on('pageerror', e => merrors.push(e.message));
   await mp.goto(URL);
   await mp.waitForTimeout(1200);
+  await goToTab(mp, 'Input');   // Reports is the landing tab now, not Input Portal
 
   const noHScroll = await mp.evaluate(() =>
     document.documentElement.scrollWidth <= window.innerWidth + 1);

@@ -482,7 +482,7 @@ textarea.fi{padding-right:28px}
      nav drawer below rather than laying every tab out side by side -->
 <div class="tab-bar">
   <button type="button" class="burger-btn" id="burgerBtn" onclick="toggleNavDrawer()">
-    <span class="burger-icon">☰</span><span id="currentTabLabel">📋 Input Portal</span>
+    <span class="burger-icon">☰</span><span id="currentTabLabel">📊 Reports</span>
   </button>
 </div>
 
@@ -494,16 +494,16 @@ textarea.fi{padding-right:28px}
     <button type="button" class="nav-drawer-close" onclick="closeNavDrawer()" aria-label="Close">&times;</button>
   </div>
   <div class="nav-drawer-list">
-    <div class="nav-item"        id="tab-Reports"  onclick="switchTab('Reports')">📊 Reports</div>
+    <div class="nav-item active" id="tab-Reports"  onclick="switchTab('Reports')">📊 Reports</div>
     <div class="nav-item"        id="tab-Insights" onclick="switchTab('Insights')">🔍 Store Insights</div>
     <div class="nav-item"        id="tab-Visits"   onclick="switchTab('Visits')">📅 Unvisited This Month</div>
-    <div class="nav-item active" id="tab-Input"   onclick="switchTab('Input')">📋 Input Portal</div>
+    <div class="nav-item"        id="tab-Input"   onclick="switchTab('Input')">📋 Input Portal</div>
     <div class="nav-item"        id="tab-Tools"    onclick="switchTab('Tools')">⚙ System Tools</div>
   </div>
 </div>
 
 <!-- TAB 1: INPUT PORTAL -->
-<div class="tab-content active" id="content-Input">
+<div class="tab-content" id="content-Input">
   <div class="portal-layout">
     <div class="portal-form">
 
@@ -674,7 +674,7 @@ textarea.fi{padding-right:28px}
 </div>
 
 <!-- TAB: REPORTS (Executive Summary / KPI 2026 / Store Health, read-only) -->
-<div class="tab-content" id="content-Reports">
+<div class="tab-content active" id="content-Reports">
   <div class="toolbar">
     <div class="toolbar-title">Reports —</div>
     <button class="rep-btn active" id="repTab-es"     onclick="switchReport('es')">Executive Summary</button>
@@ -852,6 +852,10 @@ window.onload = function() {
   document.getElementById('topSubYear').textContent = dataYear;
   loadDataYear();
   syncFieldClears();
+  // Reports is the landing tab, so load it up front rather than waiting
+  // for switchTab('Reports') — which only fires on a later click.
+  reportsLoadedOnce = true;
+  loadCurrentReport();
 };
 
 // Keeps the Unvisited This Month month label ("January 2026") and the top-bar
