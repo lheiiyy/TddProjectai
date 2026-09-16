@@ -468,7 +468,7 @@ textarea.fi{padding-right:28px}
   </svg>
   <div>
     <h1>🏪 SVMI Command Center</h1>
-    <div class="sub">Store Visit Monitoring Initiative · 2026 &middot; Figaro Coffee Group Training &amp; Development</div>
+    <div class="sub">Store Visit Monitoring Initiative · <span id="topSubYear">2026</span> &middot; Figaro Coffee Group Training &amp; Development</div>
   </div>
   <div class="brand-wrap">
     <label>Brand:</label>
@@ -849,17 +849,20 @@ window.onload = function() {
   loadSIStores();
   loadCurrentUser();
   loadAdminStatus();
+  document.getElementById('topSubYear').textContent = dataYear;
   loadDataYear();
   syncFieldClears();
 };
 
-// Keeps the Unvisited This Month month label ("January 2026") honest once
-// DATA_YEAR (SVMKPI_CORE.gs) is next bumped, instead of a hardcoded literal.
+// Keeps the Unvisited This Month month label ("January 2026") and the top-bar
+// year honest once DATA_YEAR (SVMKPI_CORE.gs) is next bumped, instead of a
+// hardcoded literal.
 function loadDataYear() {
   google.script.run
     .withSuccessHandler(function(year) {
       if (!year) return;
       dataYear = year;
+      document.getElementById('topSubYear').textContent = dataYear;
       // Re-render the label if the Unvisited tab is already showing one —
       // otherwise the next loadCompliance() call picks it up naturally.
       if (document.getElementById('content-Visits').classList.contains('active')) loadCompliance();
