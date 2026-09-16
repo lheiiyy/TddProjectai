@@ -67,6 +67,17 @@ const APPROVED_PURPOSES = [
   'CURING/SUPPORT',
 ];
 
+// Store category (SETTINGS!E) — drives Store Health's visit cadence via
+// _sl_getCadenceDays()/_sl_getCategoryLabel() in SVMKPI_RISK.gs, which use
+// these exact strings as literal comparisons rather than reading this
+// array (that file predates this one being pulled out as a shared list).
+const APPROVED_CATEGORIES = [
+  'NCR',
+  'NEAR PROVINCIAL',
+  'FAR PROVINCIAL',
+  'FLIGHT PROVINCIAL',
+];
+
 // ── Executive Summary cell addresses (Bible §4) ───────────────
 const CELL = {
   // KPI row 7

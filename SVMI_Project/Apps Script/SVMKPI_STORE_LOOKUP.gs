@@ -475,6 +475,22 @@ function sl_getBrandList() {
 }
 
 /**
+ * sl_getStoreFormOptions()
+ * Dropdown options for the System Tools "Store & Roster Manager" card's
+ * store form: brands actually in use (sl_getBrandList(), same source the
+ * global brand filter already uses) plus the fixed region/category enums
+ * (APPROVED_REGIONS/APPROVED_CATEGORIES in SVMKPI_CORE.gs).
+ * @returns {{brands:string[], regions:string[], categories:string[]}}
+ */
+function sl_getStoreFormOptions() {
+  return {
+    brands: sl_getBrandList(),
+    regions: APPROVED_REGIONS.slice(),
+    categories: APPROVED_CATEGORIES.slice(),
+  };
+}
+
+/**
  * _slBrandAllowed(brand, brandFilter)
  * Shared brand-filter check for sl_getVisitedThisMonth() and
  * sl_getComplianceGaps(). The portal's Brand filter is multi-select, so

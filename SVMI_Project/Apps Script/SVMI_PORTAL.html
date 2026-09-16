@@ -396,6 +396,12 @@ textarea.fi{padding-right:28px}
   background:var(--bg);color:var(--muted);font-style:italic;text-align:center}
 .tool-lock[hidden]{display:none}
 
+/* ── System Tools: Store & Roster Manager ── */
+.srm-section{margin-bottom:12px}
+.srm-hdr{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.4px;margin-bottom:6px}
+.srm-list{font-size:10px;color:var(--muted);margin-top:5px;line-height:1.5}
+
 /* ── Wide tables scroll inside their own box, never the page ── */
 .tbl-scroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
 
@@ -769,6 +775,67 @@ textarea.fi{padding-right:28px}
         <button class="tool-run" onclick="runTool('rebuildDataHeaders','stat-DH')">▶ Rebuild Data Headers</button>
         <div class="tool-stat idle" id="stat-DH">Ready</div>
         <div class="tool-lock" id="lock-DH" hidden>🔒 Admin access required to run this tool.</div>
+      </div>
+    </div>
+
+    <div class="tool-card primary" data-admin-only="true" style="grid-column:1/-1">
+      <div class="tool-hdr"><span class="tool-icon">🗄️</span>
+        <div><div class="tool-title">Store & Roster Manager</div>
+        <div class="tool-desc-hdr">Add/edit stores · visitor roster · purpose list</div></div></div>
+      <div class="tool-body">
+        <span class="risk-badge safe">✓ Writes straight to SETTINGS — no rebuild needed</span>
+        <p>Add a new store or edit an existing one's brand/region/category, and manage the Visitor Roster and Purpose List — the same SETTINGS columns Input Portal reads from.</p>
+        <button class="tool-run" onclick="toggleStoreManager()">🗄️ Open Store & Roster Manager</button>
+        <div class="tool-lock" id="lock-SRM" hidden>🔒 Admin access required to run this tool.</div>
+
+        <div id="srmPanel" hidden style="margin-top:12px">
+          <div class="srm-section">
+            <div class="srm-hdr">Store</div>
+            <div class="fg">
+              <label>Store Name</label>
+              <div class="ss-wrap">
+                <input type="text" id="srmStoreSearch" class="ss-input"
+                  placeholder="Search an existing store, or type a new name…"
+                  oninput="srmFilterStores()" onfocus="srmFilterStores()"
+                  onblur="setTimeout(function(){ document.getElementById('srmStoreDrop').classList.remove('open'); }, 200)"
+                  autocomplete="off">
+                <div class="ss-drop" id="srmStoreDrop"></div>
+              </div>
+            </div>
+            <div class="fg"><label>Brand</label><select class="fi" id="srmBrand"></select></div>
+            <div class="fg"><label>Region</label><select class="fi" id="srmRegion"></select></div>
+            <div class="fg"><label>Category</label><select class="fi" id="srmCategory"></select></div>
+            <button class="btn-gold" onclick="srmSaveStore()">💾 Save Store</button>
+            <div class="tool-stat idle" id="srmStoreStat">Ready</div>
+          </div>
+
+          <hr class="divider">
+
+          <div class="srm-section">
+            <div class="srm-hdr">Visitor Roster</div>
+            <div class="vm-row">
+              <input type="text" id="srmVisitorInput" class="vm-input" placeholder="Visitor name…"
+                onkeydown="if(event.key==='Enter')srmManageVisitor('add')" autocomplete="off">
+              <button class="vm-btn vm-add" onclick="srmManageVisitor('add')">+ Add</button>
+              <button class="vm-btn vm-rem" onclick="srmManageVisitor('remove')">− Remove</button>
+            </div>
+            <div class="vm-msg" id="srmVisitorMsg"></div>
+          </div>
+
+          <hr class="divider">
+
+          <div class="srm-section">
+            <div class="srm-hdr">Purpose List</div>
+            <div class="vm-row">
+              <input type="text" id="srmPurposeInput" class="vm-input" placeholder="Purpose name…"
+                onkeydown="if(event.key==='Enter')srmManagePurpose('add')" autocomplete="off">
+              <button class="vm-btn vm-add" onclick="srmManagePurpose('add')">+ Add</button>
+              <button class="vm-btn vm-rem" onclick="srmManagePurpose('remove')">− Remove</button>
+            </div>
+            <div class="vm-msg" id="srmPurposeMsg"></div>
+            <div class="srm-list">Current: <span id="srmPurposeList">—</span></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -2408,6 +2475,147 @@ function addLog(type, msg) {
 
 function clearLog() {
   document.getElementById('actLog').innerHTML = '<div class="log-entry info">Log cleared.</div>';
+}
+
+// ═══════════════════════════════════════
+// SYSTEM TOOLS — STORE & ROSTER MANAGER
+// Writes straight into SETTINGS (A/B/C/E for stores, F for the visitor
+// roster, H for the purpose list) — no sheet rebuild involved. Admin-only
+// server-side (portal_saveStore()/managePurpose() both call sl_isAdmin()
+// themselves), same as every other System Tool.
+// ═══════════════════════════════════════
+var srmOpen = false;
+
+function toggleStoreManager() {
+  srmOpen = !srmOpen;
+  document.getElementById('srmPanel').hidden = !srmOpen;
+  if (srmOpen) srmInit();
+}
+
+function srmInit() {
+  google.script.run
+    .withSuccessHandler(function(opts) {
+      srmFillSelect('srmBrand', opts.brands);
+      srmFillSelect('srmRegion', opts.regions);
+      srmFillSelect('srmCategory', opts.categories);
+    })
+    .withFailureHandler(function(){})
+    .sl_getStoreFormOptions();
+  srmShowPurposeList();
+}
+
+function srmFillSelect(id, values) {
+  document.getElementById(id).innerHTML = '<option value="">Select…</option>'
+    + (values || []).map(function(v){ return '<option value="'+esc(v)+'">'+esc(v)+'</option>'; }).join('');
+}
+
+// Type-to-search over the same allStores/storeData loadPortalData() already
+// populates for Input Portal — picking a row auto-fills its current
+// brand/region/category; typing a name that doesn't match anything is a
+// brand-new store, left for the admin to fill in fresh.
+function srmFilterStores() {
+  var q = document.getElementById('srmStoreSearch').value.trim().toUpperCase();
+  var drop = document.getElementById('srmStoreDrop');
+  var list = (allStores || []).filter(function(s) {
+    return !q || s.store.indexOf(q) !== -1;
+  }).slice(0, 40);
+  if (!list.length) { drop.classList.remove('open'); return; }
+  drop.innerHTML = list.map(function(s) {
+    return '<div class="ss-opt" data-v="'+esc(s.store)+'" onmousedown="srmPickStore(this)">'
+      + '<span class="opt-name">'+esc(s.store)+'</span>'
+      + (s.brand ? '<span class="opt-brand">'+esc(s.brand)+'</span>' : '')
+      + '</div>';
+  }).join('');
+  drop.classList.add('open');
+}
+
+function srmPickStore(el) {
+  var name = el.dataset.v;
+  document.getElementById('srmStoreSearch').value = name;
+  document.getElementById('srmStoreDrop').classList.remove('open');
+  var info = storeData[name];
+  if (info) {
+    document.getElementById('srmBrand').value    = info.brand    || '';
+    document.getElementById('srmRegion').value   = info.region   || '';
+    document.getElementById('srmCategory').value = info.category || '';
+  }
+}
+
+function srmSaveStore() {
+  var store    = document.getElementById('srmStoreSearch').value.trim();
+  var brand    = document.getElementById('srmBrand').value;
+  var region   = document.getElementById('srmRegion').value;
+  var category = document.getElementById('srmCategory').value;
+  var stat     = document.getElementById('srmStoreStat');
+
+  if (!store) { stat.textContent = 'Enter a store name.'; stat.className = 'tool-stat error'; return; }
+  if (!brand || !region || !category) {
+    stat.textContent = 'Brand, Region and Category are all required.';
+    stat.className = 'tool-stat error';
+    return;
+  }
+
+  stat.textContent = '⏳ Saving…'; stat.className = 'tool-stat running';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r.success) {
+        stat.textContent = '✅ ' + r.message; stat.className = 'tool-stat success';
+        addLog('ok', '✅ Store & Roster Manager: ' + r.message);
+        loadPortalData();   // refresh allStores/storeData so the new/edited row shows up everywhere
+      } else {
+        stat.textContent = '❌ ' + r.message; stat.className = 'tool-stat error';
+      }
+    })
+    .withFailureHandler(function(err) {
+      var msg = err.message || String(err);
+      stat.textContent = '❌ ' + msg; stat.className = 'tool-stat error';
+    })
+    .portal_saveStore(store, brand, region, category);
+}
+
+function srmManageVisitor(action) {
+  var input = document.getElementById('srmVisitorInput');
+  var name  = input.value.trim();
+  var msg   = document.getElementById('srmVisitorMsg');
+  if (!name) { msg.textContent = 'Enter a visitor name.'; msg.className = 'vm-msg err'; return; }
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r.success) {
+        allVisitors = (r.visitors || []).map(function(x, i) { return { name: x, color: VCOLS[i % VCOLS.length] }; });
+        input.value = '';
+        msg.textContent = '"' + name.toUpperCase() + '" ' + (action === 'add' ? 'added.' : 'removed.');
+        msg.className = 'vm-msg ok';
+      } else {
+        msg.textContent = r.message; msg.className = 'vm-msg err';
+      }
+    })
+    .withFailureHandler(function(e) { msg.textContent = e.message || String(e); msg.className = 'vm-msg err'; })
+    .manageVisitor(action, name);
+}
+
+function srmManagePurpose(action) {
+  var input = document.getElementById('srmPurposeInput');
+  var name  = input.value.trim();
+  var msg   = document.getElementById('srmPurposeMsg');
+  if (!name) { msg.textContent = 'Enter a purpose name.'; msg.className = 'vm-msg err'; return; }
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r.success) {
+        allPurposes = r.purposes || [];
+        input.value = '';
+        msg.textContent = '"' + name.toUpperCase() + '" ' + (action === 'add' ? 'added.' : 'removed.');
+        msg.className = 'vm-msg ok';
+        srmShowPurposeList();
+      } else {
+        msg.textContent = r.message; msg.className = 'vm-msg err';
+      }
+    })
+    .withFailureHandler(function(e) { msg.textContent = e.message || String(e); msg.className = 'vm-msg err'; })
+    .managePurpose(action, name);
+}
+
+function srmShowPurposeList() {
+  document.getElementById('srmPurposeList').textContent = (allPurposes && allPurposes.length) ? allPurposes.join(', ') : '—';
 }
 
 // ═══════════════════════════════════════

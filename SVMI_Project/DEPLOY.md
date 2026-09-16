@@ -283,6 +283,38 @@ naming which System Tool to run first.
 
 ---
 
+## Store & Roster Manager
+
+A 7th System Tools card (admin-only, same as the other six) for editing
+`SETTINGS` directly from the Web App instead of opening the spreadsheet by
+hand:
+
+- **Store** — search an existing store (auto-fills its current
+  Brand/Region/Category) or type a brand-new name, pick Brand/Region/
+  Category, and Save. `portal_saveStore()` (`INPUT_PORTAL.gs`) updates the
+  matching row's B/C/E columns, or appends a new row and writes its column D
+  validation formula — an edit to an existing row leaves column D alone
+  since it's a live formula that recalculates on its own.
+- **Visitor Roster** — the same add/remove backed by `manageVisitor()` that
+  Input Portal's "⚙ Manage Roster" panel already uses (`SETTINGS` col F);
+  this card is just a second place to reach it.
+- **Purpose List** — add/remove entries in `SETTINGS` col H via the new
+  `managePurpose()`, the same list `getSidebarData()` already reads into
+  Input Portal's Purpose dropdown. Adding a purpose beyond the original
+  four (`STORE VISIT`/`TLTC`/`FAILED QA/MS`/`CURING/SUPPORT`) lets visits
+  log under it immediately, but it won't be broken out separately in
+  Executive Summary/KPI 2026's purpose tables or Store Health's risk
+  scoring — those still key off the fixed four in `APPROVED_PURPOSES`
+  (`SVMKPI_CORE.gs`). It'll still count toward every *total* those reports
+  show; it just won't get its own row/score.
+
+`sl_getStoreFormOptions()` (`SVMKPI_STORE_LOOKUP.gs`) supplies the form's
+Brand/Region/Category dropdowns — brands from `sl_getBrandList()` (already
+in use), regions/categories from the fixed `APPROVED_REGIONS`/
+`APPROVED_CATEGORIES` enums (`SVMKPI_CORE.gs`).
+
+---
+
 ## Checks before you push
 
 No linter, but three checks are worth running:

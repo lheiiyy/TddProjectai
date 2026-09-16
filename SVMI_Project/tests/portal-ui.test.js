@@ -518,6 +518,68 @@ async function goToTab(p, name) {
 
   await page.screenshot({ path: OUT + '/desktop-tools.png' });
 
+  console.log('\n── System Tools: Store & Roster Manager ──');
+  await page.click('button[onclick*="toggleStoreManager"]');
+  await page.waitForTimeout(900);   // srmInit()'s sl_getStoreFormOptions() call has a simulated 260-680ms delay
+  check('panel opens', await page.isVisible('#srmPanel'));
+
+  const brandOpts = await page.$$eval('#srmBrand option', e => e.map(x => x.value).filter(Boolean));
+  check('brand select is populated', brandOpts.length >= 5, brandOpts.join(','));
+  const regionOpts = await page.$$eval('#srmRegion option', e => e.map(x => x.value).filter(Boolean));
+  check('region select is populated', regionOpts.includes('NCR'), regionOpts.join(','));
+  const categoryOpts = await page.$$eval('#srmCategory option', e => e.map(x => x.value).filter(Boolean));
+  check('category select is populated', categoryOpts.includes('FLIGHT PROVINCIAL'), categoryOpts.join(','));
+
+  // Add a brand-new store
+  await page.fill('#srmStoreSearch', 'DAGUPAN CITY');
+  await page.selectOption('#srmBrand', "ANGEL'S PIZZA");
+  await page.selectOption('#srmRegion', 'PROVINCIAL');
+  await page.selectOption('#srmCategory', 'FAR PROVINCIAL');
+  await page.click('button[onclick="srmSaveStore()"]');
+  await page.waitForTimeout(900);
+  const addStat = await page.textContent('#srmStoreStat');
+  check('adding a new store succeeds', /added/i.test(addStat), addStat);
+
+  // The new store now shows up in Input Portal's own list (portal_saveStore()
+  // triggered loadPortalData() to refresh allStores/storeData)
+  await goToTab(page, 'Input');
+  await page.fill('#storeSearch', 'DAGUPAN');
+  await page.waitForTimeout(200);
+  const newStoreListed = (await page.innerHTML('#storeDrop')).includes('DAGUPAN CITY');
+  check('newly added store appears in Input Portal store list', newStoreListed);
+  await page.fill('#storeSearch', '');
+  await goToTab(page, 'Tools');
+  await page.waitForTimeout(200);
+
+  // Edit an existing store — picking it pre-fills the form, then a saved
+  // change reports "Updated" rather than "Added"
+  await page.fill('#srmStoreSearch', 'BAGUIO');
+  await page.waitForTimeout(200);
+  await page.click('#srmStoreDrop .ss-opt');
+  await page.waitForTimeout(100);
+  const prefilledBrand = await page.inputValue('#srmBrand');
+  check('picking an existing store pre-fills its current brand', prefilledBrand === "TIEN MA'S", prefilledBrand);
+  await page.selectOption('#srmRegion', 'NCR');
+  await page.click('button[onclick="srmSaveStore()"]');
+  await page.waitForTimeout(900);
+  const editStat = await page.textContent('#srmStoreStat');
+  check('editing an existing store succeeds', /updated/i.test(editStat), editStat);
+
+  // Purpose list: add then remove
+  await page.fill('#srmPurposeInput', 'REGIONAL AUDIT');
+  await page.click(`button[onclick*="srmManagePurpose('add')"]`);
+  await page.waitForTimeout(900);
+  check('adding a purpose shows it in the current list',
+    /REGIONAL AUDIT/.test(await page.textContent('#srmPurposeList')));
+
+  await page.fill('#srmPurposeInput', 'REGIONAL AUDIT');
+  await page.click(`button[onclick*="srmManagePurpose('remove')"]`);
+  await page.waitForTimeout(900);
+  check('removing a purpose drops it from the current list',
+    !/REGIONAL AUDIT/.test(await page.textContent('#srmPurposeList')));
+
+  check('no console/page errors after Store & Roster Manager use', errors.length === 0, errors.slice(0, 3).join(' | '));
+
   console.log('\n── Admin gating (default, non-admin state) ──');
   {
     const guestCtx  = await browser.newContext({ viewport: { width: 1200, height: 780 } });
@@ -536,6 +598,7 @@ async function goToTab(p, name) {
     const toolFns = {
       SMI: 'rebuildStoreMaster', SH: 'rebuildStoreHealth', ES: 'rebuildExecutiveSummary',
       KPI: 'rebuildKPI2026', VAL: 'validateMasterLog', DH: 'rebuildDataHeaders',
+      SRM: 'toggleStoreManager',
     };
     for (const id in toolFns) {
       const btnHidden  = await guestPage.isHidden(`button[onclick*="${toolFns[id]}"]`);

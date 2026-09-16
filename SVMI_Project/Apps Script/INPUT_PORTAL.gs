@@ -406,6 +406,147 @@ function manageVisitor(action, visitorName) {
 }
 
 
+// ============================================================
+//  managePurpose(action, purposeName)
+//  Adds or removes an entry in SETTINGS col H (Purpose List) — the same
+//  list getSidebarData() reads into the Input Portal's Purpose dropdown.
+//  Mirrors manageVisitor() one column over. Admin-only: exposed solely
+//  through the System Tools "Store & Roster Manager" card.
+//  action: 'add' | 'remove'
+//  purposeName: string (will be uppercased and trimmed)
+//
+//  Returns { success: true, purposes: [string] }
+//       or { success: false, message: string }
+// ============================================================
+function managePurpose(action, purposeName) {
+  try {
+    if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
+
+    var name = String(purposeName || '').trim().toUpperCase();
+    if (!name) return { success: false, message: 'Purpose name cannot be blank.' };
+
+    var ss       = SpreadsheetApp.getActiveSpreadsheet();
+    var settings = ss.getSheetByName(SHEET_SETTINGS);
+    if (!settings) return { success: false, message: 'SETTINGS sheet not found.' };
+
+    var lastRow = settings.getLastRow();
+
+    // Build current list: { name -> rowIndex (1-based) }
+    var list       = {};
+    var firstEmpty = -1;  // first empty cell in col H (for 'add')
+
+    if (lastRow >= 2) {
+      var colH = settings.getRange(2, COL_S_PURPOSE, lastRow - 1, 1).getValues();
+      colH.forEach(function (r, idx) {
+        var v = String(r[0] || '').trim().toUpperCase();
+        if (v) {
+          list[v] = idx + 2;
+        } else if (firstEmpty === -1) {
+          firstEmpty = idx + 2;
+        }
+      });
+    }
+
+    if (action === 'add') {
+      if (list[name]) {
+        return { success: false, message: '"' + name + '" is already in the purpose list.' };
+      }
+      var targetRow = firstEmpty !== -1 ? firstEmpty : lastRow + 1;
+      settings.getRange(targetRow, COL_S_PURPOSE).setValue(name);
+      SpreadsheetApp.flush();
+
+    } else if (action === 'remove') {
+      if (!list[name]) {
+        return { success: false, message: '"' + name + '" was not found in the purpose list.' };
+      }
+      settings.getRange(list[name], COL_S_PURPOSE).clearContent();
+      SpreadsheetApp.flush();
+
+    } else {
+      return { success: false, message: 'Unknown action: ' + action };
+    }
+
+    // Return refreshed purpose list
+    var updated = getSidebarData();
+    return { success: true, purposes: updated.purposes };
+
+  } catch (e) {
+    logError('managePurpose', e);
+    return { success: false, message: e.message };
+  }
+}
+
+
+// ============================================================
+//  portal_saveStore(store, brand, region, category)
+//  Adds a new SETTINGS row, or updates brand/region/category on an
+//  existing one (matched by store name, case-insensitive). A brand-new
+//  row also gets the col D validation formula (mirrors the per-row
+//  formula rebuildDataHeaders() writes in SVMKPI_MASTER_REBUILD.gs) —
+//  an edit to an existing row leaves col D alone since it's a live
+//  formula referencing B/C and recalculates on its own.
+//  Admin-only: exposed solely through the System Tools
+//  "Store & Roster Manager" card.
+//
+//  Returns { success: true, message: string, isNew: boolean }
+//       or { success: false, message: string }
+// ============================================================
+function portal_saveStore(store, brand, region, category) {
+  try {
+    if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
+
+    var name = String(store || '').trim().toUpperCase();
+    if (!name) return { success: false, message: 'Store name cannot be blank.' };
+    brand    = String(brand    || '').trim().toUpperCase();
+    region   = String(region   || '').trim().toUpperCase();
+    category = String(category || '').trim().toUpperCase();
+    if (!brand || !region || !category) {
+      return { success: false, message: 'Brand, Region and Category are all required.' };
+    }
+
+    var ss       = SpreadsheetApp.getActiveSpreadsheet();
+    var settings = ss.getSheetByName(SHEET_SETTINGS);
+    if (!settings) return { success: false, message: 'SETTINGS sheet not found.' };
+
+    var lastRow   = settings.getLastRow();
+    var targetRow = -1;
+    if (lastRow >= 2) {
+      var colA = settings.getRange(2, COL_S_STORE, lastRow - 1, 1).getValues();
+      for (var i = 0; i < colA.length; i++) {
+        if (String(colA[i][0] || '').trim().toUpperCase() === name) { targetRow = i + 2; break; }
+      }
+    }
+
+    var isNew = targetRow === -1;
+    if (isNew) targetRow = lastRow + 1;
+
+    settings.getRange(targetRow, COL_S_STORE).setValue(name);
+    settings.getRange(targetRow, COL_S_BRAND).setValue(brand);
+    settings.getRange(targetRow, COL_S_REGION).setValue(region);
+    settings.getRange(targetRow, COL_S_CATEGORY).setValue(category);
+
+    if (isNew) {
+      var brandChecks = APPROVED_BRANDS.map(function (b) {
+        return 'B' + targetRow + '="' + String(b).replace(/"/g, '""') + '"';
+      }).join(',');
+      settings.getRange(targetRow, 4).setFormula(
+        '=IF(OR(' + brandChecks + '),IF(C' + targetRow + '="","⚠ MISSING REGION","OK"),"N/A")'
+      );
+    }
+
+    SpreadsheetApp.flush();
+    return {
+      success: true,
+      isNew: isNew,
+      message: (isNew ? 'Added "' : 'Updated "') + name + '".',
+    };
+
+  } catch (e) {
+    logError('portal_saveStore', e);
+    return { success: false, message: e.message };
+  }
+}
+
 
 // ============================================================
 //  logError(context, error)
