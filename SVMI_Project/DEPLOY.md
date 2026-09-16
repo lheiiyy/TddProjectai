@@ -174,13 +174,31 @@ are fine to leave as a familiar label or reword at your discretion.
 
 ## Access control
 
-Three layers, each answering a different question:
+Four layers, each answering a different question:
 
 | Layer | Question it answers | Where it's configured |
 |---|---|---|
 | Google sign-in | Is this a real Google account? | `appsscript.json` |
 | Guest password | Should this account be using the app at all? | `SETTINGS!I2` |
+| Hub token (optional) | Did this visit just come from the Training & Development Hub? | Script Property `HUB_SHARED_SECRET` |
 | Admin list | Should this account see System Tools at all? | `SETTINGS!G2:G` |
+
+**Hub token** is an alternative to the guest password, not a replacement
+for it — a request carrying a valid, unexpired `?htok=` (minted by
+Hub_Project when someone clicks "Open SVMI Command Center" there) skips
+the password prompt; anything else, including a stale/copied token,
+still needs the real guest password. It only activates once
+`HUB_SHARED_SECRET` is set here to the *same* value configured in the
+Hub's own Script Properties — see `Hub_Project/DEPLOY.md`. Leave it
+unset to run this project standalone, without a Hub at all.
+
+Also worth knowing: neither the guest password nor a Hub token is
+remembered in the browser (no `localStorage`) any more, and the portal
+auto-locks itself back to this gate after 2 minutes with no mouse/
+keyboard/touch activity. A closed tab, a refresh, or a copied link
+always needs a fresh password or a fresh Hub click-through — nothing
+about this file's own gate logic changed to cause that, it's
+`SVMI_PORTAL.html`/`SVMI_LOCK.html` no longer caching anything client-side.
 
 ### 1. Google sign-in
 

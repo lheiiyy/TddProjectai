@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SVMI Command Center — Sign In</title>
+<title>Training & Development Hub — Sign In</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -38,8 +38,8 @@ button:hover{background:var(--tld-d)}
     <circle cx="26" cy="14" r="11" fill="#15140F"/>
     <circle cx="21" cy="24" r="11" fill="#2E8B3D"/>
   </svg>
-  <h1>🏪 SVMI Command Center</h1>
-  <div class="lock-sub">You're signed in with Google — enter the access password to continue.</div>
+  <h1>Training & Development Hub</h1>
+  <div class="lock-sub">Figaro Coffee Group — you're signed in with Google. Enter the Hub access password to continue.</div>
   <form method="POST" action="<?= actionUrl ?>" id="lockForm">
     <input type="password" name="pw" id="pwInput" placeholder="Password" autocomplete="current-password" autofocus>
     <button type="submit">Unlock</button>
@@ -49,10 +49,8 @@ button:hover{background:var(--tld-d)}
 
 <script>
 (function () {
-  // Nothing is remembered across visits any more (no localStorage) — every
-  // fresh load of this screen means neither the guest password nor a Hub
-  // token from a previous visit still applies, so a closed tab, a refresh,
-  // or a copied link always lands back here instead of silently getting in.
+  // Nothing is remembered across visits any more (no localStorage) — a
+  // closed tab, a refresh, or a copied link always lands back here.
   var failed = <?!= failed ? 'true' : 'false' ?>;
   if (failed) {
     document.getElementById('lockErr').hidden = false;

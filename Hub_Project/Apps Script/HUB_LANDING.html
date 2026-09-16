@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Figaro Coffee Group — Training & Development Hub</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --navy:#1E1D14;--navy-d:#121108;--navy-c:#17160E;
+  --gold:#C6D92E;--text:#1A1A2E;--muted:#6B7A90;--white:#FFFFFF;--light:#D7DCC5;
+  --border:#D5E3F0;--bg:#F4F7FB;--card:#FFFFFF;--tld:#2E8B3D;--tld-d:#216B2D;--red:#C0392B;
+}
+body{font-family:Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+
+.top-bar{background:var(--navy);color:var(--white);padding:14px 20px;display:flex;
+  align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px}
+.brand-name{font-size:14px;font-weight:700;line-height:1.3}
+.brand-sub{font-size:10px;color:var(--light);font-weight:400}
+.who{font-size:11px;color:var(--light);text-align:right}
+.who a{color:var(--gold);text-decoration:none;font-weight:700}
+
+.wrap{max-width:900px;margin:0 auto;padding:32px 20px 48px}
+.intro{margin-bottom:28px}
+.intro h1{font-size:20px;color:var(--navy);margin-bottom:6px}
+.intro p{font-size:12.5px;color:var(--muted);line-height:1.6;max-width:620px}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:22px;
+  display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.card-icon{font-size:26px}
+.card h2{font-size:15px;color:var(--navy)}
+.card p{font-size:11.5px;color:var(--muted);line-height:1.6;flex:1}
+.card .open-btn{display:inline-block;text-align:center;padding:10px;background:var(--tld);
+  color:var(--white);font-size:12.5px;font-weight:700;border-radius:5px;text-decoration:none;
+  border:none;cursor:pointer;font-family:inherit;width:100%}
+.card .open-btn:hover{background:var(--tld-d)}
+.card .open-btn:disabled{opacity:.6;cursor:default}
+.card .unset{padding:10px;background:#F4F7FB;border:1px dashed var(--border);border-radius:5px;
+  color:var(--muted);font-size:11px;text-align:center;line-height:1.5}
+
+.footer-note{margin-top:32px;font-size:10.5px;color:var(--muted);line-height:1.6;max-width:620px}
+</style>
+</head>
+<body>
+
+<!-- Deliberately NOT remembering the Hub password anywhere (no
+     localStorage) — a closed tab or a refresh must re-clear this gate too,
+     same as both sub-systems. See Code.gs's _handleHubRequest_. -->
+
+<!-- Auto-lock after 2 minutes of no activity, same as both sub-systems. -->
+<script>
+(function () {
+  var HUB_IDLE_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+  var idleTimer;
+  function relock() {
+    location.href = location.origin + location.pathname;
+  }
+  function resetIdleTimer() {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(relock, HUB_IDLE_TIMEOUT_MS);
+  }
+  ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach(function (evt) {
+    document.addEventListener(evt, resetIdleTimer, { passive: true });
+  });
+  resetIdleTimer();
+})();
+</script>
+
+<div class="top-bar">
+  <div class="brand">
+    <svg width="28" height="28" viewBox="0 0 40 40" aria-hidden="true">
+      <circle cx="16" cy="14" r="11" fill="#C6D92E"/>
+      <circle cx="26" cy="14" r="11" fill="#15140F"/>
+      <circle cx="21" cy="24" r="11" fill="#2E8B3D"/>
+    </svg>
+    <div>
+      <div class="brand-name">Figaro Coffee Group</div>
+      <div class="brand-sub">Training &amp; Development Hub</div>
+    </div>
+  </div>
+  <div class="who">
+    <? if (currentUser) { ?>
+      Signed in as <strong><?= currentUser ?></strong><br>
+    <? } ?>
+    <a href="#" id="logoutLink">Sign out of this Hub</a>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="intro">
+    <h1>Choose a system</h1>
+    <p>Each tool below is its own app with its own sign-in and its own data — this
+      Hub only links out to them. Opening one may still ask you to sign in there
+      too the first time.</p>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="card-icon">🏪</div>
+      <h2>SVMI Command Center</h2>
+      <p>Store Visit Monitoring Intelligence — log store visits, track compliance
+        gaps, and monitor Store Health across every brand and region.</p>
+      <? if (svmiUrl) { ?>
+        <button type="button" class="open-btn" data-sub="svmi">Open SVMI Command Center</button>
+      <? } else { ?>
+        <div class="unset">Not yet configured — see DEPLOY.md (setupHub_setSubSystemUrls).</div>
+      <? } ?>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">🍕</div>
+      <h2>TL Tracker</h2>
+      <p>Team Leader Monitoring — onboarding, certification, uniform issuance,
+        and supplier stock tracking for trainee Team Leaders.</p>
+      <? if (tlmUrl) { ?>
+        <button type="button" class="open-btn" data-sub="tlm">Open TL Tracker</button>
+      <? } else { ?>
+        <div class="unset">Not yet configured — see DEPLOY.md (setupHub_setSubSystemUrls).</div>
+      <? } ?>
+    </div>
+  </div>
+
+  <div class="footer-note">
+    This Hub is a router only — it doesn't store or read either system's data.
+    Rotating this Hub's password never changes SVMI's guest password/admin list
+    or TL Tracker's PIN; each keeps its own gate.
+  </div>
+</div>
+
+<script>
+document.getElementById('logoutLink').addEventListener('click', function (ev) {
+  ev.preventDefault();
+  location.href = location.origin + location.pathname;
+});
+
+// Each "Open …" click mints a fresh, short-lived signed token server-side
+// (Code.gs's hub_getAccessUrl) and only then opens that URL — the raw,
+// permanent sub-system URL is never put in the page or the address bar,
+// so there's nothing durable to copy out of this page itself. The token
+// is what actually expires (~5 minutes to complete the hand-off); each
+// sub-system's own 2-minute idle auto-lock and lack of remembered
+// credentials take over from there.
+document.querySelectorAll('.open-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var sub = btn.getAttribute('data-sub');
+    var originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Opening…';
+    google.script.run
+      .withSuccessHandler(function (url) {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        window.open(url, '_blank', 'noopener');
+      })
+      .withFailureHandler(function (err) {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        alert(err.message || 'Could not open that system — try again.');
+      })
+      .hub_getAccessUrl(sub);
+  });
+});
+</script>
+
+</body>
+</html>

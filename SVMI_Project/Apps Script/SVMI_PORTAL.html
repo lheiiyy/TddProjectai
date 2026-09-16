@@ -454,10 +454,31 @@ textarea.fi{padding-right:28px}
 </head>
 <body>
 
-<!-- The guest password just used to get here (see SVMKPI_ACCESS.gs's
-     _handleWebAppRequest_) is remembered so a returning visit skips the
-     lock screen instead of asking again every time. -->
-<script>try{localStorage.setItem('svmi_pw', <?!= JSON.stringify(enteredPassword || '') ?>);}catch(e){}</script>
+<!-- Deliberately NOT remembering the guest password/Hub token anywhere
+     (no localStorage) — a closed tab or a refresh must re-clear this gate,
+     so a copied link stops being a standing bypass. See SVMKPI_ACCESS.gs's
+     _handleWebAppRequest_ for what actually gates this page. -->
+
+<!-- Auto-lock after SVMI_IDLE_TIMEOUT_MS of no activity: drop the query
+     string (guest password / Hub token) and reload, which lands back on
+     the lock screen since nothing is remembered client-side either. -->
+<script>
+(function () {
+  var SVMI_IDLE_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+  var idleTimer;
+  function relock() {
+    location.href = location.origin + location.pathname;
+  }
+  function resetIdleTimer() {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(relock, SVMI_IDLE_TIMEOUT_MS);
+  }
+  ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach(function (evt) {
+    document.addEventListener(evt, resetIdleTimer, { passive: true });
+  });
+  resetIdleTimer();
+})();
+</script>
 
 <!-- Top Bar -->
 <div class="top-bar">
