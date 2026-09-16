@@ -27,6 +27,18 @@ const HUB_PASSWORD_KEY   = 'HUB_PASSWORD';
 const HUB_SVMI_URL_KEY   = 'SVMI_URL';
 const HUB_TLM_URL_KEY    = 'TLM_URL';
 
+// Secret shared with SVMI_Project and TLM_Project (their own
+// HUB_SHARED_SECRET Script Property must hold the same value) — used to
+// sign the short-lived access tokens minted below. See DEPLOY.md.
+const HUB_TOKEN_SECRET_KEY = 'HUB_SHARED_SECRET';
+// How long a minted token stays valid for the initial hand-off to a
+// sub-system's doGet — generous enough to cover an actual click-through
+// and page load, not meant to double as the "how long can I keep using
+// it" window (that's each sub-system's own 2-minute idle auto-lock, and
+// neither sub-system remembers a credential across a refresh/close either
+// way — see their SVMI_LOCK.html / TL_LOCK.html).
+const HUB_TOKEN_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 function doGet(e) {
   return _handleHubRequest_(e);
 }
@@ -111,6 +123,63 @@ function _getSubSystemUrls_() {
     svmi: String(props.getProperty(HUB_SVMI_URL_KEY) || '').trim(),
     tlm:  String(props.getProperty(HUB_TLM_URL_KEY) || '').trim(),
   };
+}
+
+/**
+ * hub_getAccessUrl(sub)
+ * Called from HUB_LANDING.html's "Open …" buttons via google.script.run.
+ * Mints a fresh, short-lived signed token and returns that sub-system's
+ * URL with it attached — this is what actually gets clicked through to,
+ * never the bare URL, so a visitor never even sees (let alone bookmarks)
+ * a permanently-valid link. A copied/shared version of the returned URL
+ * stops working once the token expires (HUB_TOKEN_TTL_MS) — the
+ * sub-system's own password/PIN gate still works independently of this,
+ * so this never locks anyone out who knows it directly.
+ * @param {string} sub 'svmi' or 'tlm'
+ * @returns {string} the sub-system's URL with a fresh ?htok= appended
+ */
+function hub_getAccessUrl(sub) {
+  const urls = _getSubSystemUrls_();
+  const base = sub === 'svmi' ? urls.svmi : sub === 'tlm' ? urls.tlm : '';
+  if (!base) throw new Error('That system has not been configured yet — see DEPLOY.md.');
+
+  const token = _issueHubToken_(hub_getCurrentUser(), sub);
+  const sep = base.indexOf('?') === -1 ? '?' : '&';
+  return base + sep + 'htok=' + encodeURIComponent(token);
+}
+
+/**
+ * _issueHubToken_(email, sub)
+ * Signs {email, sub, exp} with HUB_SHARED_SECRET (HMAC-SHA256) into a
+ * compact token: base64url(JSON payload) + '.' + hex signature. Verified
+ * on the other end by each sub-system's own _verifyHubToken_ (duplicated
+ * there, not a shared library, so each project stays independently
+ * deployable).
+ * @param {string} email
+ * @param {string} sub
+ * @returns {string}
+ */
+function _issueHubToken_(email, sub) {
+  const secret = String(PropertiesService.getScriptProperties().getProperty(HUB_TOKEN_SECRET_KEY) || '');
+  if (!secret) throw new Error('HUB_SHARED_SECRET is not configured yet — see DEPLOY.md.');
+
+  const payload = { email: email || '', sub: sub, exp: Date.now() + HUB_TOKEN_TTL_MS };
+  const payloadB64 = Utilities.base64EncodeWebSafe(JSON.stringify(payload));
+  const signature = _hmacHex_(payloadB64, secret);
+  return payloadB64 + '.' + signature;
+}
+
+/**
+ * _hmacHex_(text, secret) — HMAC-SHA256 of text with secret, as lowercase hex.
+ * @param {string} text
+ * @param {string} secret
+ * @returns {string}
+ */
+function _hmacHex_(text, secret) {
+  const bytes = Utilities.computeHmacSha256Signature(text, secret);
+  return bytes.map(function (b) {
+    return ((b < 0 ? b + 256 : b)).toString(16).padStart(2, '0');
+  }).join('');
 }
 
 // ═══════════════════════════════════════════════════════════════

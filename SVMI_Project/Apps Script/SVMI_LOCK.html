@@ -49,23 +49,13 @@ button:hover{background:var(--tld-d)}
 
 <script>
 (function () {
+  // Nothing is remembered across visits any more (no localStorage) — every
+  // fresh load of this screen means neither the guest password nor a Hub
+  // token from a previous visit still applies, so a closed tab, a refresh,
+  // or a copied link always lands back here instead of silently getting in.
   var failed = <?!= failed ? 'true' : 'false' ?>;
-
   if (failed) {
     document.getElementById('lockErr').hidden = false;
-    try { localStorage.removeItem('svmi_pw'); } catch (e) {}
-    return;
-  }
-
-  // First load with nothing remembered — just show the form. If something
-  // IS remembered, try it silently once before bothering the visitor;
-  // a wrong/rotated password comes back here with failed=true above,
-  // so this never loops.
-  var saved = null;
-  try { saved = localStorage.getItem('svmi_pw'); } catch (e) {}
-  if (saved) {
-    document.getElementById('pwInput').value = saved;
-    document.getElementById('lockForm').submit();
   }
 })();
 </script>

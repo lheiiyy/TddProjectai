@@ -36,6 +36,10 @@ const ACCESS_COL = {
   GUEST_PASSWORD:  9,  // I — single value in I2
 };
 
+// Script Property holding the secret shared with the Training &
+// Development Hub (Hub_Project) — see _verifyHubToken_ below.
+const HUB_TOKEN_SECRET_KEY = 'HUB_SHARED_SECRET';
+
 /**
  * _getAdminEmails()
  * @returns {string[]} lowercased, trimmed admin emails from SETTINGS!G2:G
@@ -127,9 +131,13 @@ function sl_isAdmin() {
  */
 function _handleWebAppRequest_(e) {
   const pw       = String((e && e.parameter && e.parameter.pw) || '');
+  const htok     = String((e && e.parameter && e.parameter.htok) || '');
   const required = _getGuestPassword();
 
-  if (!required || pw.trim() === required) {
+  const hubToken = htok ? _verifyHubToken_(htok) : null;
+  const hubOk    = !!hubToken && hubToken.sub === 'svmi';
+
+  if (!required || pw.trim() === required || hubOk) {
     const tmpl = HtmlService.createTemplateFromFile('SVMI_PORTAL');
     tmpl.enteredPassword = pw.trim();
     return tmpl.evaluate()
@@ -143,6 +151,59 @@ function _handleWebAppRequest_(e) {
   return lockTmpl.evaluate()
     .setTitle('SVMI Command Center — Sign In')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/**
+ * _verifyHubToken_(token)
+ * Validates a short-lived access token minted by the Training &
+ * Development Hub (Hub_Project/Apps Script/Code.gs's _issueHubToken_) —
+ * so clicking "Open SVMI Command Center" there gets in without needing to
+ * separately know the guest password, while a bookmarked/copied link with
+ * a stale or missing token still falls through to the normal password gate
+ * above instead of getting in for free.
+ * Requires HUB_SHARED_SECRET (Script Properties) to match the same value
+ * configured in the Hub's own Script Properties — see DEPLOY.md. Returns
+ * null (never throws) for a missing/malformed/expired/mismatched-signature
+ * token, or when no secret is configured here yet, so an unconfigured Hub
+ * link never silently grants access.
+ * @param {string} token
+ * @returns {?{email: string, sub: string, exp: number}}
+ */
+function _verifyHubToken_(token) {
+  const secret = String(PropertiesService.getScriptProperties().getProperty(HUB_TOKEN_SECRET_KEY) || '');
+  if (!secret || !token) return null;
+
+  const parts = String(token).split('.');
+  if (parts.length !== 2) return null;
+  const payloadB64 = parts[0];
+  const signature = parts[1];
+
+  const expected = _hmacHex_(payloadB64, secret);
+  if (signature !== expected) return null;
+
+  let payload;
+  try {
+    payload = JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(payloadB64)).getDataAsString());
+  } catch (err) {
+    return null;
+  }
+  if (!payload || typeof payload.exp !== 'number' || Date.now() > payload.exp) return null;
+  return payload;
+}
+
+/**
+ * _hmacHex_(text, secret) — HMAC-SHA256 of text with secret, as lowercase hex.
+ * Shared logic with the Hub's _issueHubToken_/_hmacHex_ — keep both in sync
+ * if this ever changes.
+ * @param {string} text
+ * @param {string} secret
+ * @returns {string}
+ */
+function _hmacHex_(text, secret) {
+  const bytes = Utilities.computeHmacSha256Signature(text, secret);
+  return bytes.map(function (b) {
+    return ((b < 0 ? b + 256 : b)).toString(16).padStart(2, '0');
+  }).join('');
 }
 
 

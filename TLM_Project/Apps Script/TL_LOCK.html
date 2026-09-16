@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Training & Development Hub — Sign In</title>
+<title>TL Tracker — Sign In</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -19,9 +19,9 @@ body{font-family:Arial,sans-serif;background:var(--navy);color:var(--text);
 h1{font-size:16px;color:var(--navy);margin-bottom:4px}
 .lock-sub{font-size:11px;color:var(--muted);margin-bottom:18px;line-height:1.5}
 #lockForm{display:flex;flex-direction:column;gap:10px}
-#pwInput{padding:10px 12px;font-size:14px;border:1px solid #cbd5e0;border-radius:5px;
+#pinInput{padding:10px 12px;font-size:14px;border:1px solid #cbd5e0;border-radius:5px;
   font-family:Arial;outline:none;text-align:center;letter-spacing:1px}
-#pwInput:focus{border-color:var(--tld);box-shadow:0 0 0 2px rgba(46,139,61,.14)}
+#pinInput:focus{border-color:var(--tld);box-shadow:0 0 0 2px rgba(46,139,61,.14)}
 button{padding:10px;background:var(--tld);color:var(--white);font-size:13px;font-weight:700;
   border:none;border-radius:5px;cursor:pointer;font-family:Arial}
 button:hover{background:var(--tld-d)}
@@ -38,19 +38,21 @@ button:hover{background:var(--tld-d)}
     <circle cx="26" cy="14" r="11" fill="#15140F"/>
     <circle cx="21" cy="24" r="11" fill="#2E8B3D"/>
   </svg>
-  <h1>Training & Development Hub</h1>
-  <div class="lock-sub">Figaro Coffee Group — you're signed in with Google. Enter the Hub access password to continue.</div>
+  <h1>🍕 TL Tracker</h1>
+  <div class="lock-sub">Enter the access PIN to continue.</div>
   <form method="POST" action="<?= actionUrl ?>" id="lockForm">
-    <input type="password" name="pw" id="pwInput" placeholder="Password" autocomplete="current-password" autofocus>
+    <input type="password" inputmode="numeric" name="pin" id="pinInput" placeholder="PIN" autocomplete="off" autofocus>
     <button type="submit">Unlock</button>
   </form>
-  <div class="lock-err" id="lockErr" hidden>Incorrect password — please try again.</div>
+  <div class="lock-err" id="lockErr" hidden>Incorrect PIN — please try again.</div>
 </div>
 
 <script>
 (function () {
-  // Nothing is remembered across visits any more (no localStorage) — a
-  // closed tab, a refresh, or a copied link always lands back here.
+  // Deliberately not remembered anywhere (no localStorage) — a closed tab,
+  // a refresh, or a copied link always lands back here. The full TLForm's
+  // own PIN screen still remembers a PIN locally, but only for the
+  // in-Sheet desktop dialog (showTLForm()), never for this web-app path.
   var failed = <?!= failed ? 'true' : 'false' ?>;
   if (failed) {
     document.getElementById('lockErr').hidden = false;

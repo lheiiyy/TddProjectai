@@ -41,7 +41,7 @@ This is what lets the **📦 Stock** tab and the Summary tab compute stock on ha
 If you already have MASTER_LOG data to migrate in, copy it under those headers — order doesn't matter, the script looks columns up by name.
 
 ## 4. Set the access PIN
-Run **🍕 TL Tracker → Set / Change Access PIN**, enter a 4+ character PIN. This is what actually gates the phone link — anyone with the URL reaches the PIN screen, but only the PIN gets them into the form. Change it any time by running this again.
+Run **🍕 TL Tracker → Set / Change Access PIN**, enter a 4+ character PIN. This is what actually gates the phone link — `doGet()` (`Code.gs`) checks the PIN *before* the form itself is ever sent to the browser, so anyone with just the URL reaches a PIN-only screen (`TL_LOCK.html`), not the working form. Change the PIN any time by running this again; nothing is cached client-side, so it takes effect on the very next visit. (A visit coming from the Training & Development Hub, if one is configured, can skip this screen via a short-lived Hub token instead of the PIN — see `Hub_Project/DEPLOY.md`.)
 
 ## 5. Deploy as a phone-friendly web app
 In the Apps Script editor: **Deploy → New deployment**.
@@ -74,7 +74,7 @@ On a phone: open that URL in the browser, enter the PIN, and use the browser's *
 Other menu items (desktop only):
 - **Refresh Store Summary** — recomputes active-TL-per-store, status totals, uniform pieces given out by size, stock on hand by size, *and* a DR #-by-store lookup table, all from the actual data on a "Summary" tab — instead of a manual formula that can throw `#ERROR!`.
 - **Show Phone App Link** — re-displays the deployed URL.
-- **Set / Change Access PIN** — update the PIN anytime; existing phones stay unlocked until someone taps "🔒 Lock" or clears their browser data.
+- **Set / Change Access PIN** — update the PIN anytime; takes effect on the next page load for the web app link (nothing is remembered across visits there any more), and the form also auto-locks itself back to the PIN screen after 2 minutes of no activity. The in-Sheet desktop dialog (**Open TL Form**) still remembers an entered PIN locally in that browser until someone taps "🔒 Lock" or clears browser data — that convenience is unchanged.
 
 ## What's new in this version
 - **Dedicated uniform tracking.** Its own UNIFORM_LOG tab (one row per piece, with size/qty/DR#/who), its own tab in the form, a per-trainee history so you can see what's already been given before handing out more, and a size-by-size total on the Summary tab — instead of one free-text cell getting overwritten every time.

@@ -102,6 +102,10 @@ const UNIFORM_SIZES = ['XSMALL', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE', 'XXLARGE'
 const PIN_PROPERTY_KEY = 'TL_TRACKER_PIN';
 const LOCK_WAIT_MS = 10000; // how long a phone submit waits for another one to finish
 
+// Script Property holding the secret shared with the Training &
+// Development Hub (Hub_Project) — see _verifyHubToken_ below.
+const HUB_TOKEN_SECRET_KEY = 'HUB_SHARED_SECRET';
+
 // Spreadsheet ID of the SVMI Command Center — its SETTINGS tab (Store |
 // Brand | Region) is the canonical, company-wide store roster. TL Tracker
 // reads it so the Reports tab's Store Coverage view can show every real
@@ -167,8 +171,16 @@ function onOpen() {
 
 // Single dialog, with a New Entry / Certify & Update switch inside it.
 // Used from the desktop Sheets menu — phones use the web app (doGet) instead.
+// Templated (not createHtmlOutputFromFile) so TLForm.html's serverAuthed
+// scriptlet evaluates instead of being sent as literal broken JS — this
+// dialog only opens from inside the Sheet itself (already collaborator-
+// gated), so it always starts unauthenticated and relies on TLForm's own
+// client-side PIN gate (with its local "remember" convenience), same as
+// before this file added a server-side gate for the web app path below.
 function showTLForm() {
-  const html = HtmlService.createHtmlOutputFromFile('TLForm').setWidth(480).setHeight(700);
+  const tmpl = HtmlService.createTemplateFromFile('TLForm');
+  tmpl.serverAuthed = false;
+  const html = tmpl.evaluate().setWidth(480).setHeight(700);
   SpreadsheetApp.getUi().showModalDialog(html, 'TL Tracker');
 }
 
@@ -177,12 +189,95 @@ function showTLForm() {
 // =====================================================================
 // Deploy this project as a Web App (Deploy → New deployment → Web app).
 // Whoever opens the resulting URL — on a phone or anywhere else — gets
-// this same form full-page, gated by the PIN screen built into TLForm.html.
+// this same form full-page. doGet()/doPost() route through
+// _handleTLRequest_() below, which enforces the PIN (or a Hub token)
+// BEFORE serving TLForm.html — a wrong/missing PIN gets TL_LOCK.html
+// instead, so the form's code (and everything it can call via
+// google.script.run) is never sent to a browser that hasn't unlocked it.
+// This is a second, server-side gate in addition to TLForm's own
+// client-side PIN screen (which still exists, for the in-Sheet dialog
+// path above where there's no request to check server-side).
 function doGet(e) {
-  return HtmlService.createHtmlOutputFromFile('TLForm')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1')
-    .setTitle('TL Tracker')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
+  return _handleTLRequest_(e);
+}
+
+function doPost(e) {
+  return _handleTLRequest_(e);
+}
+
+function _handleTLRequest_(e) {
+  const pin    = String((e && e.parameter && e.parameter.pin) || '');
+  const htok   = String((e && e.parameter && e.parameter.htok) || '');
+  const stored = PropertiesService.getScriptProperties().getProperty(PIN_PROPERTY_KEY);
+
+  const hubToken = htok ? _verifyHubToken_(htok) : null;
+  const hubOk    = !!hubToken && hubToken.sub === 'tlm';
+
+  if (!stored || pin.trim() === stored || hubOk) {
+    // serverAuthed=true tells TLForm.html's client PIN gate to skip
+    // itself — the server already checked, so no second prompt.
+    const tmpl = HtmlService.createTemplateFromFile('TLForm');
+    tmpl.serverAuthed = true;
+    return tmpl.evaluate()
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1')
+      .setTitle('TL Tracker')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
+  }
+
+  const lockTmpl = HtmlService.createTemplateFromFile('TL_LOCK');
+  lockTmpl.failed    = pin.length > 0;   // only show "incorrect" after an actual attempt
+  lockTmpl.actionUrl = ScriptApp.getService().getUrl();
+  return lockTmpl.evaluate()
+    .setTitle('TL Tracker — Sign In')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/**
+ * _verifyHubToken_(token)
+ * Validates a short-lived access token minted by the Training &
+ * Development Hub (Hub_Project/Apps Script/Code.gs's _issueHubToken_).
+ * Same shape as SVMI_Project's SVMKPI_ACCESS.gs copy — kept duplicated
+ * (not a shared library) so each project stays deployable on its own.
+ * Requires HUB_SHARED_SECRET (Script Properties) to match the Hub's own
+ * Script Properties value — see DEPLOY-Hub.md notes in TLM_Project's
+ * README / the Hub's DEPLOY.md. Never throws; returns null for anything
+ * missing, malformed, expired, or signed with the wrong secret.
+ * @param {string} token
+ * @returns {?{email: string, sub: string, exp: number}}
+ */
+function _verifyHubToken_(token) {
+  const secret = String(PropertiesService.getScriptProperties().getProperty(HUB_TOKEN_SECRET_KEY) || '');
+  if (!secret || !token) return null;
+
+  const parts = String(token).split('.');
+  if (parts.length !== 2) return null;
+  const payloadB64 = parts[0];
+  const signature = parts[1];
+
+  const expected = _hmacHex_(payloadB64, secret);
+  if (signature !== expected) return null;
+
+  let payload;
+  try {
+    payload = JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(payloadB64)).getDataAsString());
+  } catch (err) {
+    return null;
+  }
+  if (!payload || typeof payload.exp !== 'number' || Date.now() > payload.exp) return null;
+  return payload;
+}
+
+/**
+ * _hmacHex_(text, secret) — HMAC-SHA256 of text with secret, as lowercase hex.
+ * @param {string} text
+ * @param {string} secret
+ * @returns {string}
+ */
+function _hmacHex_(text, secret) {
+  const bytes = Utilities.computeHmacSha256Signature(text, secret);
+  return bytes.map(function (b) {
+    return ((b < 0 ? b + 256 : b)).toString(16).padStart(2, '0');
+  }).join('');
 }
 
 function setAccessPin() {

@@ -32,9 +32,11 @@ body{font-family:Arial,sans-serif;background:var(--bg);color:var(--text);min-hei
 .card-icon{font-size:26px}
 .card h2{font-size:15px;color:var(--navy)}
 .card p{font-size:11.5px;color:var(--muted);line-height:1.6;flex:1}
-.card a.open-btn{display:inline-block;text-align:center;padding:10px;background:var(--tld);
-  color:var(--white);font-size:12.5px;font-weight:700;border-radius:5px;text-decoration:none}
-.card a.open-btn:hover{background:var(--tld-d)}
+.card .open-btn{display:inline-block;text-align:center;padding:10px;background:var(--tld);
+  color:var(--white);font-size:12.5px;font-weight:700;border-radius:5px;text-decoration:none;
+  border:none;cursor:pointer;font-family:inherit;width:100%}
+.card .open-btn:hover{background:var(--tld-d)}
+.card .open-btn:disabled{opacity:.6;cursor:default}
 .card .unset{padding:10px;background:#F4F7FB;border:1px dashed var(--border);border-radius:5px;
   color:var(--muted);font-size:11px;text-align:center;line-height:1.5}
 
@@ -43,10 +45,28 @@ body{font-family:Arial,sans-serif;background:var(--bg);color:var(--text);min-hei
 </head>
 <body>
 
-<!-- The Hub password just used to get here (see Code.gs's
-     _handleHubRequest_) is remembered so a returning visit skips the
-     login screen instead of asking again every time. -->
-<script>try{localStorage.setItem('tdd_hub_pw', <?!= JSON.stringify(enteredPassword || '') ?>);}catch(e){}</script>
+<!-- Deliberately NOT remembering the Hub password anywhere (no
+     localStorage) — a closed tab or a refresh must re-clear this gate too,
+     same as both sub-systems. See Code.gs's _handleHubRequest_. -->
+
+<!-- Auto-lock after 2 minutes of no activity, same as both sub-systems. -->
+<script>
+(function () {
+  var HUB_IDLE_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+  var idleTimer;
+  function relock() {
+    location.href = location.origin + location.pathname;
+  }
+  function resetIdleTimer() {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(relock, HUB_IDLE_TIMEOUT_MS);
+  }
+  ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach(function (evt) {
+    document.addEventListener(evt, resetIdleTimer, { passive: true });
+  });
+  resetIdleTimer();
+})();
+</script>
 
 <div class="top-bar">
   <div class="brand">
@@ -83,7 +103,7 @@ body{font-family:Arial,sans-serif;background:var(--bg);color:var(--text);min-hei
       <p>Store Visit Monitoring Intelligence — log store visits, track compliance
         gaps, and monitor Store Health across every brand and region.</p>
       <? if (svmiUrl) { ?>
-        <a class="open-btn" href="<?= svmiUrl ?>" target="_blank" rel="noopener">Open SVMI Command Center</a>
+        <button type="button" class="open-btn" data-sub="svmi">Open SVMI Command Center</button>
       <? } else { ?>
         <div class="unset">Not yet configured — see DEPLOY.md (setupHub_setSubSystemUrls).</div>
       <? } ?>
@@ -95,7 +115,7 @@ body{font-family:Arial,sans-serif;background:var(--bg);color:var(--text);min-hei
       <p>Team Leader Monitoring — onboarding, certification, uniform issuance,
         and supplier stock tracking for trainee Team Leaders.</p>
       <? if (tlmUrl) { ?>
-        <a class="open-btn" href="<?= tlmUrl ?>" target="_blank" rel="noopener">Open TL Tracker</a>
+        <button type="button" class="open-btn" data-sub="tlm">Open TL Tracker</button>
       <? } else { ?>
         <div class="unset">Not yet configured — see DEPLOY.md (setupHub_setSubSystemUrls).</div>
       <? } ?>
@@ -112,8 +132,35 @@ body{font-family:Arial,sans-serif;background:var(--bg);color:var(--text);min-hei
 <script>
 document.getElementById('logoutLink').addEventListener('click', function (ev) {
   ev.preventDefault();
-  try { localStorage.removeItem('tdd_hub_pw'); } catch (e) {}
-  location.reload();
+  location.href = location.origin + location.pathname;
+});
+
+// Each "Open …" click mints a fresh, short-lived signed token server-side
+// (Code.gs's hub_getAccessUrl) and only then opens that URL — the raw,
+// permanent sub-system URL is never put in the page or the address bar,
+// so there's nothing durable to copy out of this page itself. The token
+// is what actually expires (~5 minutes to complete the hand-off); each
+// sub-system's own 2-minute idle auto-lock and lack of remembered
+// credentials take over from there.
+document.querySelectorAll('.open-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var sub = btn.getAttribute('data-sub');
+    var originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Opening…';
+    google.script.run
+      .withSuccessHandler(function (url) {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        window.open(url, '_blank', 'noopener');
+      })
+      .withFailureHandler(function (err) {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        alert(err.message || 'Could not open that system — try again.');
+      })
+      .hub_getAccessUrl(sub);
+  });
 });
 </script>
 

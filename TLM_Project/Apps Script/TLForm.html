@@ -594,6 +594,14 @@
     var openList = [];
     var UNLOCK_KEY = 'tlTrackerUnlocked';
 
+    // Set by Code.gs's _handleTLRequest_ (web app path) when the PIN or a
+    // Hub token already checked out server-side, so this client gate can
+    // skip itself instead of asking again. showTLForm() (the in-Sheet
+    // dialog) always evaluates this template with serverAuthed=false, so
+    // that path is unaffected and keeps using its own localStorage
+    // "remember" convenience below.
+    var SERVER_AUTHED = <?!= (typeof serverAuthed !== 'undefined' && serverAuthed) ? 'true' : 'false' ?>;
+
     // ============================= PIN GATE =============================
     function showApp() {
       document.getElementById('pinGate').style.display = 'none';
@@ -642,12 +650,43 @@
     }
 
     (function initGate() {
+      if (SERVER_AUTHED) {
+        // Reached via the web app URL with a valid PIN/Hub token already
+        // checked server-side (Code.gs's _handleTLRequest_) — no second
+        // prompt, and deliberately not remembered here either (no
+        // localStorage write), so a refresh or a re-opened tab always
+        // goes back through the server gate instead of staying unlocked.
+        showApp();
+        startIdleAutoLock();
+        return;
+      }
       var already = false;
       try { already = localStorage.getItem(UNLOCK_KEY) === '1'; } catch (e) {}
       if (already) {
         showApp();
       }
     })();
+
+    // Auto-lock after 2 minutes of no activity — only for the web app path
+    // (SERVER_AUTHED), where "locking" means dropping the PIN/Hub token
+    // from the URL and reloading, landing back on Code.gs's server-side
+    // gate. The in-Sheet dialog path (client-only gate, its own
+    // localStorage "remember") is left as it always worked.
+    function startIdleAutoLock() {
+      var IDLE_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+      var idleTimer;
+      function relock() {
+        location.href = location.origin + location.pathname;
+      }
+      function resetIdleTimer() {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(relock, IDLE_TIMEOUT_MS);
+      }
+      ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach(function (evt) {
+        document.addEventListener(evt, resetIdleTimer, { passive: true });
+      });
+      resetIdleTimer();
+    }
 
     // ============================= MAIN APP =============================
     var MODES = ['entry', 'update', 'uniform', 'stock', 'exec', 'monitor'];
