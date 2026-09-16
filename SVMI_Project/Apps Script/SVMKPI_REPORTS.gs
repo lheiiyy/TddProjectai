@@ -118,8 +118,8 @@ function getExecutiveSummaryReport() {
  */
 function getKPI2026Report() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(KPI_SHEET_NAME);
-  if (!sheet) throw new Error('KPI 2026 sheet not found. Run "Rebuild KPI 2026" first.');
+  const sheet = ss.getSheetByName(_kpiSheetName());
+  if (!sheet) throw new Error('"' + _kpiSheetName() + '" sheet not found. Run "Rebuild KPI 2026" first.');
 
   const settings = ss.getSheetByName('SETTINGS');
   const sLastRow = settings ? settings.getLastRow() : 0;

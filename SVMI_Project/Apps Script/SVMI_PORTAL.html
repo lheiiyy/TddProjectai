@@ -36,14 +36,36 @@ body{font-family:Arial,sans-serif;font-size:12px;background:var(--bg);color:var(
 .brand-btn{cursor:pointer;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background-image:none}
 .brand-btn:hover{background:#1f1e14}
 
-/* ── Tabs ── */
+/* ── Nav: a burger button opens a slide-out drawer instead of tabs
+   sitting side by side (5 of them stopped fitting comfortably once
+   Reports was added) ── */
 .tab-bar{background:var(--navy-d);display:flex;flex-shrink:0;border-bottom:2px solid var(--border-d)}
-.tab{padding:8px 18px;font-size:11px;font-weight:700;color:var(--light);cursor:pointer;
-  letter-spacing:.3px;text-transform:uppercase;border-bottom:3px solid transparent;transition:all .15s;user-select:none}
-.tab:hover{color:var(--white);background:rgba(255,255,255,.05)}
-.tab.active{color:var(--gold);border-bottom-color:var(--gold);background:rgba(198,217,46,.1)}
+.burger-btn{display:flex;align-items:center;gap:10px;padding:9px 16px;background:none;border:none;
+  color:var(--light);font-size:11px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;
+  cursor:pointer;font-family:Arial;transition:color .15s}
+.burger-btn:hover{color:var(--white)}
+.burger-icon{font-size:15px;line-height:1;color:var(--gold)}
 .tab-content{display:none;flex:1;overflow:hidden}
 .tab-content.active{display:flex;flex-direction:column}
+
+.nav-scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:499;opacity:0;
+  pointer-events:none;transition:opacity .2s ease}
+.nav-scrim.open{opacity:1;pointer-events:auto}
+.nav-drawer{position:fixed;top:0;left:0;bottom:0;width:min(280px,82vw);background:var(--navy);
+  z-index:500;transform:translateX(-100%);transition:transform .25s ease;
+  box-shadow:4px 0 24px rgba(0,0,0,.3);display:flex;flex-direction:column;overflow-y:auto}
+.nav-drawer.open{transform:translateX(0)}
+.nav-drawer-hdr{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;
+  background:var(--navy-d);border-bottom:2px solid var(--gold);color:var(--white);font-size:11px;
+  font-weight:700;text-transform:uppercase;letter-spacing:.4px;flex-shrink:0}
+.nav-drawer-close{background:none;border:none;color:var(--light);font-size:22px;line-height:1;
+  cursor:pointer;padding:0 4px}
+.nav-drawer-close:hover{color:var(--white)}
+.nav-drawer-list{padding:8px 0}
+.nav-item{padding:13px 18px;font-size:12px;font-weight:700;color:var(--light);cursor:pointer;
+  letter-spacing:.3px;border-left:3px solid transparent;transition:all .15s;user-select:none}
+.nav-item:hover{color:var(--white);background:rgba(255,255,255,.05)}
+.nav-item.active{color:var(--gold);border-left-color:var(--gold);background:rgba(198,217,46,.1)}
 
 /* ── Shared form ── */
 .fg{margin-bottom:9px}
@@ -387,7 +409,6 @@ textarea.fi{padding-right:28px}
   .top-bar .sub{font-size:9.5px}
   .brand-wrap{margin-left:0;width:100%}
   .brand-wrap .sel-dark{flex:1;min-width:0}
-  .tab-bar{overflow-x:auto;-webkit-overflow-scrolling:touch}
   .tab-content.active{display:block}
   .portal-layout,.si-layout{display:block;overflow:visible}
   .portal-form,.portal-queue,.si-main{overflow:visible;border-right:none}
@@ -414,7 +435,8 @@ textarea.fi{padding-right:28px}
    width-based since a wide touch device still has room for the two-pane
    layout; only sizing needs to follow the input method. */
 @media (max-width:820px), (hover:none) and (pointer:coarse){
-  .tab{padding:11px 14px;flex-shrink:0;white-space:nowrap}
+  .burger-btn{padding:12px 16px;min-height:42px}
+  .nav-item{padding:15px 18px;font-size:13px;min-height:42px}
   /* 16px inputs stop iOS from auto-zooming on focus; 42px = comfortable tap target */
   .fi,.ss-input,.si-search,.sel-dark,.vm-input{font-size:16px;min-height:42px}
   textarea.fi{min-height:72px}
@@ -446,7 +468,7 @@ textarea.fi{padding-right:28px}
   </svg>
   <div>
     <h1>🏪 SVMI Command Center</h1>
-    <div class="sub">Store Visit Monitoring Initiative · 2026 &middot; Figaro Coffee Group Training &amp; Development</div>
+    <div class="sub">Store Visit Monitoring Initiative · <span id="topSubYear">2026</span> &middot; Figaro Coffee Group Training &amp; Development</div>
   </div>
   <div class="brand-wrap">
     <label>Brand:</label>
@@ -456,13 +478,28 @@ textarea.fi{padding-right:28px}
   <div class="user-wrap" id="userWrap" hidden>👤 <span id="userEmail"></span></div>
 </div>
 
-<!-- Tab Bar -->
+<!-- Tab Bar: a burger button showing the current section; opens the
+     nav drawer below rather than laying every tab out side by side -->
 <div class="tab-bar">
-  <div class="tab active" id="tab-Input"   onclick="switchTab('Input')">📋 Input Portal</div>
-  <div class="tab"        id="tab-Insights" onclick="switchTab('Insights')">🔍 Store Insights</div>
-  <div class="tab"        id="tab-Visits"   onclick="switchTab('Visits')">📅 Unvisited This Month</div>
-  <div class="tab"        id="tab-Reports"  onclick="switchTab('Reports')">📊 Reports</div>
-  <div class="tab"        id="tab-Tools"    onclick="switchTab('Tools')">⚙ System Tools</div>
+  <button type="button" class="burger-btn" id="burgerBtn" onclick="toggleNavDrawer()">
+    <span class="burger-icon">☰</span><span id="currentTabLabel">📋 Input Portal</span>
+  </button>
+</div>
+
+<!-- Nav Drawer -->
+<div class="nav-scrim" id="navScrim" onclick="closeNavDrawer()"></div>
+<div class="nav-drawer" id="navDrawer">
+  <div class="nav-drawer-hdr">
+    <span>Navigate</span>
+    <button type="button" class="nav-drawer-close" onclick="closeNavDrawer()" aria-label="Close">&times;</button>
+  </div>
+  <div class="nav-drawer-list">
+    <div class="nav-item"        id="tab-Reports"  onclick="switchTab('Reports')">📊 Reports</div>
+    <div class="nav-item"        id="tab-Insights" onclick="switchTab('Insights')">🔍 Store Insights</div>
+    <div class="nav-item"        id="tab-Visits"   onclick="switchTab('Visits')">📅 Unvisited This Month</div>
+    <div class="nav-item active" id="tab-Input"   onclick="switchTab('Input')">📋 Input Portal</div>
+    <div class="nav-item"        id="tab-Tools"    onclick="switchTab('Tools')">⚙ System Tools</div>
+  </div>
 </div>
 
 <!-- TAB 1: INPUT PORTAL -->
@@ -812,17 +849,20 @@ window.onload = function() {
   loadSIStores();
   loadCurrentUser();
   loadAdminStatus();
+  document.getElementById('topSubYear').textContent = dataYear;
   loadDataYear();
   syncFieldClears();
 };
 
-// Keeps the Unvisited This Month month label ("January 2026") honest once
-// DATA_YEAR (SVMKPI_CORE.gs) is next bumped, instead of a hardcoded literal.
+// Keeps the Unvisited This Month month label ("January 2026") and the top-bar
+// year honest once DATA_YEAR (SVMKPI_CORE.gs) is next bumped, instead of a
+// hardcoded literal.
 function loadDataYear() {
   google.script.run
     .withSuccessHandler(function(year) {
       if (!year) return;
       dataYear = year;
+      document.getElementById('topSubYear').textContent = dataYear;
       // Re-render the label if the Unvisited tab is already showing one —
       // otherwise the next loadCompliance() call picks it up naturally.
       if (document.getElementById('content-Visits').classList.contains('active')) loadCompliance();
@@ -879,13 +919,33 @@ function setToday() {
 // TAB SWITCHING
 // ═══════════════════════════════════════
 function switchTab(name) {
-  document.querySelectorAll('.tab').forEach(function(t){ t.classList.remove('active'); });
+  document.querySelectorAll('.nav-item').forEach(function(t){ t.classList.remove('active'); });
   document.querySelectorAll('.tab-content').forEach(function(c){ c.classList.remove('active'); });
-  document.getElementById('tab-'+name).classList.add('active');
+  var target = document.getElementById('tab-'+name);
+  target.classList.add('active');
   document.getElementById('content-'+name).classList.add('active');
+  document.getElementById('currentTabLabel').textContent = target.textContent;
+  closeNavDrawer();
   if (name === 'Visits') loadCompliance();
   if (name === 'Reports' && !reportsLoadedOnce) { reportsLoadedOnce = true; loadCurrentReport(); }
 }
+
+// ═══════════════════════════════════════
+// NAV DRAWER (burger menu)
+// ═══════════════════════════════════════
+function toggleNavDrawer() {
+  var open = document.getElementById('navDrawer').classList.contains('open');
+  if (open) closeNavDrawer(); else openNavDrawer();
+}
+function openNavDrawer() {
+  document.getElementById('navDrawer').classList.add('open');
+  document.getElementById('navScrim').classList.add('open');
+}
+function closeNavDrawer() {
+  document.getElementById('navDrawer').classList.remove('open');
+  document.getElementById('navScrim').classList.remove('open');
+}
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeNavDrawer(); });
 
 // ═══════════════════════════════════════
 // BRAND FILTER (multi-select: pick any combination, e.g. ANGEL'S PIZZA + TIEN MA'S)

@@ -1,0 +1,1308 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <style>
+    :root {
+      /* Same design system as the SVMI Command Center, recolored from navy/gold to
+         Figaro Coffee Group Training & Development's black/green/lime. */
+      --navy: #1E1D14;
+      --navy-d: #121108;
+      --gold: #C6D92E;
+      --tld: #2E8B3D;
+      --tld-d: #216B2D;
+      --bg: #F4F7FB;
+      --card: #FFFFFF;
+      --border: #D8DEE8;
+      --border-d: #3A3826;
+      --text: #1A1A2E;
+      --muted: #6B7A90;
+      --light: #D7DCC5;
+    }
+    * { -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 15px;
+      margin: 0;
+      padding: 0 16px calc(24px + env(safe-area-inset-bottom));
+      max-width: 560px;
+      margin-left: auto;
+      margin-right: auto;
+      background: var(--bg);
+      color: var(--text);
+    }
+    h3 { margin: 0; font-size: 15px; font-weight: 700; color: #fff; }
+    small.hint { color: #666; display: block; margin-top: 2px; }
+    label { display: block; margin-top: 12px; font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); }
+    input, select {
+      width: 100%; box-sizing: border-box; padding: 11px 10px; margin-top: 4px;
+      font-size: 16px; /* 16px stops iOS Safari auto-zooming on focus */
+      border: 1px solid #cbd5e0; border-radius: 4px; background: var(--card); color: var(--text); font-family: Arial;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--tld); box-shadow: 0 0 0 2px rgba(46,139,61,.14); }
+    .row2 { display: flex; gap: 10px; }
+    .row2 > div { flex: 1; min-width: 0; }
+    @media (max-width: 420px) {
+      .row2 { flex-direction: column; gap: 0; }
+    }
+    button {
+      margin-top: 18px; padding: 13px 14px; background: var(--tld); color: #fff;
+      border: none; border-radius: 5px; cursor: pointer; font-size: 15px;
+      font-weight: 700; width: 100%; min-height: 46px; font-family: Arial; transition: background .15s;
+    }
+    button:hover:not(:disabled) { background: var(--tld-d); }
+    button:disabled { background: #a0aec0; cursor: default; }
+    button.linklike {
+      background: transparent; color: var(--gold); font-weight: 700; width: auto; padding: 6px 12px;
+      margin: 0; min-height: 0; border: 1px solid var(--gold); border-radius: 4px; text-decoration: none;
+      font-size: 10px; text-transform: uppercase; letter-spacing: .3px;
+    }
+    button.linklike:hover { background: var(--gold); color: var(--navy-d); }
+    #msg { margin-top: 10px; font-size: 13px; min-height: 16px; }
+    .err { color: #c53030; }
+    .ok { color: #276749; }
+    .warn { color: #b06000; }
+
+    /* header shell — top bar + mode menu, styled like SVMI's, sticking as one unit */
+    /* z-index higher than .modeOverlay's — .shell creates its own stacking
+       context (position:sticky + z-index), so without this the overlay
+       (a sibling outside it) would paint over the mode menu it contains. */
+    .shell { position: sticky; top: 0; z-index: 30; margin: 0 -16px 12px; }
+    .topbar { background: var(--navy); padding: 10px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 2px solid var(--gold); }
+    .brandrow { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; }
+    .brandrow small.hint { color: var(--light); }
+    .deptTag { font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--tld-d); }
+
+    /* hamburger button — opens the mode menu */
+    .burgerBtn {
+      flex: none; margin: 0; width: auto; min-height: 0; padding: 8px 10px; background: transparent;
+      border: 1px solid var(--border-d); border-radius: 5px; color: #fff; font-size: 17px; line-height: 1;
+    }
+    .burgerBtn:hover { background: rgba(255,255,255,.08); }
+    #modeIndicator { color: var(--gold) !important; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; font-size: 10.5px; cursor: pointer; }
+
+    /* slide-down mode menu — a backdrop-covered dropdown under the top bar,
+       so switching modes doesn't need 6 tabs fighting for space side by side. */
+    .modeOverlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 24;
+      opacity: 0; visibility: hidden; transition: opacity .2s ease;
+    }
+    .modeOverlay.open { opacity: 1; visibility: visible; }
+    .modeMenu {
+      position: absolute; left: 0; right: 0; top: 100%; z-index: 25;
+      background: var(--navy-d); overflow: hidden; max-height: 0;
+      transition: max-height .28s ease; box-shadow: 0 8px 16px -6px rgba(0,0,0,.35);
+    }
+    .modeMenu.open { max-height: 360px; border-bottom: 2px solid var(--gold); }
+    .modeMenu button.modeItem {
+      display: flex; align-items: center; width: 100%; margin: 0; padding: 13px 16px;
+      background: transparent; color: var(--light); border: none; border-bottom: 1px solid var(--border-d);
+      border-radius: 0; font-weight: 700; font-size: 13px; text-transform: none; letter-spacing: 0;
+      text-align: left; min-height: 0;
+    }
+    .modeMenu button.modeItem:last-child { border-bottom: none; }
+    .modeMenu button.modeItem:hover { color: #fff; background: rgba(255,255,255,.06); }
+    .modeMenu button.modeItem.active { color: var(--gold); background: rgba(198,217,46,.1); }
+
+    /* Reports tab sub-view switch — "choices what to see" (Overview vs.
+       the full, filterable Store Coverage table) instead of one fixed report. */
+    .segRow { display: flex; gap: 6px; margin-top: 10px; }
+    .segBtn {
+      flex: 1; margin: 0; padding: 9px 6px; background: var(--card); color: var(--muted);
+      border: 1px solid var(--border); border-radius: 5px; font-weight: 700; font-size: 11px;
+      text-transform: uppercase; letter-spacing: .2px; min-height: 0;
+    }
+    .segBtn:hover { color: var(--text); }
+    .segBtn.active { background: var(--navy); color: var(--gold); border-color: var(--navy); }
+    .execView { display: none; }
+    .execView.active { display: block; }
+
+    /* stat tiles — SVMI's .ck KPI cards */
+    .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+    .tile { background: var(--card); border: 1px solid var(--border); border-left: 4px solid var(--tld); border-radius: 5px; padding: 8px 10px; }
+    .tile.warn { border-left-color: #d97706; background: #FEF3E2; }
+    .tile-val { font-size: 20px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+    .tile-lbl { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; margin-top: 2px; }
+
+    /* past-due warning banner (Monitoring tab) — a tappable filter, not just
+       a count: click toggles the list down to overdue trainees only. */
+    .warnBanner {
+      display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 10px 12px;
+      background: #FDECEA; border: 1px solid #f3b5ae; border-left: 4px solid #c53030; border-radius: 6px;
+      cursor: pointer;
+    }
+    .warnBanner:hover { background: #fbdbd6; }
+    .warnBanner .warnIcon { font-size: 16px; flex: none; line-height: 1; }
+    .warnBanner .warnText { flex: 1; font-size: 12.5px; font-weight: 700; color: #7a2020; }
+    .warnBanner .warnHint { flex: none; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: #a33; }
+    .warnBanner.active { background: #c53030; border-color: #c53030; }
+    .warnBanner.active .warnText, .warnBanner.active .warnHint { color: #fff; }
+
+    /* small red count badge — burger button (any overdue anywhere) and the
+       Monitoring row in the mode menu — visible before you even open the tab. */
+    .burgerBtn { position: relative; }
+    .navBadge {
+      position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 3px;
+      background: #c53030; color: #fff; border-radius: 9px; font-size: 9px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; line-height: 1; border: 1.5px solid var(--navy);
+    }
+    .modeMenu button.modeItem .itemBadge {
+      margin-left: auto; flex: none; background: #c53030; color: #fff; border-radius: 9px;
+      font-size: 9px; font-weight: 700; padding: 2px 6px; text-transform: uppercase; letter-spacing: .2px;
+    }
+
+    /* status breakdown bars */
+    .breakdown { margin-top: 4px; }
+    .brow { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border); }
+    .brow:last-child { border-bottom: none; }
+    .brow .blbl { font-size: 11.5px; font-weight: 600; color: var(--text); width: 96px; flex-shrink: 0; }
+    .brow .btrack { flex: 1; height: 7px; background: var(--bg); border-radius: 4px; overflow: hidden; border: 1px solid var(--border); }
+    .brow .bfill { height: 100%; border-radius: 4px; background: var(--tld); }
+    .brow .bct { font-size: 11.5px; font-weight: 700; color: var(--text); width: 26px; text-align: right; flex-shrink: 0; }
+
+    /* status badge pills, used in Monitoring rows */
+    .badge { display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 9px; text-transform: uppercase; letter-spacing: .2px; }
+    .badge.st-probationary { background: #EBF8FF; color: #2B6CB0; }
+    .badge.st-extended { background: #FEF3E2; color: #b06000; }
+    .badge.st-certified { background: #E8F5EE; color: var(--tld-d); }
+    .badge.st-promotion { background: #F3EBF9; color: #7030A0; }
+    .badge.st-failed, .badge.st-quit, .badge.st-disqualified { background: #FDECEA; color: #c53030; }
+
+    /* search + filter bar (Monitoring tab), styled after SVMI's .ss-input/.cf-btn */
+    .searchRow { position: relative; margin-top: 10px; }
+    .searchRow input { padding-right: 30px; }
+    .searchRow .clearX {
+      position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; color: var(--muted); font-size: 16px; padding: 4px 6px; margin: 0; width: auto; min-height: 0; cursor: pointer;
+    }
+    /* Wraps (instead of horizontal-scrolling) so every filter is visible without
+       a swipe hint on phone widths — checked at 320-430px, where 3-4 selects at
+       their natural width never fit on one row without cutting the last one off. */
+    .filterRow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .filterRow select { margin-top: 0; flex: 1 1 130px; min-width: 130px; font-size: 12px; padding: 7px 8px; }
+    .resultCount { font-size: 10.5px; color: var(--muted); margin-top: 8px; text-transform: uppercase; letter-spacing: .3px; }
+
+    /* monitoring list rows */
+    .monlist { margin-top: 6px; }
+    .monrow { background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--tld); border-radius: 5px; padding: 8px 10px; margin-top: 6px; font-size: 12.5px; }
+    .monrow.overdue { border-left-color: #c53030; background: #FFF9F8; }
+    .monrow .mtop { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+    .monrow .mtop .mtopRight { display: flex; align-items: center; gap: 5px; flex: none; }
+    .monrow .mname { font-weight: 700; color: var(--text); }
+    .monrow .msub { color: var(--muted); margin-top: 2px; }
+    .monrow .mmeta { display: flex; justify-content: space-between; margin-top: 5px; font-size: 11px; color: var(--muted); }
+    .monrow .mmeta .mflag { color: #c53030; font-weight: 700; }
+    .monrow.overdue .mmeta { color: #c53030; font-weight: 700; }
+    .badge.badgeOverdue { background: #c53030; color: #fff; }
+
+    /* stock table — styled like SVMI's data-tbl */
+    .stocktable { margin-top: 10px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .stocktable .strow { display: flex; font-size: 13px; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+    .stocktable .strow:last-child { border-bottom: none; }
+    .stocktable .strow.head { background: var(--navy); font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: .03em; color: #fff; border-bottom: 2px solid var(--gold); }
+    .stocktable .strow.total { background: #f4f7fb; font-weight: 700; }
+    .stocktable .strow span { flex: 1; text-align: right; }
+    .stocktable .strow span:first-child { text-align: left; }
+
+    .panel { display: none; padding-bottom: 8px; }
+    .panel.active { display: block; }
+
+    /* section header bar — SVMI's dark p-card-hdr, borrowed as a divider */
+    .sectionLabel {
+      font: 700 10px Arial, sans-serif; text-transform: uppercase; letter-spacing: .04em; color: var(--gold);
+      margin: 18px 0 8px; padding: 6px 10px; background: var(--navy); border-radius: 5px;
+    }
+
+    /* card — SVMI's p-card: dark header bar + white body */
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 6px; margin-top: 12px; font-size: 13px; line-height: 1.6; overflow: hidden; }
+    .card .cardhdr { background: var(--navy); color: var(--gold); font: 700 10px Arial; text-transform: uppercase; letter-spacing: .04em; padding: 6px 10px; }
+    .card .cardbody { padding: 10px 12px; }
+    .card b { color: var(--text); }
+    .avgPreview { font-size: 13px; color: var(--tld-d); margin-top: 6px; font-weight: 700; }
+
+    .histbox { margin-top: 10px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .histbox .histtitle { font-size: 10px; font-weight: 700; color: var(--gold); text-transform: uppercase; letter-spacing: .03em; padding: 6px 10px; background: var(--navy); }
+    .histbox .histbody { padding: 2px 10px; }
+    .histrow { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+    .histrow:last-child { border-bottom: none; }
+    .histrow .who { color: var(--text); font-weight: 600; }
+    .histrow .when { color: var(--muted); }
+    .histempty { font-size: 12.5px; color: var(--muted); padding: 8px 0; }
+    .histempty.err { color: #c53030; }
+
+    /* PIN gate */
+    #pinGate {
+      position: fixed; inset: 0; background: var(--bg); z-index: 50;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 24px; text-align: center;
+    }
+    #pinGate .box { width: 100%; max-width: 280px; background: var(--card); border: 1px solid var(--border); border-top: 4px solid var(--gold); border-radius: 8px; padding: 26px 20px; }
+    #pinGate h2 { margin: 0 0 6px; color: var(--text); }
+    #pinGate input { text-align: center; letter-spacing: 4px; font-size: 20px; }
+    #pinGate button { margin-top: 14px; }
+    #app { display: none; padding-top: 4px; }
+  </style>
+</head>
+<body>
+
+  <!-- ============================= PIN GATE ============================= -->
+  <div id="pinGate">
+    <div class="box">
+      <svg width="46" height="46" viewBox="0 0 40 40" aria-hidden="true" style="display:block; margin:0 auto 6px;">
+        <circle cx="16" cy="14" r="11" fill="#C6D92E"/>
+        <circle cx="26" cy="14" r="11" fill="#15140F"/>
+        <circle cx="21" cy="24" r="11" fill="#2E8B3D"/>
+      </svg>
+      <div style="font-size:30px;">🍕🔒</div>
+      <h2>TL Tracker</h2>
+      <div class="deptTag" style="margin-bottom:4px;">Training &amp; Development</div>
+      <small class="hint">Enter the access PIN to continue.</small>
+      <input type="password" inputmode="numeric" id="pinInput" placeholder="PIN" autofocus>
+      <button id="pinBtn" onclick="tryUnlock()">Unlock</button>
+      <div id="pinMsg" style="margin-top:10px; font-size:13px;"></div>
+    </div>
+  </div>
+
+  <!-- ============================= MAIN APP ============================= -->
+  <div id="app">
+    <div class="shell">
+      <div class="topbar">
+        <button type="button" class="burgerBtn" onclick="toggleModeMenu()" aria-label="Open mode menu" aria-expanded="false" id="burgerBtn">☰<span class="navBadge" id="navBadge" style="display:none;"></span></button>
+        <div class="brandrow">
+          <svg width="28" height="28" viewBox="0 0 40 40" aria-hidden="true" style="flex:none;">
+            <circle cx="16" cy="14" r="11" fill="#C6D92E"/>
+            <circle cx="26" cy="14" r="11" fill="#15140F"/>
+            <circle cx="21" cy="24" r="11" fill="#2E8B3D"/>
+          </svg>
+          <div>
+            <h3>🍕 TL Tracker</h3>
+            <small class="hint" id="modeIndicator" onclick="toggleModeMenu()">🆕 New Entry ▾</small>
+          </div>
+        </div>
+        <button type="button" class="linklike" onclick="lockApp()">🔒 Lock</button>
+      </div>
+
+      <div class="modeMenu" id="modeMenu">
+        <button type="button" class="modeItem active" data-mode="entry" onclick="selectMode('entry')">🆕 New Entry</button>
+        <button type="button" class="modeItem" data-mode="update" onclick="selectMode('update')">✅ Certify</button>
+        <button type="button" class="modeItem" data-mode="uniform" onclick="selectMode('uniform')">👕 Uniform</button>
+        <button type="button" class="modeItem" data-mode="stock" onclick="selectMode('stock')">📦 Stock</button>
+        <button type="button" class="modeItem" data-mode="exec" onclick="selectMode('exec')">📊 Reports</button>
+        <button type="button" class="modeItem" data-mode="monitor" onclick="selectMode('monitor')">🔎 Monitoring<span class="itemBadge" id="monitorItemBadge" style="display:none;"></span></button>
+      </div>
+    </div>
+    <div class="modeOverlay" id="modeOverlay" onclick="closeModeMenu()"></div>
+
+    <!-- ============================= NEW ENTRY PANEL ============================= -->
+    <div id="panelEntry" class="panel active">
+      <small class="hint">Saved as PROBATIONARY. Certification deadline is set automatically to entry date + 3 months.</small>
+
+      <label>Date of Entry *</label>
+      <input type="date" id="entryDate">
+
+      <div class="row2">
+        <div>
+          <label>Batch #</label>
+          <input type="text" id="batch" list="batchList" placeholder="e.g. BATCH 11 or SPECIAL">
+          <datalist id="batchList"></datalist>
+        </div>
+        <div>
+          <label>Mother Store *</label>
+          <input type="text" id="motherStore" list="storeList" placeholder="e.g. TAGUM">
+          <datalist id="storeList"></datalist>
+        </div>
+      </div>
+
+      <label>Full Name *</label>
+      <input type="text" id="fullName">
+
+      <div class="row2">
+        <div>
+          <label>Mother Station</label>
+          <input type="text" id="motherStation" list="stationList" placeholder="e.g. FOOD PREP">
+          <datalist id="stationList"></datalist>
+        </div>
+        <div>
+          <label>Support Store</label>
+          <input type="text" id="supportStore" list="storeList">
+        </div>
+      </div>
+
+      <label>Entry By</label>
+      <input type="text" id="entryBy" list="trainerList">
+      <datalist id="trainerList"></datalist>
+
+      <div class="row2">
+        <div>
+          <label>Initial Uniform Size</label>
+          <select id="uniformSize">
+            <option value="">— none yet —</option>
+          </select>
+        </div>
+        <div>
+          <label>Qty</label>
+          <input type="number" id="uniformQty" min="1" value="1">
+        </div>
+      </div>
+      <label>Uniform DR #</label>
+      <input type="text" id="uniformDr" placeholder="optional">
+      <small class="hint" style="margin-top:2px;">Leave size blank if no uniform is being issued yet — you can log it anytime from the 👕 Uniform tab.</small>
+
+      <div class="sectionLabel">Technical Validation</div>
+      <div class="row2">
+        <div>
+          <label>Food Prep (%)</label>
+          <input type="number" inputmode="decimal" id="techValFp" min="0" max="100">
+        </div>
+        <div>
+          <label>Pizza Maker (%)</label>
+          <input type="number" inputmode="decimal" id="techValPm" min="0" max="100">
+        </div>
+      </div>
+
+      <div class="sectionLabel">Exam Grade</div>
+      <div class="row2">
+        <div>
+          <label>Pizza Maker (%)</label>
+          <input type="number" inputmode="decimal" id="entryPizzaMakerExam" min="0" max="100">
+        </div>
+        <div>
+          <label>Food Prep (%)</label>
+          <input type="number" inputmode="decimal" id="entryFoodPrepExam" min="0" max="100">
+        </div>
+      </div>
+      <div class="avgPreview" id="entryAvgPreview"></div>
+
+      <div class="sectionLabel">Store Grade</div>
+      <label>Store Grade (%)</label>
+      <input type="number" inputmode="decimal" id="istvGrade" min="0" max="100">
+
+      <button id="entrySubmitBtn" onclick="submitEntry()">Save Entry</button>
+    </div>
+
+    <!-- ============================= CERTIFY / UPDATE PANEL ============================= -->
+    <div id="panelUpdate" class="panel">
+      <small class="hint">Only trainees currently PROBATIONARY or EXTENDED are listed.</small>
+
+      <label>Trainee *</label>
+      <select id="key" onchange="onTraineeChange()"><option value="">Loading…</option></select>
+
+      <div class="card" id="traineeCard" style="display:none;"></div>
+
+      <label>New Status *</label>
+      <select id="newStatus" onchange="onStatusChange()">
+        <option value="CERTIFIED">CERTIFIED</option>
+        <option value="EXTENDED">EXTENDED (push deadline)</option>
+        <option value="FAILED">FAILED</option>
+        <option value="QUIT">QUIT</option>
+        <option value="DISQUALIFIED">DISQUALIFIED</option>
+        <option value="PROMOTION">PROMOTION</option>
+      </select>
+
+      <div id="deadlineRow" style="display:none;">
+        <label>New Deadline (leave blank to auto +2 months from current deadline)</label>
+        <input type="date" id="deadlineOverride">
+      </div>
+
+      <label>Cert By *</label>
+      <input type="text" id="certBy" list="trainerList2">
+      <datalist id="trainerList2"></datalist>
+      <small class="hint" style="margin-top:2px;">Need to log a uniform for this person? Use the 👕 Uniform tab — it keeps its own history instead of overwriting a single cell.</small>
+
+      <div class="row2">
+        <div>
+          <label>Certification Grade (%)</label>
+          <input type="number" inputmode="decimal" id="certGrade" min="0" max="100">
+        </div>
+        <div>
+          <label>Exam Grade (%)</label>
+          <input type="number" inputmode="decimal" id="examGradeInput" min="0" max="100">
+        </div>
+      </div>
+      <div class="avgPreview" id="updateAvgPreview"></div>
+
+      <label>Final Status Note</label>
+      <select id="finalStatus">
+        <option value="">— none —</option>
+        <option value="SIGNED">SIGNED (appointment letter)</option>
+        <option value="AGENCY">AGENCY</option>
+        <option value="FOR REPORTING">FOR REPORTING</option>
+        <option value="ON-GOING PROMOTION">ON-GOING PROMOTION</option>
+        <option value="NOT RETURNED">NOT RETURNED</option>
+      </select>
+
+      <button id="updateSubmitBtn" onclick="submitUpdate()">Save Update</button>
+    </div>
+
+    <!-- ============================= UNIFORM PANEL ============================= -->
+    <div id="panelUniform" class="panel">
+      <small class="hint">Log every piece handed out — to anyone, any status, any time. Kept in its own UNIFORM_LOG tab.</small>
+
+      <label>Trainee *</label>
+      <select id="uf_key" onchange="onUniformTraineeChange()"><option value="">Loading…</option></select>
+
+      <div id="uf_history"></div>
+
+      <div class="row2">
+        <div>
+          <label>Size *</label>
+          <select id="uf_size">
+            <option value="">— select —</option>
+          </select>
+        </div>
+        <div>
+          <label>Qty</label>
+          <input type="number" id="uf_qty" min="1" value="1">
+        </div>
+      </div>
+
+      <label>DR #</label>
+      <input type="text" id="uf_dr" placeholder="optional">
+
+      <label>Given By *</label>
+      <input type="text" id="uf_givenby" list="trainerList3">
+      <datalist id="trainerList3"></datalist>
+
+      <label>Notes</label>
+      <input type="text" id="uf_notes" placeholder="optional">
+
+      <button id="uniformSubmitBtn" onclick="submitUniform()">Log Uniform</button>
+    </div>
+
+    <!-- ============================= STOCK PANEL ============================= -->
+    <div id="panelStock" class="panel">
+      <small class="hint">Log what comes in from the supplier here. Stock on hand below is Delivered minus what's been issued to trainees.</small>
+
+      <div class="sectionLabel" style="margin-top:8px; padding-top:0; border-top:none;">Log Delivery</div>
+      <div class="row2">
+        <div>
+          <label>Size *</label>
+          <select id="dv_size">
+            <option value="">— select —</option>
+          </select>
+        </div>
+        <div>
+          <label>Qty Received *</label>
+          <input type="number" id="dv_qty" min="1">
+        </div>
+      </div>
+
+      <label>Delivery Ref / Notes</label>
+      <input type="text" id="dv_ref" placeholder="optional">
+
+      <label>Logged By *</label>
+      <input type="text" id="dv_by" list="trainerList4">
+      <datalist id="trainerList4"></datalist>
+
+      <button id="deliverySubmitBtn" onclick="submitDelivery()">Save Delivery</button>
+
+      <div class="sectionLabel">Current Stock</div>
+      <div id="stockTable"></div>
+    </div>
+
+    <!-- ============================= EXECUTIVE REPORTS PANEL ============================= -->
+    <div id="panelExec" class="panel">
+      <small class="hint">Live snapshot computed from MASTER_LOG — same numbers "Refresh Store Summary" writes to the Summary tab, shown here without leaving the phone.</small>
+
+      <div class="segRow" id="execSegRow">
+        <button type="button" class="segBtn active" data-view="overview" onclick="switchExecView('overview')">Overview</button>
+        <button type="button" class="segBtn" data-view="stores" onclick="switchExecView('stores')">🏬 Store Coverage</button>
+      </div>
+
+      <!-- ---- Overview: KPI tiles, status breakdown, uniform stock ---- -->
+      <div id="execViewOverview" class="execView active">
+        <div class="tiles" id="execTiles"></div>
+
+        <div class="sectionLabel" style="margin-top:16px;">Status Breakdown</div>
+        <div class="breakdown" id="execBreakdown"></div>
+
+        <div class="sectionLabel">Uniform Stock On Hand</div>
+        <div id="execStockTable"></div>
+      </div>
+
+      <!-- ---- Store Coverage: EVERY store from SVMI's SETTINGS tab, not just
+           ones that already have a MASTER_LOG row — searchable/filterable so
+           "which stores have no active TL right now" is actually answerable. ---- -->
+      <div id="execViewStores" class="execView">
+        <div id="storeCoverageNotice"></div>
+        <div class="tiles" id="storeCoverageTiles"></div>
+
+        <div class="searchRow">
+          <input type="text" id="storeSearch" placeholder="Search store…" oninput="renderStoreCoverageList()">
+          <button type="button" class="clearX" onclick="document.getElementById('storeSearch').value=''; renderStoreCoverageList();" aria-label="Clear search">&times;</button>
+        </div>
+        <div class="filterRow">
+          <select id="storeBrandFilter" onchange="renderStoreCoverageList()">
+            <option value="">All brands</option>
+          </select>
+          <select id="storeRegionFilter" onchange="renderStoreCoverageList()">
+            <option value="">All regions</option>
+          </select>
+          <select id="storeCoverageFilter" onchange="renderStoreCoverageList()">
+            <option value="">All stores</option>
+            <option value="active">Has active TL</option>
+            <option value="none">No active TL</option>
+            <option value="unlisted">Not in SVMI store list</option>
+          </select>
+          <select id="storeSort" onchange="renderStoreCoverageList()">
+            <option value="name">Sort: Name</option>
+            <option value="activeDesc">Sort: Most Active TL</option>
+            <option value="activeAsc">Sort: Least Active TL</option>
+          </select>
+        </div>
+        <div class="resultCount" id="storeCoverageCount"></div>
+        <div class="monlist" id="storeCoverageList"></div>
+      </div>
+
+      <button type="button" class="linklike" style="width:100%; margin-top:14px; text-align:center;" onclick="refreshExecReport()">↻ Refresh Report</button>
+      <div id="execUpdated" style="text-align:center; font-size:10px; color:var(--muted); margin-top:6px; text-transform:uppercase; letter-spacing:.3px;"></div>
+    </div>
+
+    <!-- ============================= TRAINERS MONITORING PANEL ============================= -->
+    <div id="panelMonitor" class="panel">
+      <small class="hint">Every trainee, searchable and filterable — for trainers checking their own roster or execs scanning everyone.</small>
+
+      <div id="monWarnBanner"></div>
+
+      <div class="searchRow">
+        <input type="text" id="monSearch" placeholder="Search by name or store…" oninput="renderMonitoringList()">
+        <button type="button" class="clearX" onclick="document.getElementById('monSearch').value=''; renderMonitoringList();" aria-label="Clear search">&times;</button>
+      </div>
+      <div class="filterRow">
+        <select id="monStatusFilter" onchange="renderMonitoringList()">
+          <option value="">All statuses</option>
+        </select>
+        <select id="monStoreFilter" onchange="renderMonitoringList()">
+          <option value="">All stores</option>
+        </select>
+        <select id="monSort" onchange="renderMonitoringList()">
+          <option value="name">Sort: Name</option>
+          <option value="deadline">Sort: Deadline</option>
+          <option value="store">Sort: Store</option>
+        </select>
+      </div>
+      <div class="resultCount" id="monCount"></div>
+      <div class="monlist" id="monList"></div>
+    </div>
+
+    <div id="msg"></div>
+    <div style="text-align:center; margin-top:22px; padding-top:12px; border-top:1px solid var(--border); font-size:10.5px; letter-spacing:.03em; color:#8a8a80; text-transform:uppercase;">Figaro Coffee Group &middot; Training &amp; Development</div>
+  </div>
+
+  <script>
+    var openList = [];
+    var UNLOCK_KEY = 'tlTrackerUnlocked';
+
+    // ============================= PIN GATE =============================
+    function showApp() {
+      document.getElementById('pinGate').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      loadFormData();
+    }
+
+    function tryUnlock() {
+      var pin = document.getElementById('pinInput').value.trim();
+      var btn = document.getElementById('pinBtn');
+      var msg = document.getElementById('pinMsg');
+      if (!pin) { msg.textContent = 'Enter the PIN first.'; msg.className = 'err'; return; }
+      btn.disabled = true;
+      msg.textContent = '';
+      google.script.run
+        .withSuccessHandler(function(ok) {
+          btn.disabled = false;
+          if (ok) {
+            try { localStorage.setItem(UNLOCK_KEY, '1'); } catch (e) {}
+            showApp();
+          } else {
+            msg.textContent = 'Incorrect PIN.';
+            msg.className = 'err';
+            document.getElementById('pinInput').value = '';
+            document.getElementById('pinInput').focus();
+          }
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          msg.textContent = err.message;
+          msg.className = 'err';
+        })
+        .verifyPin(pin);
+    }
+
+    document.getElementById('pinInput').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') tryUnlock();
+    });
+
+    function lockApp() {
+      try { localStorage.removeItem(UNLOCK_KEY); } catch (e) {}
+      document.getElementById('app').style.display = 'none';
+      document.getElementById('pinGate').style.display = 'flex';
+      document.getElementById('pinInput').value = '';
+      document.getElementById('pinInput').focus();
+    }
+
+    (function initGate() {
+      var already = false;
+      try { already = localStorage.getItem(UNLOCK_KEY) === '1'; } catch (e) {}
+      if (already) {
+        showApp();
+      }
+    })();
+
+    // ============================= MAIN APP =============================
+    var MODES = ['entry', 'update', 'uniform', 'stock', 'exec', 'monitor'];
+    var PANEL_ID = { entry: 'panelEntry', update: 'panelUpdate', uniform: 'panelUniform', stock: 'panelStock', exec: 'panelExec', monitor: 'panelMonitor' };
+    var MODE_LABEL = { entry: '🆕 New Entry', update: '✅ Certify', uniform: '👕 Uniform', stock: '📦 Stock', exec: '📊 Reports', monitor: '🔎 Monitoring' };
+
+    // ---------- burger menu open/close ----------
+    function toggleModeMenu() {
+      var menu = document.getElementById('modeMenu');
+      if (menu.classList.contains('open')) closeModeMenu();
+      else openModeMenu();
+    }
+    function openModeMenu() {
+      document.getElementById('modeMenu').classList.add('open');
+      document.getElementById('modeOverlay').classList.add('open');
+      document.getElementById('burgerBtn').setAttribute('aria-expanded', 'true');
+    }
+    function closeModeMenu() {
+      document.getElementById('modeMenu').classList.remove('open');
+      document.getElementById('modeOverlay').classList.remove('open');
+      document.getElementById('burgerBtn').setAttribute('aria-expanded', 'false');
+    }
+
+    // Called from the mode menu's own buttons — switches mode, then slides the menu shut.
+    function selectMode(mode) {
+      switchMode(mode);
+      closeModeMenu();
+    }
+
+    function switchMode(mode) {
+      document.querySelectorAll('.modeMenu .modeItem').forEach(function(btn) {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+      });
+      MODES.forEach(function(m) {
+        document.getElementById(PANEL_ID[m]).classList.toggle('active', m === mode);
+      });
+      document.getElementById('modeIndicator').textContent = MODE_LABEL[mode] + ' ▾';
+      document.getElementById('msg').textContent = '';
+      // both report tabs compute live from MASTER_LOG, so reload on every visit
+      if (mode === 'exec') { loadExecutiveSummary(); loadStoreCoverage(); }
+      if (mode === 'monitor') loadMonitoringList();
+    }
+
+    // ---------- Reports tab: Overview / Store Coverage switch ----------
+    function switchExecView(view) {
+      document.querySelectorAll('#execSegRow .segBtn').forEach(function(btn) {
+        btn.classList.toggle('active', btn.dataset.view === view);
+      });
+      document.getElementById('execViewOverview').classList.toggle('active', view === 'overview');
+      document.getElementById('execViewStores').classList.toggle('active', view === 'stores');
+      if (view === 'stores' && !storeCoverageData) loadStoreCoverage();
+    }
+
+    function refreshExecReport() {
+      loadExecutiveSummary();
+      loadStoreCoverage();
+    }
+
+    function val(id) { return document.getElementById(id).value.trim(); }
+
+    function fillDatalist(id, items) {
+      var dl = document.getElementById(id);
+      dl.innerHTML = '';
+      items.forEach(function(s) {
+        var opt = document.createElement('option');
+        opt.value = s;
+        dl.appendChild(opt);
+      });
+    }
+
+    function fillSelect(id, items, placeholder) {
+      var sel = document.getElementById(id);
+      sel.innerHTML = '<option value="">' + placeholder + '</option>' +
+        items.map(function(s) { return '<option value="' + s + '">' + s + '</option>'; }).join('');
+    }
+
+    function populateSelectOptions(id, list, emptyLabel) {
+      var sel = document.getElementById(id);
+      sel.innerHTML = '';
+      if (list.length === 0) {
+        sel.innerHTML = '<option value="">' + emptyLabel + '</option>';
+        return;
+      }
+      var placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '— select —';
+      sel.appendChild(placeholder);
+      list.forEach(function(item) {
+        var opt = document.createElement('option');
+        opt.value = item.key;
+        opt.textContent = item.label;
+        sel.appendChild(opt);
+      });
+    }
+
+    function populateOpenList(list) {
+      openList = list;
+      populateSelectOptions('key', list, 'No open PROBATIONARY/EXTENDED records');
+    }
+
+    function loadFormData() {
+      google.script.run.withSuccessHandler(function(data) {
+        fillDatalist('storeList', data.stores);
+        fillDatalist('stationList', data.stations);
+        fillDatalist('batchList', data.batches);
+        fillDatalist('trainerList', data.trainers);
+        fillDatalist('trainerList2', data.trainers);
+        fillDatalist('trainerList3', data.trainers);
+        fillDatalist('trainerList4', data.trainers);
+        fillSelect('uniformSize', data.uniformSizes, '— none yet —');
+        fillSelect('uf_size', data.uniformSizes, '— select —');
+        fillSelect('dv_size', data.uniformSizes, '— select —');
+        populateOpenList(data.openList);
+        populateSelectOptions('uf_key', data.allList, 'No trainees yet');
+        renderStockTable(data.inventorySummary);
+        updateOverdueNavBadge(data.overdueCount);
+      }).withFailureHandler(function(err) {
+        document.getElementById('msg').textContent = 'Could not load form data: ' + err.message;
+        document.getElementById('msg').className = 'err';
+      }).getFormBootstrapData();
+    }
+
+    // ---------- past-due nav badges (burger button + Monitoring menu row) ----------
+    // Visible the moment the app loads, before Monitoring is even opened.
+    function updateOverdueNavBadge(count) {
+      var navBadge = document.getElementById('navBadge');
+      var itemBadge = document.getElementById('monitorItemBadge');
+      var show = count > 0;
+      [navBadge, itemBadge].forEach(function(el) {
+        el.style.display = show ? 'flex' : 'none';
+        el.textContent = show ? count : '';
+      });
+      itemBadge.style.display = show ? 'inline-block' : 'none';
+    }
+
+    // ---------- stock table (Stock tab + reused on the Reports tab) ----------
+    function renderStockTable(rows, containerId) {
+      var box = document.getElementById(containerId || 'stockTable');
+      if (!box) return;
+      if (!rows || !rows.length) { box.innerHTML = '<div class="histempty">No sizes to show.</div>'; return; }
+      var totalDelivered = 0, totalIssued = 0, totalOnHand = 0;
+      var body = rows.map(function(r) {
+        totalDelivered += r.delivered; totalIssued += r.issued; totalOnHand += r.onHand;
+        return '<div class="strow"><span>' + r.size + '</span><span>' + r.delivered + '</span><span>' + r.issued + '</span><span>' + r.onHand + '</span></div>';
+      }).join('');
+      box.innerHTML =
+        '<div class="stocktable">' +
+        '<div class="strow head"><span>Size</span><span>Delivered</span><span>Issued</span><span>On hand</span></div>' +
+        body +
+        '<div class="strow total"><span>Total</span><span>' + totalDelivered + '</span><span>' + totalIssued + '</span><span>' + totalOnHand + '</span></div>' +
+        '</div>';
+    }
+
+    // ---------- 📊 Reports tab ----------
+    var STATUS_ORDER = ['PROBATIONARY', 'EXTENDED', 'CERTIFIED', 'FAILED', 'QUIT', 'DISQUALIFIED', 'PROMOTION'];
+
+    function statusBadgeClass(status) {
+      return 'badge st-' + (status || '').toLowerCase();
+    }
+
+    function loadExecutiveSummary() {
+      var tiles = document.getElementById('execTiles');
+      tiles.innerHTML = '<div class="histempty">Loading…</div>';
+      google.script.run.withSuccessHandler(function(d) {
+        tiles.innerHTML =
+          tile(d.total, 'Total Trainees') +
+          tile(d.openCount, 'Open (Prob./Ext.)') +
+          tile(d.statusCounts.CERTIFIED, 'Certified') +
+          tile(d.certRate === null ? '—' : d.certRate + '%', 'Certification Rate') +
+          tile(d.overdueCount, 'Overdue', d.overdueCount > 0) +
+          tile(d.totalStoreCount, 'Total Stores') +
+          tile(d.storeCount, 'Stores w/ Active TL') +
+          tile(d.storeCoverageGap, 'Stores w/ No Active TL', d.storeCoverageGap > 0) +
+          tile(d.avgEntryScore === null ? '—' : d.avgEntryScore + '%', 'Avg Entry Score') +
+          tile(d.avgFinalScore === null ? '—' : d.avgFinalScore + '%', 'Avg Final Score');
+
+        var maxCt = Math.max.apply(null, STATUS_ORDER.map(function(s){ return d.statusCounts[s] || 0; }).concat([1]));
+        document.getElementById('execBreakdown').innerHTML = STATUS_ORDER.map(function(s) {
+          var ct = d.statusCounts[s] || 0;
+          var pct = Math.round((ct / maxCt) * 100);
+          return '<div class="brow"><span class="blbl">' + s + '</span>' +
+            '<span class="btrack"><span class="bfill" style="width:' + pct + '%"></span></span>' +
+            '<span class="bct">' + ct + '</span></div>';
+        }).join('');
+
+        renderStockTable(d.uniform, 'execStockTable');
+        document.getElementById('execUpdated').textContent = 'As of ' + d.generatedAt +
+          (d.storeCoverageFallback ? ' — link the SVMI store list (see 🏬 Store Coverage) for full store totals' : '');
+      }).withFailureHandler(function(err) {
+        tiles.innerHTML = '<div class="histempty err">' + err.message + '</div>';
+      }).getExecutiveSummary();
+
+      function tile(val, label, isWarn) {
+        return '<div class="tile' + (isWarn ? ' warn' : '') + '"><div class="tile-val">' + val + '</div><div class="tile-lbl">' + label + '</div></div>';
+      }
+    }
+
+    // ---------- 🏬 Store Coverage sub-view ----------
+    var storeCoverageData = null;
+
+    function loadStoreCoverage() {
+      var list = document.getElementById('storeCoverageList');
+      list.innerHTML = '<div class="histempty">Loading…</div>';
+      google.script.run.withSuccessHandler(function(d) {
+        storeCoverageData = d;
+
+        document.getElementById('storeCoverageNotice').innerHTML = d.usingFallback
+          ? '<div class="histempty err" style="padding:6px 0 2px;">' + (d.fallbackMessage || 'Store list not linked yet.') + '</div>'
+          : '';
+
+        document.getElementById('storeCoverageTiles').innerHTML =
+          tile(d.totalStores, 'Total Stores') +
+          tile(d.storesWithActiveTL, 'With Active TL') +
+          tile(d.storesWithNoActiveTL, 'No Active TL', d.storesWithNoActiveTL > 0) +
+          tile(d.unlistedCount, 'Not In Store List', d.unlistedCount > 0);
+
+        var brandSel = document.getElementById('storeBrandFilter');
+        var keepBrand = brandSel.value;
+        brandSel.innerHTML = '<option value="">All brands</option>' +
+          d.brands.map(function(b) { return '<option value="' + b + '">' + b + '</option>'; }).join('');
+        brandSel.value = keepBrand;
+
+        var regionSel = document.getElementById('storeRegionFilter');
+        var keepRegion = regionSel.value;
+        regionSel.innerHTML = '<option value="">All regions</option>' +
+          d.regions.map(function(r) { return '<option value="' + r + '">' + r + '</option>'; }).join('');
+        regionSel.value = keepRegion;
+
+        renderStoreCoverageList();
+      }).withFailureHandler(function(err) {
+        list.innerHTML = '<div class="histempty err">' + err.message + '</div>';
+      }).getStoreCoverageReport();
+
+      function tile(val, label, isWarn) {
+        return '<div class="tile' + (isWarn ? ' warn' : '') + '"><div class="tile-val">' + val + '</div><div class="tile-lbl">' + label + '</div></div>';
+      }
+    }
+
+    function renderStoreCoverageList() {
+      if (!storeCoverageData) return;
+      var list = document.getElementById('storeCoverageList');
+      var count = document.getElementById('storeCoverageCount');
+      var q = val('storeSearch').toUpperCase();
+      var brandFilter = val('storeBrandFilter');
+      var regionFilter = val('storeRegionFilter');
+      var covFilter = val('storeCoverageFilter');
+      var sortBy = val('storeSort') || 'name';
+
+      var rows = storeCoverageData.stores.filter(function(s) {
+        if (brandFilter && (s.brand || '').split(' / ').indexOf(brandFilter) === -1) return false;
+        if (regionFilter && s.region !== regionFilter) return false;
+        if (covFilter === 'active' && s.activeTL <= 0) return false;
+        if (covFilter === 'none' && s.activeTL > 0) return false;
+        if (covFilter === 'unlisted' && s.inCanonicalList) return false;
+        if (q && s.name.toUpperCase().indexOf(q) === -1) return false;
+        return true;
+      });
+
+      rows.sort(function(a, b) {
+        if (sortBy === 'activeDesc') return b.activeTL - a.activeTL || a.name.localeCompare(b.name);
+        if (sortBy === 'activeAsc') return a.activeTL - b.activeTL || a.name.localeCompare(b.name);
+        return a.name.localeCompare(b.name);
+      });
+
+      count.textContent = 'Showing ' + rows.length + ' of ' + storeCoverageData.stores.length + ' stores';
+
+      if (!rows.length) {
+        list.innerHTML = '<div class="histempty">No stores match this search/filter.</div>';
+        return;
+      }
+
+      list.innerHTML = rows.map(function(s) {
+        var meta = [];
+        if (s.probationary) meta.push('Prob ' + s.probationary);
+        if (s.extended) meta.push('Ext ' + s.extended);
+        if (s.certified) meta.push('Cert ' + s.certified);
+        var closed = (s.failed || 0) + (s.quit || 0) + (s.disqualified || 0);
+        if (closed) meta.push('Closed ' + closed);
+        if (!meta.length) meta.push('No trainees logged yet');
+        return '<div class="monrow' + (s.activeTL <= 0 ? ' overdue' : '') + '">' +
+          '<div class="mtop"><span class="mname">' + s.name + '</span>' +
+          '<span class="' + (s.activeTL > 0 ? 'badge st-certified' : 'badge st-failed') + '">' + s.activeTL + ' ACTIVE</span></div>' +
+          '<div class="msub">' + (s.brand || '—') + (s.region ? ' · ' + s.region : '') + '</div>' +
+          '<div class="mmeta"><span>' + meta.join(' · ') + '</span>' +
+          (s.inCanonicalList ? '' : '<span class="mflag">NOT IN STORE LIST</span>') + '</div>' +
+          '</div>';
+      }).join('');
+    }
+
+    // ---------- 🔎 Monitoring tab ----------
+    var monitoringData = [];
+    var monOverdueOnly = false; // toggled by tapping the past-due warning banner
+
+    function loadMonitoringList() {
+      var list = document.getElementById('monList');
+      list.innerHTML = '<div class="histempty">Loading…</div>';
+      google.script.run.withSuccessHandler(function(rows) {
+        monitoringData = rows;
+        renderMonWarnBanner();
+
+        var statusSel = document.getElementById('monStatusFilter');
+        var keepStatus = statusSel.value;
+        var statusesPresent = STATUS_ORDER.filter(function(s) {
+          return rows.some(function(r) { return r.status === s; });
+        });
+        statusSel.innerHTML = '<option value="">All statuses</option>' +
+          statusesPresent.map(function(s) { return '<option value="' + s + '">' + s + '</option>'; }).join('');
+        statusSel.value = keepStatus;
+
+        var storeSel = document.getElementById('monStoreFilter');
+        var keepStore = storeSel.value;
+        var stores = [];
+        rows.forEach(function(r) { if (r.motherStore && stores.indexOf(r.motherStore) === -1) stores.push(r.motherStore); });
+        stores.sort();
+        storeSel.innerHTML = '<option value="">All stores</option>' +
+          stores.map(function(s) { return '<option value="' + s + '">' + s + '</option>'; }).join('');
+        storeSel.value = keepStore;
+
+        renderMonitoringList();
+      }).withFailureHandler(function(err) {
+        list.innerHTML = '<div class="histempty err">' + err.message + '</div>';
+      }).getMonitoringList();
+    }
+
+    // Renders (or clears) the past-due banner from whatever monitoringData
+    // currently holds — no server round trip, so toggling it stays instant.
+    function renderMonWarnBanner() {
+      var banner = document.getElementById('monWarnBanner');
+      var overdueCount = monitoringData.filter(function(r) { return r.isOverdue; }).length;
+      if (overdueCount === 0) { banner.innerHTML = ''; monOverdueOnly = false; return; }
+      banner.innerHTML =
+        '<div class="warnBanner' + (monOverdueOnly ? ' active' : '') + '" onclick="toggleOverdueOnly()">' +
+        '<span class="warnIcon">⚠️</span>' +
+        '<span class="warnText">' + overdueCount + ' trainee' + (overdueCount === 1 ? '' : 's') + ' past certification deadline</span>' +
+        '<span class="warnHint">' + (monOverdueOnly ? 'Showing overdue · tap to clear' : 'Tap to filter') + '</span>' +
+        '</div>';
+    }
+
+    function toggleOverdueOnly() {
+      monOverdueOnly = !monOverdueOnly;
+      renderMonWarnBanner();
+      renderMonitoringList();
+    }
+
+    function renderMonitoringList() {
+      var list = document.getElementById('monList');
+      var count = document.getElementById('monCount');
+      var q = val('monSearch').toUpperCase();
+      var statusFilter = val('monStatusFilter');
+      var storeFilter = val('monStoreFilter');
+      var sortBy = val('monSort') || 'name';
+
+      var rows = monitoringData.filter(function(r) {
+        if (monOverdueOnly && !r.isOverdue) return false;
+        if (statusFilter && r.status !== statusFilter) return false;
+        if (storeFilter && r.motherStore !== storeFilter) return false;
+        if (q && r.fullName.toUpperCase().indexOf(q) === -1 && r.motherStore.toUpperCase().indexOf(q) === -1) return false;
+        return true;
+      });
+
+      rows.sort(function(a, b) {
+        if (sortBy === 'store') return a.motherStore.localeCompare(b.motherStore) || a.fullName.localeCompare(b.fullName);
+        if (sortBy === 'deadline') {
+          var av = a.deadlineSort === null ? Infinity : a.deadlineSort;
+          var bv = b.deadlineSort === null ? Infinity : b.deadlineSort;
+          return av - bv || a.fullName.localeCompare(b.fullName);
+        }
+        return a.fullName.localeCompare(b.fullName);
+      });
+
+      count.textContent = 'Showing ' + rows.length + ' of ' + monitoringData.length + ' trainees';
+
+      if (!rows.length) {
+        list.innerHTML = '<div class="histempty">No trainees match this search/filter.</div>';
+        return;
+      }
+
+      list.innerHTML = rows.map(function(r) {
+        var meta = [];
+        if (r.batch) meta.push(r.batch);
+        if (r.deadline) meta.push('Due ' + r.deadline);
+        var overdueBadge = r.isOverdue ? '<span class="badge badgeOverdue">⚠️ Past Due</span>' : '';
+        return '<div class="monrow' + (r.isOverdue ? ' overdue' : '') + '">' +
+          '<div class="mtop"><span class="mname">' + r.fullName + '</span>' +
+          '<span class="mtopRight">' + overdueBadge + '<span class="' + statusBadgeClass(r.status) + '">' + r.status + '</span></span></div>' +
+          '<div class="msub">' + r.motherStore + (r.motherStation ? ' · ' + r.motherStation : '') + '</div>' +
+          (meta.length ? '<div class="mmeta"><span>' + meta.join(' · ') + '</span></div>' : '') +
+          '</div>';
+      }).join('');
+    }
+
+    // ---------- live average preview (New Entry) ----------
+    ['techValFp','techValPm','entryFoodPrepExam','entryPizzaMakerExam'].forEach(function(id) {
+      document.getElementById(id).addEventListener('input', updateEntryAvgPreview);
+    });
+    function updateEntryAvgPreview() {
+      var nums = ['techValFp','techValPm','entryFoodPrepExam','entryPizzaMakerExam']
+        .map(function(id){ return val(id); })
+        .filter(function(v){ return v !== ''; })
+        .map(Number);
+      var out = document.getElementById('entryAvgPreview');
+      if (nums.length === 0) { out.textContent = ''; return; }
+      var avg = nums.reduce(function(a,b){return a+b;}, 0) / nums.length;
+      out.textContent = 'Running average: ' + avg.toFixed(1) + '%';
+    }
+
+    // ---------- live average preview (Certify/Update) ----------
+    ['certGrade','examGradeInput'].forEach(function(id) {
+      document.getElementById(id).addEventListener('input', updateUpdateAvgPreview);
+    });
+    function updateUpdateAvgPreview() {
+      var nums = ['certGrade','examGradeInput']
+        .map(function(id){ return val(id); })
+        .filter(function(v){ return v !== ''; })
+        .map(Number);
+      var out = document.getElementById('updateAvgPreview');
+      if (nums.length === 0) { out.textContent = ''; return; }
+      var avg = nums.reduce(function(a,b){return a+b;}, 0) / nums.length;
+      out.textContent = 'Running average: ' + avg.toFixed(1) + '%';
+    }
+
+    // ---------- show/hide deadline override ----------
+    function onStatusChange() {
+      var status = val('newStatus');
+      document.getElementById('deadlineRow').style.display = (status === 'EXTENDED') ? 'block' : 'none';
+    }
+    onStatusChange();
+
+    // ---------- trainee summary card ----------
+    function onTraineeChange() {
+      var key = val('key');
+      var card = document.getElementById('traineeCard');
+      if (!key) { card.style.display = 'none'; return; }
+      google.script.run.withSuccessHandler(function(d) {
+        card.style.display = 'block';
+        card.innerHTML =
+          '<div class="cardhdr">Trainee Summary</div><div class="cardbody">' +
+          '<b>' + d.fullName + '</b> — ' + d.motherStore + (d.motherStation ? ' (' + d.motherStation + ')' : '') + '<br>' +
+          'Current status: <b>' + d.status + '</b><br>' +
+          'Current deadline: <b>' + d.currentDeadline + '</b><br>' +
+          'If EXTENDED again, deadline would default to: <b>' + d.nextExtendedDeadline + '</b></div>';
+      }).withFailureHandler(function(err) {
+        card.style.display = 'block';
+        card.innerHTML = '<div class="cardbody"><span class="err">' + err.message + '</span></div>';
+      }).getTLDetails(key);
+    }
+
+    // ---------- submit: New Entry ----------
+    function submitEntry() {
+      var btn = document.getElementById('entrySubmitBtn');
+      var msg = document.getElementById('msg');
+      msg.textContent = ''; msg.className = '';
+
+      if (!val('entryDate') || !val('fullName') || !val('motherStore')) {
+        msg.textContent = 'Date of Entry, Full Name, and Mother Store are required.';
+        msg.className = 'err';
+        return;
+      }
+
+      var form = {
+        entryDate: val('entryDate'),
+        batch: val('batch'),
+        motherStore: val('motherStore'),
+        fullName: val('fullName'),
+        motherStation: val('motherStation'),
+        supportStore: val('supportStore'),
+        entryBy: val('entryBy'),
+        istvGrade: val('istvGrade'),
+        techValFp: val('techValFp'),
+        techValPm: val('techValPm'),
+        entryFoodPrepExam: val('entryFoodPrepExam'),
+        entryPizzaMakerExam: val('entryPizzaMakerExam'),
+        uniformSize: val('uniformSize'),
+        uniformQty: val('uniformQty'),
+        uniformDr: val('uniformDr')
+      };
+
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      google.script.run
+        .withSuccessHandler(function(result) {
+          btn.disabled = false;
+          btn.textContent = 'Save Entry';
+          msg.textContent = result;
+          msg.className = 'ok';
+          ['fullName','istvGrade','techValFp','techValPm','entryFoodPrepExam','entryPizzaMakerExam','uniformDr'].forEach(function(id){
+            document.getElementById(id).value = '';
+          });
+          document.getElementById('uniformSize').value = '';
+          document.getElementById('uniformQty').value = '1';
+          updateEntryAvgPreview();
+          // refresh the trainee lists in the background so Certify/Uniform stay current
+          google.script.run.withSuccessHandler(function(data){
+            populateOpenList(data.openList);
+            populateSelectOptions('uf_key', data.allList, 'No trainees yet');
+          }).getFormBootstrapData();
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          btn.textContent = 'Save Entry';
+          msg.textContent = err.message;
+          msg.className = 'err';
+        })
+        .submitNewEntry(form);
+    }
+
+    // ---------- submit: Certify / Update ----------
+    function submitUpdate() {
+      var btn = document.getElementById('updateSubmitBtn');
+      var msg = document.getElementById('msg');
+      msg.textContent = ''; msg.className = '';
+
+      var form = {
+        key: val('key'),
+        newStatus: val('newStatus'),
+        deadlineOverride: val('deadlineOverride'),
+        certBy: val('certBy'),
+        certGrade: val('certGrade'),
+        examGradeInput: val('examGradeInput'),
+        finalStatus: val('finalStatus')
+      };
+
+      if (!form.key) { msg.textContent = 'Please pick a trainee.'; msg.className = 'err'; return; }
+      if (!form.certBy && form.newStatus !== 'EXTENDED') {
+        msg.textContent = 'Please fill in "Cert By" before saving a final outcome.';
+        msg.className = 'err';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      google.script.run
+        .withSuccessHandler(function(result) {
+          btn.disabled = false;
+          btn.textContent = 'Save Update';
+          msg.textContent = result;
+          msg.className = 'ok';
+          document.getElementById('traineeCard').style.display = 'none';
+          google.script.run.withSuccessHandler(function(data) {
+            populateOpenList(data.openList);
+            populateSelectOptions('uf_key', data.allList, 'No trainees yet');
+          }).getFormBootstrapData();
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          btn.textContent = 'Save Update';
+          msg.textContent = err.message;
+          msg.className = 'err';
+        })
+        .submitCertification(form);
+    }
+
+    // ---------- uniform history card ----------
+    function onUniformTraineeChange() {
+      var key = val('uf_key');
+      var box = document.getElementById('uf_history');
+      if (!key) { box.innerHTML = ''; return; }
+      box.innerHTML = '<div class="histbox"><div class="histtitle">Loading history…</div></div>';
+      google.script.run.withSuccessHandler(function(rows) {
+        if (!rows.length) {
+          box.innerHTML = '<div class="histbox"><div class="histtitle">Uniform History</div><div class="histbody"><div class="histempty">Nothing logged yet for this person.</div></div></div>';
+          return;
+        }
+        var items = rows.map(function(r) {
+          return '<div class="histrow"><span class="who">' + r.quantity + ' ' + r.size + (r.drNumber ? ' · DR#' + r.drNumber : '') + '</span><span class="when">' + r.date + (r.givenBy ? ' · ' + r.givenBy : '') + '</span></div>';
+        }).join('');
+        box.innerHTML = '<div class="histbox"><div class="histtitle">Uniform History</div><div class="histbody">' + items + '</div></div>';
+      }).withFailureHandler(function(err) {
+        box.innerHTML = '<div class="histbox"><div class="histempty">' + err.message + '</div></div>';
+      }).getUniformHistory(key);
+    }
+
+    // ---------- submit: Uniform ----------
+    function submitUniform() {
+      var btn = document.getElementById('uniformSubmitBtn');
+      var msg = document.getElementById('msg');
+      msg.textContent = ''; msg.className = '';
+
+      var form = {
+        key: val('uf_key'),
+        size: val('uf_size'),
+        quantity: val('uf_qty'),
+        drNumber: val('uf_dr'),
+        givenBy: val('uf_givenby'),
+        notes: val('uf_notes')
+      };
+
+      if (!form.key) { msg.textContent = 'Please pick a trainee.'; msg.className = 'err'; return; }
+      if (!form.size) { msg.textContent = 'Please pick a size.'; msg.className = 'err'; return; }
+      if (!form.givenBy) { msg.textContent = 'Please fill in "Given By".'; msg.className = 'err'; return; }
+
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      google.script.run
+        .withSuccessHandler(function(result) {
+          btn.disabled = false;
+          btn.textContent = 'Log Uniform';
+          msg.textContent = result;
+          msg.className = 'ok';
+          document.getElementById('uf_dr').value = '';
+          document.getElementById('uf_notes').value = '';
+          document.getElementById('uf_qty').value = '1';
+          document.getElementById('uf_size').value = '';
+          onUniformTraineeChange(); // refresh history for the same trainee
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          btn.textContent = 'Log Uniform';
+          msg.textContent = err.message;
+          msg.className = 'err';
+        })
+        .submitUniformRelease(form);
+    }
+
+    // ---------- submit: Stock delivery ----------
+    function submitDelivery() {
+      var btn = document.getElementById('deliverySubmitBtn');
+      var msg = document.getElementById('msg');
+      msg.textContent = ''; msg.className = '';
+
+      var form = {
+        size: val('dv_size'),
+        quantity: val('dv_qty'),
+        deliveryRef: val('dv_ref'),
+        loggedBy: val('dv_by')
+      };
+
+      if (!form.size) { msg.textContent = 'Please pick a size.'; msg.className = 'err'; return; }
+      if (!form.quantity) { msg.textContent = 'Please enter the quantity received.'; msg.className = 'err'; return; }
+      if (!form.loggedBy) { msg.textContent = 'Please fill in "Logged By".'; msg.className = 'err'; return; }
+
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      google.script.run
+        .withSuccessHandler(function(result) {
+          btn.disabled = false;
+          btn.textContent = 'Save Delivery';
+          msg.textContent = result;
+          msg.className = 'ok';
+          document.getElementById('dv_size').value = '';
+          document.getElementById('dv_qty').value = '';
+          document.getElementById('dv_ref').value = '';
+          // refresh the on-hand table so the new delivery shows up immediately
+          google.script.run.withSuccessHandler(function(data) {
+            renderStockTable(data.inventorySummary);
+          }).getFormBootstrapData();
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          btn.textContent = 'Save Delivery';
+          msg.textContent = err.message;
+          msg.className = 'err';
+        })
+        .submitUniformDelivery(form);
+    }
+  </script>
+</body>
+</html>

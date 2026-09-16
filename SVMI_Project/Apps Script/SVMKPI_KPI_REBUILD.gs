@@ -5,7 +5,15 @@
 // Each visitor gets a unique identity color matching the live sheet.
 // ============================================================
 
-const KPI_SHEET_NAME = 'KPI 2026';
+// A function, not a top-level const, so 'KPI ' + DATA_YEAR isn't evaluated
+// before SVMKPI_CORE.gs's DATA_YEAR exists (Apps Script's cross-file
+// top-level load-order hazard) — every call site below is inside a function,
+// so this resolves at runtime once every file's top-level code has run.
+// Once DATA_YEAR is bumped, the next rebuild creates/uses a fresh
+// "KPI <year>" tab rather than continuing to write into last year's sheet.
+function _kpiSheetName() {
+  return 'KPI ' + DATA_YEAR;
+}
 
 // ── Color palette ───────────────────────────────────────────
 const KPI_C = {
@@ -139,9 +147,9 @@ function buildKPI2026() {
   if (!visitors.length) throw new Error('No visitors found in SETTINGS!F.');
 
   // ── Get or create sheet ────────────────────────────────────
-  let sheet = ss.getSheetByName(KPI_SHEET_NAME);
+  let sheet = ss.getSheetByName(_kpiSheetName());
   if (!sheet) {
-    sheet = ss.insertSheet(KPI_SHEET_NAME);
+    sheet = ss.insertSheet(_kpiSheetName());
   } else {
     sheet.clear();
     sheet.clearFormats();
