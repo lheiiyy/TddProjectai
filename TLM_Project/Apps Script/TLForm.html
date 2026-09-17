@@ -712,6 +712,17 @@
   <script>
     var openList = [];
     var UNLOCK_KEY = 'tlTrackerUnlocked';
+    // Declared here, before initGate() below, because initGate can call
+    // showApp() synchronously on page load (PIN already remembered from
+    // a prior visit) — that's before execution would otherwise reach
+    // these var statements further down the script. showApp() reads
+    // STATUS_VALUES_CLIENT and switchMode() reads MODES/PANEL_ID/
+    // MODE_LABEL, so on that early path they'd still be undefined,
+    // throwing and leaving mode-switching broken for the rest of the load.
+    var MODES = ['entry', 'update', 'uniform', 'stock', 'exec', 'monitor', 'admin'];
+    var PANEL_ID = { entry: 'panelEntry', update: 'panelUpdate', uniform: 'panelUniform', stock: 'panelStock', exec: 'panelExec', monitor: 'panelMonitor', admin: 'panelAdmin' };
+    var MODE_LABEL = { entry: '🆕 New Entry', update: '✅ Certify', uniform: '👕 Uniform', stock: '📦 Stock', exec: '📊 Reports', monitor: '🔎 Monitoring', admin: '🛠️ Admin' };
+    var STATUS_VALUES_CLIENT = ['PROBATIONARY', 'EXTENDED', 'CERTIFIED', 'FAILED', 'QUIT', 'DISQUALIFIED', 'PROMOTION'];
 
     // ============================= PIN GATE =============================
     function showApp() {
@@ -770,11 +781,6 @@
     })();
 
     // ============================= MAIN APP =============================
-    var MODES = ['entry', 'update', 'uniform', 'stock', 'exec', 'monitor', 'admin'];
-    var PANEL_ID = { entry: 'panelEntry', update: 'panelUpdate', uniform: 'panelUniform', stock: 'panelStock', exec: 'panelExec', monitor: 'panelMonitor', admin: 'panelAdmin' };
-    var MODE_LABEL = { entry: '🆕 New Entry', update: '✅ Certify', uniform: '👕 Uniform', stock: '📦 Stock', exec: '📊 Reports', monitor: '🔎 Monitoring', admin: '🛠️ Admin' };
-    var STATUS_VALUES_CLIENT = ['PROBATIONARY', 'EXTENDED', 'CERTIFIED', 'FAILED', 'QUIT', 'DISQUALIFIED', 'PROMOTION'];
-
     // ---------- burger menu open/close ----------
     function toggleModeMenu() {
       var menu = document.getElementById('modeMenu');
