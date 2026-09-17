@@ -113,10 +113,32 @@ const DEVICES = [
       const cards = [...document.querySelectorAll('.tool-card')];
       if (cards.length < 2) return null;
       const a = cards[0].getBoundingClientRect(), b = cards[1].getBoundingClientRect();
-      return { sameRow: Math.abs(a.top - b.top) < 5, aWidth: a.width };
+      return { sameRow: Math.abs(a.top - b.top) < 5, aWidth: a.width, aHeight: a.height };
     });
     check('tool cards have real width (>=140px, not crushed)',
       toolsLayout && toolsLayout.aWidth >= 140, JSON.stringify(toolsLayout));
+    // Regression guard: .tools-grid must not be its own scroll container — a
+    // CSS Grid element with overflow-y:auto sizes auto rows to fit whatever
+    // height it's given rather than to content, silently squashing every
+    // card to ~80px regardless of what they actually contain (caught on a
+    // real device: a wide-but-short viewport, like phone landscape here,
+    // hits it while a tall desktop viewport can look fine by accident).
+    // .tools-scroll (a plain box, not a grid) must be the one that scrolls.
+    check('tool cards render at natural height, not squashed to fit (>=100px)',
+      toolsLayout && toolsLayout.aHeight >= 100, JSON.stringify(toolsLayout));
+    const scrollReachesEnd = await page.evaluate(() => {
+      const scroller = document.querySelector('.tools-scroll');
+      const log = document.querySelector('.log-panel');
+      if (!scroller || !log) return null;
+      scroller.scrollTop = scroller.scrollHeight;
+      const r = log.getBoundingClientRect();
+      const containerBottom = scroller.getBoundingClientRect().bottom;
+      return { scrolled: scroller.scrollTop > 0 || scroller.scrollHeight <= scroller.clientHeight,
+        logVisibleAfterScroll: r.bottom <= containerBottom + 2 };
+    });
+    check('Activity Log (last card) is reachable — page/box actually scrolls down to it',
+      scrollReachesEnd && scrollReachesEnd.scrolled && scrollReachesEnd.logVisibleAfterScroll,
+      JSON.stringify(scrollReachesEnd));
 
     // ── Unvisited tab: wide table must scroll in its own box, not the page ──
     await goToTab(page, 'Visits');

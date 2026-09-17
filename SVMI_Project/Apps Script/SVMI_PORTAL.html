@@ -312,7 +312,15 @@ textarea.fi{resize:vertical;min-height:50px}
 @media (max-width:820px){ .colf{width:min(260px,86vw)} }
 
 /* ── System Tools ── */
-.tools-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px 14px;overflow-y:auto;flex:1}
+/* .tools-grid itself must NOT be the scroll container: a CSS Grid element
+   with overflow-y:auto sizes its auto rows to fit whatever height it's
+   given rather than to content (a scroll-container-specific quirk in the
+   Grid sizing algorithm), silently squashing every card — .tool-card's
+   own overflow:hidden then clips the excess instead of it ever
+   scrolling into view. .tools-scroll (a plain flex/block box) does the
+   actual scrolling; .tools-grid just lays out cards at their natural size. */
+.tools-scroll{flex:1;overflow-y:auto}
+.tools-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px 14px}
 .tool-card{background:var(--card);border:1px solid var(--border);border-radius:6px;overflow:hidden}
 .tool-hdr{background:var(--navy);padding:8px 12px;display:flex;align-items:center;gap:8px}
 .tool-icon{font-size:16px}
@@ -420,7 +428,8 @@ textarea.fi{padding-right:28px}
   .portal-form,.portal-queue,.si-main{overflow:visible;border-right:none}
   .portal-form{border-bottom:8px solid var(--bg)}
   .si-side{overflow:visible;border-right:none;border-bottom:3px solid var(--gold)}
-  .tools-grid{grid-template-columns:1fr;overflow:visible}
+  .tools-grid{grid-template-columns:1fr}
+  .tools-scroll{overflow:visible}
   .kpi-row{grid-template-columns:1fr 1fr}
   .profile-grid,.kpi2{grid-template-columns:1fr 1fr}
   .profile-grid{grid-template-columns:1fr}
@@ -698,6 +707,7 @@ textarea.fi{padding-right:28px}
 
 <!-- TAB 4: SYSTEM TOOLS -->
 <div class="tab-content" id="content-Tools">
+  <div class="tools-scroll">
   <div class="tools-grid">
 
     <div class="tool-card primary" data-admin-only="true">
@@ -848,6 +858,7 @@ textarea.fi{padding-right:28px}
         <div class="log-entry info">System ready.</div>
       </div>
     </div>
+  </div>
   </div>
 </div>
 
