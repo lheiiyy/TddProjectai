@@ -384,6 +384,17 @@ function manageVisitor(action, visitorName) {
       settings.getRange(targetRow, COL_S_VISITOR).setValue(name);
       SpreadsheetApp.flush();
 
+      // A brand-new roster member has no row in the KPI 2026 sheet yet —
+      // unlike Executive Summary's totals (open-column COUNTIFS that
+      // recalculate on their own for anyone already on the sheet), there's
+      // no formula row for them to recalculate until one exists. Rebuilding
+      // now (only triggered by this relatively rare admin action, never by
+      // an ordinary visit submission) means their next visit shows up
+      // without anyone having to remember to run "Rebuild KPI 2026" by hand.
+      try {
+        if (ss.getSheetByName(_kpiSheetName())) buildKPI2026();
+      } catch (e) { logError('manageVisitor (KPI 2026 auto-refresh)', e); }
+
     } else if (action === 'remove') {
       if (!roster[name]) {
         return { success: false, message: '"' + name + '" was not found in the visitor roster.' };
@@ -535,6 +546,18 @@ function portal_saveStore(store, brand, region, category) {
     }
 
     SpreadsheetApp.flush();
+
+    // Store Health's numbers are plain computed values, not live formulas
+    // (the cadence/decay scoring logic isn't expressible as a spreadsheet
+    // formula) — nothing about them recalculates on its own the way
+    // Executive Summary's open-column COUNTIFS do. Refreshing now (only
+    // triggered by this relatively rare admin action, never by an
+    // ordinary visit submission) means a new or edited store shows up
+    // without anyone having to remember to run "Rebuild Store Health".
+    try {
+      if (ss.getSheetByName(RISK_SHEET_NAME)) refreshRiskEngine();
+    } catch (e) { logError('portal_saveStore (Store Health auto-refresh)', e); }
+
     return {
       success: true,
       isNew: isNew,

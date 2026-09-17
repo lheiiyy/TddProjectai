@@ -315,29 +315,61 @@ in use), regions/categories from the fixed `APPROVED_REGIONS`/
 
 ### What happens to the reports when you add/remove data
 
-Nothing updates live — Executive Summary/KPI 2026/Store Health only ever
-show a snapshot from their last rebuild, whether the underlying change came
-from Store & Roster Manager or an actual visit submission. Once rebuilt:
+Less manual than it looks, but not everything is truly live:
 
-- **Store** add/edit only affects **Store Health** (which is seeded from
-  `SETTINGS`) — Executive Summary and KPI 2026 aren't store-indexed. Editing
-  a store's brand/region does **not** retroactively relabel visits already
-  in `MASTER_LOG` under the old value; only new submissions pick up the edit.
-- **Visitor Roster** removal only affects **KPI 2026** (the only report
-  indexed by roster) — and it's handled safely: `buildKPI2026()` appends
-  anyone with real `MASTER_LOG` history who's since been removed from the
-  roster as an extra row (their name written as a plain literal instead of
-  a live `SETTINGS!F` formula, since there's no roster row left to point
-  to), so **their historical numbers are never lost**, even after the
-  active roster changes out from under them. `getKPI2026Report()` reads
+- **Executive Summary already updates itself for ordinary visits.** Its
+  numbers are native Sheets formulas over whole `MASTER_LOG` columns
+  (`COUNTIF(MASTER_LOG!G:G,...)`, etc.) — Google Sheets recalculates those
+  the moment a new row lands, with no rebuild needed. "Rebuild Executive
+  Summary" is only for fixing the sheet's layout/formatting, not for
+  picking up new data.
+- **KPI 2026 is the same for anyone already on the roster** — their
+  SUMPRODUCT formulas recalculate automatically for a new visit too. The
+  one case that needs help is a **brand-new** roster member: there's no
+  formula row for them until one exists, so `manageVisitor('add', ...)`
+  (`INPUT_PORTAL.gs`) now rebuilds the KPI 2026 sheet right away, *if it
+  already exists*, whenever someone new is added — via Store & Roster
+  Manager or Input Portal's own "⚙ Manage Roster" panel, either one. That
+  rebuild only runs on this relatively rare add-a-person action, never on
+  an ordinary visit submission.
+- **Store** add/edit works the same way for **Store Health**: its scores
+  are plain computed values (the cadence/decay logic isn't expressible as
+  a Sheets formula), so nothing about them recalculates on its own.
+  `portal_saveStore()` now calls `refreshRiskEngine()` right after a
+  successful save, *if the Store Health sheet already exists* — so a new
+  or edited store shows up without a manual "Rebuild Store Health" click.
+  Editing a store's brand/region does **not** retroactively relabel visits
+  already in `MASTER_LOG` under the old value; only new submissions pick
+  up the edit.
+- **An ordinary visit submission through Input Portal does not trigger any
+  of these rebuilds.** Executive Summary and KPI 2026 (for existing
+  roster members) don't need it — their formulas already picked it up.
+  Store Health does still need one, deliberately not automatic here: doing
+  a full risk-engine rebuild (scans every `MASTER_LOG` row, rescoring every
+  store) on every single visit would add real latency to the one action
+  field users do most often. Run "Rebuild Store Health" by hand after a
+  batch of new visits, or ask if you'd like that traded off instead —
+  it's a real option, just not the default.
+- **Visitor Roster removal** is handled safely regardless: `buildKPI2026()`
+  appends anyone with real `MASTER_LOG` history who's since been removed
+  from the roster as an extra row (their name written as a plain literal
+  instead of a live `SETTINGS!F` formula, since there's no roster row left
+  to point to), so **their historical numbers are never lost**, even after
+  the active roster changes out from under them. `getKPI2026Report()` reads
   row-by-row off the actual sheet rather than re-deriving the visitor count
   from `SETTINGS!F`, for the same reason — it can't fall out of sync with
-  what the rebuild actually wrote. `tests/kpi-roster-history.test.js`
-  covers this end-to-end (a real `.gs` test, not the demo mock).
-- **Purpose List** changes carry no historical-loss risk either way — see
-  the note above; a purpose that's since been removed from the list simply
-  can't be picked again going forward, but visits already logged under it
-  keep whatever score/count they already had.
+  what the rebuild actually wrote. `tests/kpi-roster-history.test.js` and
+  `tests/roster-auto-refresh.test.js` cover this end-to-end (real `.gs`
+  tests, not the demo mock, since the demo's simplified heuristic doesn't
+  model the rebuild-snapshot architecture at all).
+- **Purpose List** changes carry no historical-loss risk either way — a
+  purpose that's since been removed from the list simply can't be picked
+  again going forward, but visits already logged under it keep whatever
+  score/count they already had. Adding a purpose beyond the original four
+  still won't get its own row anywhere (Executive Summary's purpose table
+  and Store Health's scoring both stay keyed to the fixed four in
+  `APPROVED_PURPOSES`) — no rebuild changes that, it's a fixed-layout
+  limitation, not a timing one.
 
 ---
 
@@ -368,14 +400,20 @@ node SVMI_Project/tests/risk-scoring.test.js
 # (SVMKPI_KPI_REBUILD.gs/SVMKPI_REPORTS.gs) — covers the "removed roster
 # member keeps their historical numbers" guarantee described above
 node SVMI_Project/tests/kpi-roster-history.test.js
+
+# covers the "adding a roster member rebuilds KPI 2026 automatically"
+# guarantee (INPUT_PORTAL.gs's manageVisitor(), against a writable
+# Sheet/Range mock shared with SVMKPI_KPI_REBUILD.gs/SVMKPI_REPORTS.gs)
+node SVMI_Project/tests/roster-auto-refresh.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a
 real spreadsheet — they catch UI/layout regressions, not data-correctness
-issues. `risk-scoring.test.js` and `kpi-roster-history.test.js` are the
-exception: they run actual `.gs` functions directly (against a mocked
-Sheet/Range, not a mock of the *business logic*), so they do catch
-data-correctness bugs (this is how the "never-visited stores silently
+issues. `risk-scoring.test.js`, `kpi-roster-history.test.js`, and
+`roster-auto-refresh.test.js` are the exception: they run actual `.gs`
+functions directly (against a mocked Sheet/Range, not a mock of the
+*business logic*), so they do catch data-correctness bugs (this is how the
+"never-visited stores silently
 scored better than overdue ones" regression was caught before a push, not
 after).
 `onOpen()`, the menu, and a real deploy via `clasp push` have since been
