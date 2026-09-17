@@ -1145,6 +1145,127 @@ function submitCertification(form) {
 }
 
 // =====================================================================
+// ADMIN EDIT (called from TLForm.html, "🛠️ Admin" mode) — direct,
+// unrestricted read/write of one MASTER_LOG row by its composite key,
+// for correcting mistakes (typo'd name/store, wrong grade, etc.) that
+// New Entry and Certify/Update don't cover since they're deliberately
+// narrow (Certify only touches fields relevant to the status change
+// being made). This bypasses those guardrails on purpose, so it's
+// reachable from the app but not tied to a form workflow.
+// =====================================================================
+
+// Full raw record for one trainee, any status — unlike getTLDetails()
+// (open trainees only, summary fields only), this returns every column
+// in an edit-friendly shape for the Admin panel's form fields.
+function getAdminRecordDetails(key) {
+  const sheet = getSheet_();
+  const lastRow = sheet.getLastRow();
+  const tz = Session.getScriptTimeZone();
+  const data = sheet.getRange(2, 1, lastRow - 1, MASTER_LOG_LAST_COL).getValues();
+
+  const asDateInput = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, 'yyyy-MM-dd') : '';
+
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    if (makeKey_(row[COL.FULL_NAME - 1], row[COL.MOTHER_STORE - 1], row[COL.ENTRY_DATE - 1]) === key) {
+      return {
+        key: key,
+        entryDate: asDateInput(row[COL.ENTRY_DATE - 1]),
+        batch: row[COL.BATCH - 1] || '',
+        motherStore: row[COL.MOTHER_STORE - 1] || '',
+        fullName: row[COL.FULL_NAME - 1] || '',
+        motherStation: row[COL.MOTHER_STATION - 1] || '',
+        supportStore: row[COL.SUPPORT_STORE - 1] || '',
+        status: row[COL.STATUS - 1] || '',
+        uniformRelease: row[COL.UNIFORM_RELEASE - 1] || '',
+        entryBy: row[COL.ENTRY_BY - 1] || '',
+        istvGrade: toDisplayPercent_(row[COL.ISTV_GRADE - 1]),
+        techValFp: toDisplayPercent_(row[COL.TECHVAL_FP - 1]),
+        techValPm: toDisplayPercent_(row[COL.TECHVAL_PM - 1]),
+        entryFoodPrepExam: toDisplayPercent_(row[COL.ENTRY_FOOD_PREP - 1]),
+        entryPizzaMakerExam: toDisplayPercent_(row[COL.ENTRY_PIZZA_MAKER - 1]),
+        entryAverage: row[COL.ENTRY_AVERAGE - 1], // always raw 0-100 on this column, never a fraction — see toDisplayPercent_'s comment
+        certDeadline: asDateInput(row[COL.CERT_DEADLINE - 1]),
+        certBy: row[COL.CERT_BY - 1] || '',
+        dateCertified: asDateInput(row[COL.DATE_CERTIFIED - 1]),
+        certGrade: toDisplayPercent_(row[COL.CERT_GRADE - 1]),
+        examGrade: toDisplayPercent_(row[COL.EXAM_GRADE - 1]),
+        average: toDisplayPercent_(row[COL.AVERAGE - 1]),
+        finalStatus: row[COL.FINAL_STATUS - 1] || ''
+      };
+    }
+  }
+  throw new Error('Could not find that trainee — the sheet may have changed. Reopen the form and try again.');
+}
+
+// Overwrites every editable column (B-W) of one MASTER_LOG row. Unlike
+// submitNewEntry/submitCertification, every field is optional here and
+// written exactly as given — this is for fixing what's already on file,
+// not for the guarded new-record/status-change flows.
+function submitAdminEdit(form) {
+  if (!form.key) throw new Error('Please pick a record to edit.');
+  if (!form.entryDate) throw new Error('Date of Entry is required.');
+  if (!form.fullName) throw new Error('Full Name is required.');
+  if (!form.motherStore) throw new Error('Mother Store is required.');
+  if (STATUS_VALUES.indexOf(form.status) === -1) throw new Error('Invalid status.');
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(LOCK_WAIT_MS)) {
+    throw new Error('The sheet is busy with another submission — please try again in a few seconds.');
+  }
+
+  try {
+    const sheet = getSheet_();
+    const lastRow = sheet.getLastRow();
+    const data = sheet.getRange(2, 1, lastRow - 1, MASTER_LOG_LAST_COL).getValues();
+
+    let sheetRow = -1;
+    for (let i = 0; i < data.length; i++) {
+      if (makeKey_(data[i][COL.FULL_NAME - 1], data[i][COL.MOTHER_STORE - 1], data[i][COL.ENTRY_DATE - 1]) === form.key) {
+        sheetRow = i + 2;
+        break;
+      }
+    }
+    if (sheetRow === -1) throw new Error('Could not find that trainee — the sheet may have changed. Reopen the form and try again.');
+
+    const toDate = (v) => v ? new Date(v) : '';
+    const toFractionOrBlank = (v) => (v === '' || v === null || v === undefined) ? '' : toPercent(v);
+
+    const row = new Array(MASTER_LOG_LAST_COL).fill('');
+    row[COL.ENTRY_DATE - 1] = toDate(form.entryDate);
+    row[COL.BATCH - 1] = toUpperSafe(form.batch);
+    row[COL.MOTHER_STORE - 1] = normalizeStore(form.motherStore);
+    row[COL.FULL_NAME - 1] = toUpperSafe(form.fullName);
+    row[COL.MOTHER_STATION - 1] = toUpperSafe(form.motherStation);
+    row[COL.SUPPORT_STORE - 1] = normalizeStore(form.supportStore);
+    row[COL.STATUS - 1] = form.status;
+    row[COL.UNIFORM_RELEASE - 1] = form.uniformRelease || '';
+    row[COL.ENTRY_BY - 1] = toUpperSafe(form.entryBy);
+    row[COL.ISTV_GRADE - 1] = toFractionOrBlank(form.istvGrade);
+    row[COL.TECHVAL_FP - 1] = toFractionOrBlank(form.techValFp);
+    row[COL.TECHVAL_PM - 1] = toFractionOrBlank(form.techValPm);
+    row[COL.ENTRY_FOOD_PREP - 1] = toFractionOrBlank(form.entryFoodPrepExam);
+    row[COL.ENTRY_PIZZA_MAKER - 1] = toFractionOrBlank(form.entryPizzaMakerExam);
+    row[COL.ENTRY_AVERAGE - 1] = form.entryAverage === '' ? '' : Number(form.entryAverage); // raw scale — see getAdminRecordDetails
+    row[COL.CERT_DEADLINE - 1] = toDate(form.certDeadline);
+    row[COL.CERT_BY - 1] = toUpperSafe(form.certBy);
+    row[COL.DATE_CERTIFIED - 1] = toDate(form.dateCertified);
+    row[COL.CERT_GRADE - 1] = toFractionOrBlank(form.certGrade);
+    row[COL.EXAM_GRADE - 1] = toFractionOrBlank(form.examGrade);
+    row[COL.AVERAGE - 1] = toFractionOrBlank(form.average);
+    row[COL.FINAL_STATUS - 1] = toUpperSafe(form.finalStatus);
+
+    // Column A (Timestamp) is left untouched — it records when the row
+    // was first created, not when it was last edited.
+    sheet.getRange(sheetRow, 2, 1, MASTER_LOG_LAST_COL - 1).setValues([row.slice(1)]);
+
+    return 'Saved changes to ' + row[COL.FULL_NAME - 1] + ' (' + row[COL.MOTHER_STORE - 1] + ').';
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// =====================================================================
 // UNIFORM RELEASE (called from TLForm.html, "👕 Uniform" mode)
 // =====================================================================
 function submitUniformRelease(form) {

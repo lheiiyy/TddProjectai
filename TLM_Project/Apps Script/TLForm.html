@@ -290,6 +290,7 @@
         <button type="button" class="modeItem" data-mode="stock" onclick="selectMode('stock')">📦 Stock</button>
         <button type="button" class="modeItem" data-mode="exec" onclick="selectMode('exec')">📊 Reports</button>
         <button type="button" class="modeItem" data-mode="monitor" onclick="selectMode('monitor')">🔎 Monitoring<span class="itemBadge" id="monitorItemBadge" style="display:none;"></span></button>
+        <button type="button" class="modeItem" data-mode="admin" onclick="selectMode('admin')">🛠️ Admin</button>
       </div>
     </div>
     <div class="modeOverlay" id="modeOverlay" onclick="closeModeMenu()"></div>
@@ -470,6 +471,124 @@
       <button id="uniformSubmitBtn" onclick="submitUniform()">Log Uniform</button>
     </div>
 
+    <!-- ============================= ADMIN PANEL ============================= -->
+    <div id="panelAdmin" class="panel">
+      <small class="hint">Directly edit an existing record — for fixing mistakes only (typo'd name/store, wrong grade, wrong date). This overwrites the row as-is; it skips the checks New Entry and Certify normally apply.</small>
+
+      <label>Record *</label>
+      <select id="ad_key" onchange="onAdminTraineeChange()"><option value="">Loading…</option></select>
+
+      <div id="ad_fields" style="display:none;">
+        <label>Date of Entry *</label>
+        <input type="date" id="ad_entryDate">
+
+        <div class="row2">
+          <div>
+            <label>Batch #</label>
+            <input type="text" id="ad_batch" list="batchList">
+          </div>
+          <div>
+            <label>Mother Store *</label>
+            <input type="text" id="ad_motherStore" list="storeList">
+          </div>
+        </div>
+
+        <label>Full Name *</label>
+        <input type="text" id="ad_fullName">
+
+        <div class="row2">
+          <div>
+            <label>Mother Station</label>
+            <input type="text" id="ad_motherStation" list="stationList">
+          </div>
+          <div>
+            <label>Support Store</label>
+            <input type="text" id="ad_supportStore" list="storeList">
+          </div>
+        </div>
+
+        <label>Status *</label>
+        <select id="ad_status"></select>
+
+        <label>Entry By</label>
+        <input type="text" id="ad_entryBy" list="trainerList">
+
+        <div class="sectionLabel">Entry Grades (%)</div>
+        <div class="row2">
+          <div>
+            <label>Store Grade</label>
+            <input type="number" inputmode="decimal" id="ad_istvGrade" min="0" max="100">
+          </div>
+          <div>
+            <label>TL Entry Average</label>
+            <input type="number" inputmode="decimal" id="ad_entryAverage" min="0" max="100">
+          </div>
+        </div>
+        <div class="row2">
+          <div>
+            <label>Techval Food Prep</label>
+            <input type="number" inputmode="decimal" id="ad_techValFp" min="0" max="100">
+          </div>
+          <div>
+            <label>Techval Pizza Maker</label>
+            <input type="number" inputmode="decimal" id="ad_techValPm" min="0" max="100">
+          </div>
+        </div>
+        <div class="row2">
+          <div>
+            <label>Exam Food Prep</label>
+            <input type="number" inputmode="decimal" id="ad_entryFoodPrepExam" min="0" max="100">
+          </div>
+          <div>
+            <label>Exam Pizza Maker</label>
+            <input type="number" inputmode="decimal" id="ad_entryPizzaMakerExam" min="0" max="100">
+          </div>
+        </div>
+
+        <label>Uniform Release (summary text)</label>
+        <input type="text" id="ad_uniformRelease">
+
+        <div class="sectionLabel">Certification</div>
+        <label>Certification Deadline</label>
+        <input type="date" id="ad_certDeadline">
+
+        <div class="row2">
+          <div>
+            <label>Cert By</label>
+            <input type="text" id="ad_certBy" list="trainerList">
+          </div>
+          <div>
+            <label>Date Certified</label>
+            <input type="date" id="ad_dateCertified">
+          </div>
+        </div>
+        <div class="row2">
+          <div>
+            <label>Certification Grade (%)</label>
+            <input type="number" inputmode="decimal" id="ad_certGrade" min="0" max="100">
+          </div>
+          <div>
+            <label>Exam Grade (%)</label>
+            <input type="number" inputmode="decimal" id="ad_examGrade" min="0" max="100">
+          </div>
+        </div>
+        <label>Average (%)</label>
+        <input type="number" inputmode="decimal" id="ad_average" min="0" max="100">
+
+        <label>Final Status Note</label>
+        <select id="ad_finalStatus">
+          <option value="">— none —</option>
+          <option value="SIGNED">SIGNED (appointment letter)</option>
+          <option value="AGENCY">AGENCY</option>
+          <option value="FOR REPORTING">FOR REPORTING</option>
+          <option value="ON-GOING PROMOTION">ON-GOING PROMOTION</option>
+          <option value="NOT RETURNED">NOT RETURNED</option>
+        </select>
+
+        <button id="adminSubmitBtn" onclick="submitAdminEdit()">Save Changes</button>
+      </div>
+    </div>
+
     <!-- ============================= STOCK PANEL ============================= -->
     <div id="panelStock" class="panel">
       <small class="hint">Log what comes in from the supplier here. Stock on hand below is Delivered minus what's been issued to trainees.</small>
@@ -598,6 +717,7 @@
     function showApp() {
       document.getElementById('pinGate').style.display = 'none';
       document.getElementById('app').style.display = 'block';
+      fillSelect('ad_status', STATUS_VALUES_CLIENT, '— select —');
       loadFormData();
     }
 
@@ -650,9 +770,10 @@
     })();
 
     // ============================= MAIN APP =============================
-    var MODES = ['entry', 'update', 'uniform', 'stock', 'exec', 'monitor'];
-    var PANEL_ID = { entry: 'panelEntry', update: 'panelUpdate', uniform: 'panelUniform', stock: 'panelStock', exec: 'panelExec', monitor: 'panelMonitor' };
-    var MODE_LABEL = { entry: '🆕 New Entry', update: '✅ Certify', uniform: '👕 Uniform', stock: '📦 Stock', exec: '📊 Reports', monitor: '🔎 Monitoring' };
+    var MODES = ['entry', 'update', 'uniform', 'stock', 'exec', 'monitor', 'admin'];
+    var PANEL_ID = { entry: 'panelEntry', update: 'panelUpdate', uniform: 'panelUniform', stock: 'panelStock', exec: 'panelExec', monitor: 'panelMonitor', admin: 'panelAdmin' };
+    var MODE_LABEL = { entry: '🆕 New Entry', update: '✅ Certify', uniform: '👕 Uniform', stock: '📦 Stock', exec: '📊 Reports', monitor: '🔎 Monitoring', admin: '🛠️ Admin' };
+    var STATUS_VALUES_CLIENT = ['PROBATIONARY', 'EXTENDED', 'CERTIFIED', 'FAILED', 'QUIT', 'DISQUALIFIED', 'PROMOTION'];
 
     // ---------- burger menu open/close ----------
     function toggleModeMenu() {
@@ -762,6 +883,7 @@
         fillSelect('dv_size', data.uniformSizes, '— select —');
         populateOpenList(data.openList);
         populateSelectOptions('uf_key', data.allList, 'No trainees yet');
+        populateSelectOptions('ad_key', data.allList, 'No trainees yet');
         renderStockTable(data.inventorySummary);
         updateOverdueNavBadge(data.overdueCount);
       }).withFailureHandler(function(err) {
@@ -1198,6 +1320,107 @@
           msg.className = 'err';
         })
         .submitCertification(form);
+    }
+
+    // ---------- Admin: load a record into the edit form ----------
+    function onAdminTraineeChange() {
+      var key = val('ad_key');
+      var fields = document.getElementById('ad_fields');
+      if (!key) { fields.style.display = 'none'; return; }
+      google.script.run.withSuccessHandler(function(d) {
+        fields.style.display = 'block';
+        document.getElementById('ad_entryDate').value = d.entryDate;
+        document.getElementById('ad_batch').value = d.batch;
+        document.getElementById('ad_motherStore').value = d.motherStore;
+        document.getElementById('ad_fullName').value = d.fullName;
+        document.getElementById('ad_motherStation').value = d.motherStation;
+        document.getElementById('ad_supportStore').value = d.supportStore;
+        document.getElementById('ad_status').value = d.status;
+        document.getElementById('ad_entryBy').value = d.entryBy;
+        document.getElementById('ad_istvGrade').value = d.istvGrade === null ? '' : d.istvGrade;
+        document.getElementById('ad_techValFp').value = d.techValFp === null ? '' : d.techValFp;
+        document.getElementById('ad_techValPm').value = d.techValPm === null ? '' : d.techValPm;
+        document.getElementById('ad_entryFoodPrepExam').value = d.entryFoodPrepExam === null ? '' : d.entryFoodPrepExam;
+        document.getElementById('ad_entryPizzaMakerExam').value = d.entryPizzaMakerExam === null ? '' : d.entryPizzaMakerExam;
+        document.getElementById('ad_entryAverage').value = d.entryAverage === '' ? '' : d.entryAverage;
+        document.getElementById('ad_uniformRelease').value = d.uniformRelease;
+        document.getElementById('ad_certDeadline').value = d.certDeadline;
+        document.getElementById('ad_certBy').value = d.certBy;
+        document.getElementById('ad_dateCertified').value = d.dateCertified;
+        document.getElementById('ad_certGrade').value = d.certGrade === null ? '' : d.certGrade;
+        document.getElementById('ad_examGrade').value = d.examGrade === null ? '' : d.examGrade;
+        document.getElementById('ad_average').value = d.average === null ? '' : d.average;
+        document.getElementById('ad_finalStatus').value = d.finalStatus;
+      }).withFailureHandler(function(err) {
+        fields.style.display = 'none';
+        document.getElementById('msg').textContent = err.message;
+        document.getElementById('msg').className = 'err';
+      }).getAdminRecordDetails(key);
+    }
+
+    // ---------- submit: Admin edit ----------
+    function submitAdminEdit() {
+      var btn = document.getElementById('adminSubmitBtn');
+      var msg = document.getElementById('msg');
+      msg.textContent = ''; msg.className = '';
+
+      var form = {
+        key: val('ad_key'),
+        entryDate: val('ad_entryDate'),
+        batch: val('ad_batch'),
+        motherStore: val('ad_motherStore'),
+        fullName: val('ad_fullName'),
+        motherStation: val('ad_motherStation'),
+        supportStore: val('ad_supportStore'),
+        status: val('ad_status'),
+        entryBy: val('ad_entryBy'),
+        istvGrade: val('ad_istvGrade'),
+        techValFp: val('ad_techValFp'),
+        techValPm: val('ad_techValPm'),
+        entryFoodPrepExam: val('ad_entryFoodPrepExam'),
+        entryPizzaMakerExam: val('ad_entryPizzaMakerExam'),
+        entryAverage: val('ad_entryAverage'),
+        uniformRelease: val('ad_uniformRelease'),
+        certDeadline: val('ad_certDeadline'),
+        certBy: val('ad_certBy'),
+        dateCertified: val('ad_dateCertified'),
+        certGrade: val('ad_certGrade'),
+        examGrade: val('ad_examGrade'),
+        average: val('ad_average'),
+        finalStatus: val('ad_finalStatus')
+      };
+
+      if (!form.key) { msg.textContent = 'Please pick a record.'; msg.className = 'err'; return; }
+      if (!form.entryDate || !form.fullName || !form.motherStore || !form.status) {
+        msg.textContent = 'Date of Entry, Full Name, Mother Store, and Status are required.';
+        msg.className = 'err';
+        return;
+      }
+      if (!window.confirm('This directly overwrites this record\'s data. Continue?')) return;
+
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      google.script.run
+        .withSuccessHandler(function(result) {
+          btn.disabled = false;
+          btn.textContent = 'Save Changes';
+          msg.textContent = result;
+          msg.className = 'ok';
+          document.getElementById('ad_fields').style.display = 'none';
+          document.getElementById('ad_key').value = '';
+          google.script.run.withSuccessHandler(function(data) {
+            populateOpenList(data.openList);
+            populateSelectOptions('uf_key', data.allList, 'No trainees yet');
+            populateSelectOptions('ad_key', data.allList, 'No trainees yet');
+          }).getFormBootstrapData();
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          btn.textContent = 'Save Changes';
+          msg.textContent = err.message;
+          msg.className = 'err';
+        })
+        .submitAdminEdit(form);
     }
 
     // ---------- uniform history card ----------
