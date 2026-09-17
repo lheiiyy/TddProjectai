@@ -1,7 +1,9 @@
 // ============================================================
 // SVMKPI_KPI_REBUILD.gs
 // Rebuilds KPI 2026 sheet — layout + all SUMPRODUCT formulas.
-// Visitor names read dynamically from SETTINGS!F.
+// Visitor names read dynamically from SETTINGS!F, plus anyone with real
+// MASTER_LOG history who's since been removed from that roster (their
+// historical numbers would otherwise vanish from this sheet on rebuild).
 // Each visitor gets a unique identity color matching the live sheet.
 // ============================================================
 
@@ -99,9 +101,12 @@ function _weekRanges(year, month) {
 }
 
 // ── Formula builders ────────────────────────────────────────
-function _visitorWeekFormula(settingsFRow, year, month, s, e) {
-  const ref = `TRIM(SETTINGS!F${settingsFRow})`;
-
+// ref is a pre-built formula fragment to search for in MASTER_LOG's
+// Visited By column — either a live SETTINGS!F cell reference (current
+// roster member) or a literal quoted name (someone with visit history who
+// has since been removed from the roster; see buildKPI2026()) — either
+// way this formula doesn't care which.
+function _visitorWeekFormula(ref, year, month, s, e) {
   // Normalize pipe spacing:
   // "JAMES | LEO" -> "JAMES|LEO"
   // "GIO | RICE | JAMES" -> "GIO|RICE|JAMES"
@@ -139,9 +144,32 @@ function buildKPI2026() {
     : [];
 
   const visitors = [];
+  const rosterNames = new Set();
   rawVisitors.forEach((row, idx) => {
     const name = String(row[0] || '').trim().toUpperCase();
-    if (name) visitors.push({ name, settingsRow: idx + 2 });
+    if (name) {
+      visitors.push({ name, settingsRow: idx + 2 });
+      rosterNames.add(name);
+    }
+  });
+
+  // ── Add back anyone with real visit history who isn't on the current
+  //    roster (removed via Store & Roster Manager, or the roster row was
+  //    simply never backfilled for them) — otherwise their historical
+  //    numbers would silently vanish from this sheet on the next rebuild,
+  //    even though the underlying MASTER_LOG rows are untouched. Appended
+  //    after the roster names (alphabetically) rather than interleaved, so
+  //    the active roster's existing row order/colors don't shift around.
+  const masterLog = _getSheet(SHEET.MASTER_LOG);
+  const logData = _getData(masterLog);
+  const historicalNames = new Set();
+  logData.dates.forEach((date, i) => {
+    if (!(date instanceof Date) || isNaN(date.getTime()) || date.getFullYear() !== KPI_YEAR) return;
+    String(logData.rawVisitors[i] || '').split('|').map(v => v.trim().toUpperCase()).filter(Boolean)
+      .forEach(name => { if (!rosterNames.has(name)) historicalNames.add(name); });
+  });
+  Array.from(historicalNames).sort().forEach(name => {
+    visitors.push({ name, settingsRow: null });
   });
 
   if (!visitors.length) throw new Error('No visitors found in SETTINGS!F.');
@@ -329,6 +357,12 @@ function buildKPI2026() {
     const row = DATA_ROW_START + vi;
     const visColor = KPI_VISITOR_COLORS[vi % KPI_VISITOR_COLORS.length];
     const dataBg = vi % 2 === 0 ? KPI_C.DATA_BG : KPI_C.DATA_ALT;
+    // A roster member's name stays a live formula (so renaming SETTINGS!F
+    // updates this sheet too); someone who's since been removed from the
+    // roster has no live cell to point to anymore, so their name is
+    // written as a plain literal instead — their numbers still come from
+    // MASTER_LOG either way.
+    const nameRef = settingsRow ? `TRIM(SETTINGS!F${settingsRow})` : JSON.stringify(name);
 
     sheet.setRowHeight(row, 18);
 
@@ -336,8 +370,9 @@ function buildKPI2026() {
     sheet.getRange(row, 1).setBackground(KPI_C.NAVY_DEEP);
 
     // Col B — visitor identity color
-    sheet.getRange(row, KPI_NAME_COL)
-      .setFormula(`=TRIM(SETTINGS!F${settingsRow})`)
+    const nameCell = sheet.getRange(row, KPI_NAME_COL);
+    if (settingsRow) nameCell.setFormula(`=${nameRef}`); else nameCell.setValue(name);
+    nameCell
       .setBackground(visColor)
       .setFontColor(KPI_C.WHITE)
       .setFontFamily('Arial')
@@ -358,7 +393,7 @@ function buildKPI2026() {
         if (wi < weeks.length) {
           const { s, e } = weeks[wi];
           sheet.getRange(row, col)
-            .setFormula(_visitorWeekFormula(settingsRow, KPI_YEAR, month, s, e))
+            .setFormula(_visitorWeekFormula(nameRef, KPI_YEAR, month, s, e))
             .setBackground(dataBg)
             .setFontColor(KPI_C.DATA_FG)
             .setFontFamily('Arial')

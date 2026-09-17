@@ -313,6 +313,32 @@ Brand/Region/Category dropdowns — brands from `sl_getBrandList()` (already
 in use), regions/categories from the fixed `APPROVED_REGIONS`/
 `APPROVED_CATEGORIES` enums (`SVMKPI_CORE.gs`).
 
+### What happens to the reports when you add/remove data
+
+Nothing updates live — Executive Summary/KPI 2026/Store Health only ever
+show a snapshot from their last rebuild, whether the underlying change came
+from Store & Roster Manager or an actual visit submission. Once rebuilt:
+
+- **Store** add/edit only affects **Store Health** (which is seeded from
+  `SETTINGS`) — Executive Summary and KPI 2026 aren't store-indexed. Editing
+  a store's brand/region does **not** retroactively relabel visits already
+  in `MASTER_LOG` under the old value; only new submissions pick up the edit.
+- **Visitor Roster** removal only affects **KPI 2026** (the only report
+  indexed by roster) — and it's handled safely: `buildKPI2026()` appends
+  anyone with real `MASTER_LOG` history who's since been removed from the
+  roster as an extra row (their name written as a plain literal instead of
+  a live `SETTINGS!F` formula, since there's no roster row left to point
+  to), so **their historical numbers are never lost**, even after the
+  active roster changes out from under them. `getKPI2026Report()` reads
+  row-by-row off the actual sheet rather than re-deriving the visitor count
+  from `SETTINGS!F`, for the same reason — it can't fall out of sync with
+  what the rebuild actually wrote. `tests/kpi-roster-history.test.js`
+  covers this end-to-end (a real `.gs` test, not the demo mock).
+- **Purpose List** changes carry no historical-loss risk either way — see
+  the note above; a purpose that's since been removed from the list simply
+  can't be picked again going forward, but visits already logged under it
+  keep whatever score/count they already had.
+
 ---
 
 ## Checks before you push
@@ -337,14 +363,21 @@ node SVMI_Project/tests/responsive-check.js
 # the REAL Apps Script code (not a mock) in a Node vm sandbox with
 # SpreadsheetApp/SHEET/DATA_YEAR stubbed; no browser involved
 node SVMI_Project/tests/risk-scoring.test.js
+
+# same real-.gs-in-a-sandbox approach for buildKPI2026()/getKPI2026Report()
+# (SVMKPI_KPI_REBUILD.gs/SVMKPI_REPORTS.gs) — covers the "removed roster
+# member keeps their historical numbers" guarantee described above
+node SVMI_Project/tests/kpi-roster-history.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a
 real spreadsheet — they catch UI/layout regressions, not data-correctness
-issues. `risk-scoring.test.js` is the exception: it runs the actual
-`SVMKPI_RISK.gs` scoring functions directly, so it does catch scoring
-logic bugs (this is how the "never-visited stores silently scored better
-than overdue ones" regression was caught before a push, not after).
+issues. `risk-scoring.test.js` and `kpi-roster-history.test.js` are the
+exception: they run actual `.gs` functions directly (against a mocked
+Sheet/Range, not a mock of the *business logic*), so they do catch
+data-correctness bugs (this is how the "never-visited stores silently
+scored better than overdue ones" regression was caught before a push, not
+after).
 `onOpen()`, the menu, and a real deploy via `clasp push` have since been
 verified against the Copy; still worth trying anything new there before the
 live sheet.

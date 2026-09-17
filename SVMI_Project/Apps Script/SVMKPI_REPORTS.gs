@@ -121,15 +121,6 @@ function getKPI2026Report() {
   const sheet = ss.getSheetByName(_kpiSheetName());
   if (!sheet) throw new Error('"' + _kpiSheetName() + '" sheet not found. Run "Rebuild KPI 2026" first.');
 
-  const settings = ss.getSheetByName('SETTINGS');
-  const sLastRow = settings ? settings.getLastRow() : 0;
-  const rawVisitors = sLastRow >= 2 ? settings.getRange(2, 6, sLastRow - 1, 1).getValues() : [];
-  const visitorNames = [];
-  rawVisitors.forEach(row => {
-    const name = String(row[0] || '').trim().toUpperCase();
-    if (name) visitorNames.push(name);
-  });
-
   const DATA_ROW_START = 6; // matches buildKPI2026() in SVMKPI_KPI_REBUILD.gs
   const monthTotCols = KPI_MONTHS.map((_, mi) => KPI_MON_START + mi * KPI_BLOCK + 5); // W1-W5,TOT,spacer — offset 5 = TOT
 
@@ -148,22 +139,35 @@ function getKPI2026Report() {
 
   // One getDisplayValues() call per row (instead of one per cell — a cell
   // read per week/month/quarter column would be 60+ calls per row) —
-  // read the whole data span once, then slice out what's needed by index.
-  const rowStartCol = KPI_MON_START;
-  const rowWidth     = KPI_YTD_COL - KPI_MON_START + 1;
+  // read the whole data span once (name column included), then slice out
+  // what's needed by index. Walking rows off the sheet itself (rather than
+  // re-deriving the visitor list from SETTINGS!F, as this used to) means a
+  // roster change can never desync this reader from what buildKPI2026()
+  // actually wrote — including the historical-only rows it now appends for
+  // anyone removed from the roster who still has real visit history.
+  const rowStartCol = KPI_NAME_COL;
+  const rowWidth     = KPI_YTD_COL - KPI_NAME_COL + 1;
 
   const readRow = (row) => {
     const vals = sheet.getRange(row, rowStartCol, 1, rowWidth).getDisplayValues()[0];
     const at = (col) => vals[col - rowStartCol];
     return {
+      name: String(vals[0] || '').trim(),
       monthly: monthTotCols.map(at),
       weekly:  weekCols.map(w => at(w.col)),
       q1: at(SUMCOLS[0]), q2: at(SUMCOLS[1]), q3: at(SUMCOLS[2]), q4: at(SUMCOLS[3]), ytd: at(SUMCOLS[4]),
     };
   };
 
-  const visitors = visitorNames.map((name, i) => Object.assign({ name }, readRow(DATA_ROW_START + i)));
-  const team = readRow(DATA_ROW_START + visitorNames.length);
+  const visitors = [];
+  let team = {};
+  const lastRow = sheet.getLastRow();
+  for (let row = DATA_ROW_START; row <= lastRow; row++) {
+    const r = readRow(row);
+    if (!r.name) break;               // ran past the last written row
+    if (r.name === 'TEAM TOTAL') { team = r; break; }
+    visitors.push(r);
+  }
 
   return { year: DATA_YEAR, months: KPI_MONTHS, weekLabels: weekCols.map(w => w.label), visitors, team };
 }
