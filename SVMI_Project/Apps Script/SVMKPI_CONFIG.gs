@@ -93,6 +93,11 @@ const CFG_ACTION = {
   ACTIVATE:   'ACTIVATE',
   DEACTIVATE: 'DEACTIVATE',
   ROLLBACK:   'ROLLBACK',
+  // Phase 1E: report-snapshot lifecycle events, reusing this exact enum +
+  // _cfg_writeAudit()/cfg_getAuditLog() rather than a second audit
+  // mechanism — see SVMKPI_REPORT_SNAPSHOT.gs.
+  FINALIZE:   'FINALIZE',
+  SUPERSEDE:  'SUPERSEDE',
 };
 
 const CFG_AREA = {
@@ -102,6 +107,12 @@ const CFG_AREA = {
   RISK:       'RISK',
   COMPLIANCE: 'COMPLIANCE',
   KPI:        'KPI',
+  // Phase 1E: not a CFG_AREA_SCHEMAS entry (report snapshots are NOT a
+  // versioned-configuration area — no cfg_createConfiguration() call ever
+  // uses this) — it exists solely as the audit-log Area tag
+  // SVMKPI_REPORT_SNAPSHOT.gs passes to _cfg_writeAudit()/cfg_getAuditLog(),
+  // so audit queries can filter on it the same way they filter STORES/RISK/etc.
+  REPORT:     'REPORT',
   SYSTEM:     'SYSTEM',
 };
 

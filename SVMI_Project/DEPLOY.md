@@ -1333,6 +1333,189 @@ responsive-layout checks, zero regressions.
 
 ---
 
+## Phase 1E — historical report snapshots + per-year report sheets
+
+**Files:** new `Apps Script/SVMKPI_REPORT_SNAPSHOT.gs`; new
+`tests/report-snapshot.test.js` (89 checks); additive-only changes to
+`Apps Script/SVMKPI_CONFIG.gs` (two new `CFG_ACTION` values —
+`FINALIZE`/`SUPERSEDE` — and a `CFG_AREA.REPORT` audit tag; nothing
+existing changed shape).
+
+**The core rule:** a finalized historical report must never silently
+change because configuration or source data changes later. Two distinct
+modes:
+
+- **DRAFT** — `getDraftReport(year, evaluationDateStr)`. Always a fresh,
+  dynamic calculation using whatever configuration/data currently
+  applies as of `evaluationDate`. Never persisted. Viewing it never
+  finalizes anything.
+- **FINALIZED** — a persisted, immutable `REPORT_SNAPSHOTS` row. Every
+  retrieval API (`getReportSnapshot()`, `getReportSnapshotByVersion()`,
+  `getLatestFinalizedReportSnapshot()`) reads the stored frozen result —
+  **none of them ever recalculate**.
+
+**What "the existing report engine" means here** (inspected before
+writing anything): `_computeStoreRisk(data, evaluationDate, year)`
+(`SVMKPI_RISK.gs`) is a pure function with no sheet writes and already
+takes an explicit evaluation date — called directly, never through
+`populateRiskEngine()`/`refreshRiskEngine()` (which hardcode `new
+Date()` and write to the live STORE HEALTH sheet). `sl_getComplianceGaps
+(null, null, year, evaluationDateStr)` (`SVMKPI_STORE_LOOKUP.gs`) is
+already a pure, evaluation-date-aware reader (Phase 1D) and is called
+as-is. Neither has any side effect on a live presentation sheet.
+Executive Summary / KPI 2026 have **no** pure-calculation equivalent —
+they are native Sheets formulas written into the ONE shared
+`EXECUTIVE SUMMARY`/`KPI <year>` sheet. Rebuilding those as a side
+effect of finalizing a report would be a surprising mutation of a
+shared, cross-year sheet, and neither value is configuration-sensitive
+anyway (both are raw MASTER_LOG event counts, untouched by Risk/
+Compliance/KPI configuration). So: if that year's sheets already exist
+(built through the normal, pre-existing "Rebuild Dashboard"/"Rebuild
+KPI" workflow), their current values are read read-only and frozen in;
+if not, the snapshot's `executiveSummary`/`kpi` sections are `null` with
+an explanatory note. This is the one documented scope limitation of this
+phase.
+
+**Report Snapshot entity** (`REPORT_SNAPSHOTS` sheet, explicit headers,
+never a row-number identity): Snapshot ID (`REPORT-<year>-v<n>`, e.g.
+`REPORT-2026-v1` — same `AREA-ENTITY-vN` convention as every `CONFIG_*`
+version ID), Reporting Year, Snapshot Version (sequential **per
+reporting year**, never one global counter — 2027's counter starts at 1
+independently of how many versions 2026 has), Status
+(`FINALIZED`/`SUPERSEDED`; `DRAFT` exists in the enum for schema
+completeness but no production code path ever writes it — see below),
+Created/Finalized At + By, Evaluation Date, Reason, Supersedes Snapshot
+ID, Calculation Timestamp, Configuration Provenance (typed where
+possible — Risk Config Version ID/Source; a narrow per-category JSON
+list for Compliance, since compliance genuinely resolves multiple
+versions, never pretended to be one; a documented text note for KPI/
+Purpose/Store, where "one version for the whole report" isn't a
+meaningful concept), and the frozen Result (JSON — the one place a
+serialized blob is used, the same precedent `CONFIG_AUDIT`'s own
+Previous/New Value columns already established for exactly this kind of
+computed, read-only artifact; still fully PostgreSQL-migration-friendly
+as a `jsonb` column).
+
+**Why this does NOT reuse `cfg_createConfiguration()`:** that function
+models configuration effective-dating and an ACTIVE/INACTIVE envelope —
+neither fits a report snapshot's evaluation date (a different concept
+from "effective from") or its DRAFT/FINALIZED/SUPERSEDED status model,
+and it has no mechanism to enforce "at most one FINALIZED snapshot per
+year." `SVMKPI_REPORT_SNAPSHOT.gs` is its own small, dedicated,
+LockService-protected persistence routine that borrows
+`cfg_createConfiguration()`'s naming convention, its audit sheet/writer
+(`_cfg_writeAudit()`/`cfg_getAuditLog()`, reused exactly — see Audit
+below), and its admin gate (`sl_isAdmin()`) — without overloading that
+function's parameters to mean something they don't.
+
+**Finalization** — `finalizeReport(year, evaluationDateStr, reason,
+options)`. Validates admin + year + evaluation date + a mandatory
+reason; calculates via the engines above (a calculation failure creates
+no snapshot); rejects a genuinely empty year (item 34 — no stores AND no
+visit history at all; a year with real stores but zero visits is still
+legitimate, reportable data, e.g. "every store is a compliance gap," and
+is NOT rejected); only succeeds if no FINALIZED snapshot already exists
+for that year (a second finalize attempt is rejected and told to use
+`supersedeReportSnapshot()` instead — there is no other way to create
+version 2+ for a year).
+
+**Correction / supersession** — `supersedeReportSnapshot(year,
+previousSnapshotId, evaluationDateStr, reason, options)`. Requires a
+correction reason; verifies the previous snapshot is currently
+FINALIZED (re-verified fresh, INSIDE the lock — see Concurrency);
+creates the next version FINALIZED, flips **only** the previous
+snapshot's Status cell to SUPERSEDED (its Result JSON and every other
+column are never touched again), and writes one audit entry recording
+the old→new relationship. The old snapshot's frozen result remains
+retrievable forever via `getReportSnapshot()`/`getReportSnapshotByVersion()`.
+
+**Immutability:** there is no `updateSnapshot()`/generic mutator
+anywhere in this file. The only way a FINALIZED snapshot's status ever
+changes after creation is the supersession flow above flipping the
+*previous* one to SUPERSEDED — never its own fields, and never any
+finalized snapshot's Result JSON, ever.
+
+**Concurrency:** both `finalizeReport()` and `supersedeReportSnapshot()`
+follow validate → calculate → acquire `LockService.getScriptLock()` →
+**re-read** existing snapshots for that year → decide (no-existing-
+finalized / previous-is-finalized) → allocate the next version → persist
+→ release lock. The decisive check is always a fresh read taken *after*
+the lock is acquired, never a pre-lock read — this is what makes two
+racing `finalizeReport()` calls for a brand-new year resolve to exactly
+one success (the loser's fresh, in-lock read sees the winner's row
+already there), and what makes two racing `supersedeReportSnapshot()`
+calls against the same previous snapshot resolve to exactly one success
+(the loser's fresh read sees the previous snapshot already flipped to
+SUPERSEDED by the winner). Lock contention (`tryLock` fails) returns a
+clean "server busy" failure with nothing persisted.
+
+**Per-year report sheets** — `REPORT_<year>` (e.g. `REPORT_2026`), same
+`_report_sheetName(year)`-style single-implementation convention as
+`_kpiSheetName()`; never a `buildReport2026()`/`buildReport2027()` per
+year. `regenerateReportSheet(year)` rebuilds it **entirely from
+`getLatestFinalizedReportSnapshot(year)`'s stored result** — never from
+live MASTER_LOG/CONFIG/store attributes, which is the direct proof that
+snapshot storage, not the sheet, is the canonical frozen artifact (if
+the sheet is deleted, regenerating it never recalculates anything).
+Deliberately simple, values-only formatting — visual parity with
+EXECUTIVE SUMMARY/STORE HEALTH's styling is explicitly out of scope for
+this backend-infrastructure phase. The sheet always represents the
+*latest* finalized snapshot (the same single-shared-sheet-per-concept
+convention this project already uses for EXECUTIVE SUMMARY/KPI/STORE
+HEALTH, rather than inventing one sheet per version) — every historical
+version remains fully preserved and independently retrievable through
+`REPORT_SNAPSHOTS` regardless of what the sheet currently shows.
+`finalizeReport()`/`supersedeReportSnapshot()` call it automatically,
+best-effort (a rendering hiccup never turns a successful finalize into a
+reported failure — the logical snapshot is already durable by that
+point).
+
+**Reporting Year vs. Configuration Version vs. Snapshot Version — three
+distinct concepts, never collapsed:** Reporting Year answers "which
+year's event population." Configuration Version answers "which business
+rule applied on a given date" (and a configuration change can land
+mid-year — Phase 1D's own warning, still true here). Snapshot Version
+answers "which frozen calculation of a report, for a given year, is
+authoritative" — and it is **numbered independently of both**, sequential
+per reporting year, never derived from a configuration version or a
+calendar year's own number.
+
+**Why Report Snapshot Version remained deferred until now:** Phase 1C's
+own DEPLOY.md section named it as a third concept, distinct from
+Reporting Year and Configuration Version, that Phase 1C/1D deliberately
+did not build. This phase (1E) is that deferred piece — the backend
+mechanism above is now complete. What's still genuinely out of scope,
+deferred to Phase 1F: a snapshot-management UI, a rollback-to-a-prior-
+snapshot UI, and a general report/configuration admin dashboard — only
+the UI layer remains deferred, not any further backend concept.
+
+**Tests** (`tests/report-snapshot.test.js`, 89 checks): basic
+finalization + identity; a second finalize for an already-finalized
+year is rejected; the mandatory historical-freeze scenario (finalize,
+change risk config, retrieve v1 — byte-for-byte unchanged, provenance
+included); draft-vs-finalized separation (same year/date, draft reflects
+new config, finalized doesn't); full correction/supersession flow
+(reason required, old snapshot unchanged + SUPERSEDED, new snapshot
+FINALIZED + latest, both retrievable, audit records the relationship);
+rejecting a supersede of an already-superseded/unknown snapshot; a
+synthetic-DRAFT-row test proving "latest finalized" is never "highest
+version number"; multi-year isolation (2026/2027/2028, same
+implementation, no cross-year contamination, correct per-year sheet
+names); configuration-provenance capture and its own freeze test;
+security (non-admin, spoofed `isAdmin`/`role` in `options`, invalid
+input, a calculation failure, and a simulated persistence failure — none
+of these ever create a snapshot or an audit-success record); concurrency
+(lock contention, two racing finalizes, two racing supersedes — always
+exactly one winner, never a duplicate or lost version); the empty-year
+safeguard (a truly empty year rejected; a year with real stores but zero
+visits correctly accepted); and a 5,200+-row, multi-year, multi-store,
+multi-config-version scale fixture (71ms).
+
+Full suite after Phase 1E: **756/756** unit checks (19 files) + **66/66**
+responsive-layout checks, zero regressions.
+
+---
+
 ## Checks before you push
 
 No linter, but three checks are worth running:
@@ -1443,6 +1626,13 @@ node SVMI_Project/tests/risk-config.test.js
 # only — documented no-consumer gap) + deliberate Purpose KPI/risk
 # configuration with no automatic inheritance (44 checks)
 node SVMI_Project/tests/kpi-purpose-config.test.js
+
+# Phase 1E: historical report snapshots — finalize/supersede, the
+# historical-freeze + draft-vs-finalized + correction tests, per-year
+# isolation, configuration provenance, security, concurrency (racing
+# finalize/supersede calls), the empty-year safeguard, and a 5,200-row
+# scale fixture (89 checks)
+node SVMI_Project/tests/report-snapshot.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a
@@ -1454,8 +1644,8 @@ issues. `risk-scoring.test.js`, `kpi-roster-history.test.js`,
 `duplicate-prevention.test.js`, `config-service.test.js`,
 `store-identity.test.js`, `store-scale.test.js`,
 `reporting-year.test.js`, `calendar-period.test.js`,
-`compliance-config.test.js`, `risk-config.test.js`, and
-`kpi-purpose-config.test.js` are the
+`compliance-config.test.js`, `risk-config.test.js`,
+`kpi-purpose-config.test.js`, and `report-snapshot.test.js` are the
 exception: they run actual `.gs`
 functions directly (against a mocked Sheet/Range, not a mock of the
 *business logic*), so they do catch data-correctness bugs (this is how the
