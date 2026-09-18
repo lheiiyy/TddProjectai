@@ -206,13 +206,13 @@ function processSubmissionAsync(payload) {
     var now       = new Date();
     var timestamp = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
 
-    // Parse date string from sidebar (YYYY-MM-DD) into a Date object
-    var dateParts   = String(payload.dateVisited).split('-');
-    var visitedDate = new Date(
-      parseInt(dateParts[0], 10),
-      parseInt(dateParts[1], 10) - 1,
-      parseInt(dateParts[2], 10)
-    );
+    // Parse date string from sidebar (YYYY-MM-DD) — _parseDateCell()
+    // (SVMKPI_CORE.gs) is the one shared date parse every part of this
+    // project should go through.
+    var visitedDate = _parseDateCell(payload.dateVisited);
+    if (!visitedDate) {
+      return { success: false, message: 'Invalid Date Visited: ' + payload.dateVisited };
+    }
     var dateFormatted = Utilities.formatDate(visitedDate, Session.getScriptTimeZone(), 'yyyy-MM-dd');
 
     // Row array — must match MASTER_LOG column order exactly:
@@ -237,10 +237,23 @@ function processSubmissionAsync(payload) {
       return { success: false, message: 'MASTER_LOG sheet not found.' };
     }
 
-    master.appendRow(newRow);
-
-    // Flush to ensure write completes
-    SpreadsheetApp.flush();
+    // Locked so two near-simultaneous submissions (e.g. a double-click, or
+    // two people submitting at the same moment) can never interleave —
+    // appendRow() alone doesn't guarantee that under concurrent script
+    // executions the way a read-then-write elsewhere in this project
+    // (manageVisitor(), portal_saveStore(), etc.) would need it even more.
+    var lock = LockService.getScriptLock();
+    var gotLock = false;
+    try {
+      gotLock = lock.tryLock(10000);
+      if (!gotLock) {
+        return { success: false, message: 'Server is busy processing another submission — please try again in a moment.' };
+      }
+      master.appendRow(newRow);
+      SpreadsheetApp.flush();
+    } finally {
+      if (gotLock) lock.releaseLock();
+    }
 
     return { success: true };
 
@@ -270,13 +283,11 @@ function checkDuplicateVisit(payload) {
 
     var store = String(payload.store || '').trim().toUpperCase();
 
-    // Parse submitted visit date (YYYY-MM-DD) to midnight local time
-    var dateParts    = String(payload.dateVisited || '').split('-');
-    var submitDate   = new Date(
-      parseInt(dateParts[0], 10),
-      parseInt(dateParts[1], 10) - 1,
-      parseInt(dateParts[2], 10)
-    );
+    // Parse submitted visit date (YYYY-MM-DD) to midnight local time —
+    // _parseDateCell() (SVMKPI_CORE.gs) is the one shared implementation
+    // every date parse in this project should go through.
+    var submitDate = _parseDateCell(payload.dateVisited);
+    if (!submitDate) return { duplicate: false };
     var submitMs = submitDate.getTime();
 
     var MS_PER_DAY  = 24 * 60 * 60 * 1000;
@@ -293,22 +304,8 @@ function checkDuplicateVisit(payload) {
       var rowStore = String(row[COL_STORE - 1] || '').trim().toUpperCase();
       if (rowStore !== store) return;
 
-      // Resolve row date to a comparable midnight-local Date
-      var rowDateRaw = row[COL_DATE - 1];
-      var rowDate;
-      if (rowDateRaw instanceof Date && !isNaN(rowDateRaw)) {
-        // Sheets Date objects carry time — strip to midnight local
-        var formatted = Utilities.formatDate(rowDateRaw, tz, 'yyyy-MM-dd');
-        var p = formatted.split('-');
-        rowDate = new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10));
-      } else {
-        var s = String(rowDateRaw || '').trim().substring(0, 10);
-        if (!s) return;
-        var p2 = s.split('-');
-        rowDate = new Date(parseInt(p2[0],10), parseInt(p2[1],10)-1, parseInt(p2[2],10));
-      }
-
-      if (isNaN(rowDate.getTime())) return;
+      var rowDate = _parseDateCell(row[COL_DATE - 1]);
+      if (!rowDate) return;
 
       // daysSince: positive = rowDate is before submitDate
       var daysSince = Math.round((submitMs - rowDate.getTime()) / MS_PER_DAY);
@@ -345,11 +342,19 @@ function checkDuplicateVisit(payload) {
 //  action: 'add' | 'remove'
 //  visitorName: string (will be uppercased and trimmed)
 //
+//  Input Portal's own everyday "⚙ Manage Roster" quick panel (formerly
+//  here, open to any guest-password-holding visitor) has been removed —
+//  the System Tools "Store & Roster Manager" card is now the only caller,
+//  so this is admin-gated like its siblings (managePurpose(),
+//  portal_saveStore(), portal_removeStore()).
+//
 //  Returns { success: true, visitors: [string] }
 //       or { success: false, message: string }
 // ============================================================
 function manageVisitor(action, visitorName) {
   try {
+    if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
+
     var name = String(visitorName || '').trim().toUpperCase();
     if (!name) return { success: false, message: 'Visitor name cannot be blank.' };
 

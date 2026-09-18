@@ -135,6 +135,8 @@ const sandbox = {
   },
   SHEET: { SETTINGS: 'SETTINGS', MASTER_LOG: 'MASTER_LOG' },
   DATA_YEAR: 2026,
+  MASTER_LOG_MAX_ROW: 200000, // normally SVMKPI_CORE.gs; this sandbox doesn't load that file
+  sl_isAdmin: () => true, // manageVisitor() is now admin-gated; this test calls it directly as an admin would
   _getSheet: () => ({}),
   _getData: () => ({ dates: [], rawVisitors: [] }), // no visits yet in this scenario
   Logger: { log: () => {} },
@@ -164,6 +166,17 @@ check('after adding BEA: KPI 2026 was auto-rebuilt and now has 2 visitor rows',
   afterAdd.visitors.length === 2, JSON.stringify(afterAdd.visitors.map(v => v.name)));
 check('BEA now has her own row, with no rebuild ever run by hand',
   afterAdd.visitors.map(v => v.name).includes('BEA'), afterAdd.visitors.map(v => v.name).join(','));
+
+// manageVisitor() is admin-gated (Input Portal's own non-admin "Manage
+// Roster" quick panel has been removed — the admin-only Store & Roster
+// Manager is now its only caller), so a non-admin call must be rejected
+// server-side, not merely hidden client-side.
+console.log('\n── manageVisitor() rejects a non-admin caller ──');
+sandbox.sl_isAdmin = () => false;
+const rejected = sandbox.manageVisitor('add', 'CARL');
+check('non-admin add is rejected', rejected && rejected.success === false && /admin/i.test(rejected.message), JSON.stringify(rejected));
+const afterRejected = sandbox.getKPI2026Report();
+check('rejected call never touched the roster', afterRejected.visitors.map(v => v.name).sort().join(',') === 'BEA,LEO');
 
 console.log('\n══════════════════════════════════');
 console.log('  PASS ' + pass + '   FAIL ' + fail);

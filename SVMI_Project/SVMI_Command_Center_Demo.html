@@ -119,11 +119,7 @@ textarea.fi{resize:vertical;min-height:50px}
 .store-info.visible{display:block}
 .store-info span{font-weight:700}
 
-/* ── Visitor manager ── */
-.vm-toggle{font-size:10px;color:var(--tld-d);background:none;border:none;cursor:pointer;
-  padding:0;margin-top:4px;text-decoration:underline;font-family:Arial}
-.vm-panel{background:#f7fafc;border:1px solid #e2e8f0;border-radius:4px;padding:8px;margin-top:5px;display:none}
-.vm-panel.open{display:block}
+/* ── Visitor manager (Store & Roster Manager, System Tools — admin-only) ── */
 .vm-row{display:flex;gap:5px;margin-bottom:5px}
 .vm-input{flex:1;padding:5px 7px;font-size:11px;border:1px solid #cbd5e0;border-radius:4px;background:var(--card);font-family:Arial;outline:none}
 .vm-btn{padding:5px 9px;font-size:11px;font-weight:700;border:none;border-radius:4px;cursor:pointer;white-space:nowrap;font-family:Arial}
@@ -567,17 +563,6 @@ textarea.fi{padding-right:28px}
           <button type="button" class="combo-caret" title="Show all visitors"
             onmousedown="event.preventDefault();toggleCombo('visDrop','visSearch')">▼</button>
           <div class="ss-drop" id="visDrop"></div>
-        </div>
-        <button class="vm-toggle" onclick="toggleVM()">⚙ Manage Roster</button>
-        <div class="vm-panel" id="vmPanel">
-          <div style="font-size:10px;font-weight:700;color:#4a5568;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px">Visitor Roster</div>
-          <div class="vm-row">
-            <input type="text" id="vmInput" class="vm-input" placeholder="Visitor name…"
-              onkeydown="if(event.key==='Enter')doAddVisitor()" autocomplete="off">
-            <button class="vm-btn vm-add" onclick="doAddVisitor()">+ Add</button>
-            <button class="vm-btn vm-rem" onclick="doRemoveVisitor()">− Remove</button>
-          </div>
-          <div class="vm-msg" id="vmMsg"></div>
         </div>
       </div>
 
@@ -1093,15 +1078,114 @@ textarea.fi{padding-right:28px}
     return s ? { name, brand: s.brand, region: s.region } : { name, brand: '—', region: '—' };
   }
 
-  function slComputeHealth(totalVisits, failedCount, lastDate) {
-    const now = new Date();
-    const daysSince = lastDate instanceof Date ? Math.max(0, Math.floor((now - lastDate) / 86400000)) : 999;
-    const failedPart = (failedCount || 0) * 3;
-    const daysPart = parseFloat((daysSince / 30).toFixed(2));
-    const lowVisitPen = totalVisits < 3 ? 5 : 0;
-    const score = parseFloat((failedPart + daysPart + lowVisitPen).toFixed(2));
-    const label = score >= 8 ? 'HIGH' : score >= 4 ? 'MEDIUM' : 'LOW';
-    return { score, label, components: { failedPart, daysPart, lowVisitPen, daysSince } };
+  // Canonical risk engine, single-store form — mirrors _computeStoreRisk()
+  // in SVMKPI_RISK.gs exactly (cadence+decay model), factored out so both
+  // getStoreHealthReport() (all stores) and sl_getStoreData() (one store,
+  // for the Store Insights card) always agree. Replaces this preview's own
+  // formerly-independent slComputeHealth() (retired — it could score a
+  // never-visited store HIGH here via a days-since/30 penalty while Store
+  // Health only gave the same store the modest "no history" +3).
+  // @param {{name:string, brand:string, region:string, category:string}} storeEntry
+  function demoComputeStoreRisk(storeEntry, year, today) {
+    const monthLimit = today.getFullYear() === year ? today.getMonth() : 11;
+    const CADENCE_DAYS = { MONTHLY: 31, QUARTERLY: 92, SEMI_ANNUAL: 183 };
+    const PURPOSE_SCORE = { 'FAILED QA/MS': 5, 'STORE VISIT': -2, 'CURING/SUPPORT': -4, 'TLTC': -1 };
+    const PURPOSE_PRIORITY = ['FAILED QA/MS', 'CURING/SUPPORT', 'TLTC', 'STORE VISIT'];
+    const ACTION_LABEL = { LOW: 'Monitor', MEDIUM: 'Planned Follow-up', HIGH: 'Immediate Intervention' };
+
+    function cadenceInfo(category) {
+      if (category === 'NCR' || category === 'NEAR PROVINCIAL') return { days: CADENCE_DAYS.MONTHLY, label: 'Monthly' };
+      if (category === 'FAR PROVINCIAL') return { days: CADENCE_DAYS.QUARTERLY, label: 'Quarterly' };
+      if (category === 'FLIGHT PROVINCIAL') return { days: CADENCE_DAYS.SEMI_ANNUAL, label: 'Semi-Annual' };
+      return { days: 0, label: 'Unknown' };
+    }
+
+    const s = storeEntry;
+    const storeLog = DB.log.filter(r => r.store === s.name);
+    const cadence = cadenceInfo(s.category);
+
+    let lastDate = null, lastPurposes = [];
+    const buckets = Array.from({ length: 12 }, () => ({ storeVisitCount: 0, curingCount: 0, tltcCount: 0, failedCount: 0 }));
+    let totalYtd = 0, storeYtd = 0, failedCount = 0, curingCount = 0;
+
+    storeLog.forEach(r => {
+      if (!lastDate || r.date > lastDate) { lastDate = r.date; lastPurposes = [r.purpose]; }
+      else if (r.date.getTime() === lastDate.getTime()) lastPurposes.push(r.purpose);
+
+      if (r.date.getFullYear() === year && r.date.getMonth() <= monthLimit) {
+        totalYtd++;
+        const m = r.date.getMonth();
+        if (r.purpose === 'STORE VISIT')    { storeYtd++; buckets[m].storeVisitCount++; }
+        if (r.purpose === 'FAILED QA/MS')   { failedCount++; buckets[m].failedCount++; }
+        if (r.purpose === 'CURING/SUPPORT') { curingCount++; buckets[m].curingCount++; }
+        if (r.purpose === 'TLTC')           { buckets[m].tltcCount++; }
+      }
+    });
+
+    const lastPurpose = lastPurposes.length
+      ? (PURPOSE_PRIORITY.find(p => lastPurposes.indexOf(p) !== -1) || lastPurposes[0])
+      : '';
+
+    let basePurposeScore = 0, activeFailedPenalty = 0;
+    for (let m = 0; m <= monthLimit; m++) {
+      const b = buckets[m];
+      basePurposeScore += b.storeVisitCount * PURPOSE_SCORE['STORE VISIT'];
+      basePurposeScore += b.curingCount * PURPOSE_SCORE['CURING/SUPPORT'];
+      basePurposeScore += b.tltcCount * PURPOSE_SCORE['TLTC'];
+      if (b.failedCount > 0) activeFailedPenalty += b.failedCount * PURPOSE_SCORE['FAILED QA/MS'];
+      else if (activeFailedPenalty > 0) activeFailedPenalty = Math.max(0, activeFailedPenalty - 1);
+    }
+    const purposeScore = basePurposeScore + activeFailedPenalty;
+
+    let complianceScore, complianceStatus, daysSince = null;
+    if (!cadence.days) {
+      complianceScore = 0; complianceStatus = 'UNKNOWN';
+    } else if (!lastDate) {
+      complianceScore = 3; complianceStatus = 'NO HISTORY';
+    } else {
+      daysSince = Math.max(0, Math.floor((today - lastDate) / 86400000));
+      const within = daysSince <= cadence.days;
+      complianceScore = within ? -3 : 3;
+      complianceStatus = within ? 'WITHIN TIME FRAME' : 'OVERDUE';
+    }
+
+    const riskScore = Math.max(0, purposeScore + complianceScore);
+    const riskTier = riskScore >= 10 ? 'HIGH' : riskScore >= 5 ? 'MEDIUM' : 'LOW';
+
+    let attentionReason;
+    if (activeFailedPenalty >= 10) attentionReason = 'Repeated QA/MS Interventions';
+    else if (activeFailedPenalty > 0) attentionReason = 'QA/MS Intervention';
+    else if (complianceStatus === 'OVERDUE') attentionReason = cadence.label + ' Visit Overdue';
+    else if (complianceStatus === 'NO HISTORY') attentionReason = 'No Visit History';
+    else attentionReason = 'No Risk Factors';
+
+    return {
+      store: s.name, brand: s.brand, region: s.region,
+      lastVisitDate: lastDate ? slFormatDate(lastDate) : '—',
+      lastPurpose: lastPurpose || '—',
+      daysSince, totalYtd, storeYtd, failedCount, curingCount,
+      riskScore, riskTier, action: ACTION_LABEL[riskTier], attentionReason,
+      complianceStatus,
+    };
+  }
+
+  // Single-store health lookup for Store Insights — same engine as above,
+  // reduced to the {score,label,components.daysSince} shape the Store
+  // Insights card and slGenerateInsight() expect.
+  function slComputeCanonicalHealth(storeName) {
+    let entry = DB.stores.find(s => s.name === storeName);
+    if (!entry) {
+      const logRow = DB.log.find(r => r.store === storeName);
+      entry = logRow
+        ? { name: storeName, brand: logRow.brand, region: logRow.region, category: '' }
+        : { name: storeName, brand: '—', region: '—', category: '' };
+    }
+    const row = demoComputeStoreRisk(entry, 2026, new Date());
+    return {
+      score: row.riskScore,
+      label: row.riskTier,
+      components: { daysSince: row.daysSince != null ? row.daysSince : 999 },
+    };
   }
 
   function slTitleCase(str) {
@@ -1114,7 +1198,7 @@ textarea.fi{padding-right:28px}
       summary: { totalVisits: 0, lastVisitDate: '—', lastVisitor: '—', lastPurpose: '—' },
       purposes: APPROVED_PURPOSES.map(label => ({ label, count: 0, pct: '0.0' })),
       topVisitors: [], recentVisits: [],
-      health: slComputeHealth(0, 0, null),
+      health: slComputeCanonicalHealth(name),
       insight: 'No visit records found for ' + name + '. Schedule an initial store visit.',
     };
   }
@@ -1375,7 +1459,7 @@ textarea.fi{padding-right:28px}
         date: slFormatDate(r.date), visitor: r.visitedBy || '—', purpose: r.purpose || '—', remarks: r.remarks || '—',
       }));
 
-      const health = slComputeHealth(totalVisits, purposeCounts['FAILED QA/MS'], last.date);
+      const health = slComputeCanonicalHealth(target);
       const insight = slGenerateInsight({ meta, totalVisits, lastVisitStr, lastPurpose, purposes, topVisitors, health, failedCount: purposeCounts['FAILED QA/MS'] });
 
       return {
@@ -1658,19 +1742,6 @@ textarea.fi{padding-right:28px}
     getStoreHealthReport() {
       const year = 2026;
       const today = new Date();
-      const monthLimit = today.getFullYear() === year ? today.getMonth() : 11;
-
-      const CADENCE_DAYS   = { MONTHLY: 31, QUARTERLY: 92, SEMI_ANNUAL: 183 };
-      const PURPOSE_SCORE  = { 'FAILED QA/MS': 5, 'STORE VISIT': -2, 'CURING/SUPPORT': -4, 'TLTC': -1 };
-      const PURPOSE_PRIORITY = ['FAILED QA/MS', 'CURING/SUPPORT', 'TLTC', 'STORE VISIT'];
-      const ACTION_LABEL   = { LOW: 'Monitor', MEDIUM: 'Planned Follow-up', HIGH: 'Immediate Intervention' };
-
-      function cadenceInfo(category) {
-        if (category === 'NCR' || category === 'NEAR PROVINCIAL') return { days: CADENCE_DAYS.MONTHLY, label: 'Monthly' };
-        if (category === 'FAR PROVINCIAL') return { days: CADENCE_DAYS.QUARTERLY, label: 'Quarterly' };
-        if (category === 'FLIGHT PROVINCIAL') return { days: CADENCE_DAYS.SEMI_ANNUAL, label: 'Semi-Annual' };
-        return { days: 0, label: 'Unknown' };
-      }
 
       // Mirrors _computeStoreRisk()'s two-pass seeding in SVMKPI_RISK.gs —
       // a store removed from the active SETTINGS list (DB.stores here) but
@@ -1686,79 +1757,9 @@ textarea.fi{padding-right:28px}
         logOnlyEntries.push({ name: r.store, brand: r.brand, region: r.region, category: '' });
       });
 
-      const rows = DB.stores.concat(logOnlyEntries).map(s => {
-        const storeLog = DB.log.filter(r => r.store === s.name);
-        const cadence = cadenceInfo(s.category);
-
-        let lastDate = null, lastPurposes = [];
-        const buckets = Array.from({ length: 12 }, () => ({ storeVisitCount: 0, curingCount: 0, tltcCount: 0, failedCount: 0 }));
-        let totalYtd = 0, storeYtd = 0, failedCount = 0, curingCount = 0;
-
-        storeLog.forEach(r => {
-          if (!lastDate || r.date > lastDate) { lastDate = r.date; lastPurposes = [r.purpose]; }
-          else if (r.date.getTime() === lastDate.getTime()) lastPurposes.push(r.purpose);
-
-          if (r.date.getFullYear() === year && r.date.getMonth() <= monthLimit) {
-            totalYtd++;
-            const m = r.date.getMonth();
-            if (r.purpose === 'STORE VISIT')    { storeYtd++; buckets[m].storeVisitCount++; }
-            if (r.purpose === 'FAILED QA/MS')   { failedCount++; buckets[m].failedCount++; }
-            if (r.purpose === 'CURING/SUPPORT') { curingCount++; buckets[m].curingCount++; }
-            if (r.purpose === 'TLTC')           { buckets[m].tltcCount++; }
-          }
-        });
-
-        const lastPurpose = lastPurposes.length
-          ? (PURPOSE_PRIORITY.find(p => lastPurposes.indexOf(p) !== -1) || lastPurposes[0])
-          : '';
-
-        // Permanent base score (more coverage keeps lowering it) plus a
-        // Failed QA/MS penalty that decays 1 point per clean month —
-        // mirrors _sl_computeMonthlyPurposeScores() in SVMKPI_RISK.gs.
-        let basePurposeScore = 0, activeFailedPenalty = 0;
-        for (let m = 0; m <= monthLimit; m++) {
-          const b = buckets[m];
-          basePurposeScore += b.storeVisitCount * PURPOSE_SCORE['STORE VISIT'];
-          basePurposeScore += b.curingCount * PURPOSE_SCORE['CURING/SUPPORT'];
-          basePurposeScore += b.tltcCount * PURPOSE_SCORE['TLTC'];
-          if (b.failedCount > 0) activeFailedPenalty += b.failedCount * PURPOSE_SCORE['FAILED QA/MS'];
-          else if (activeFailedPenalty > 0) activeFailedPenalty = Math.max(0, activeFailedPenalty - 1);
-        }
-        const purposeScore = basePurposeScore + activeFailedPenalty;
-
-        // Never-visited scores the same +3 as overdue, not a neutral 0 —
-        // coverage alone can't hide a never-visited store from Store Health.
-        let complianceScore, complianceStatus, daysSince = null;
-        if (!cadence.days) {
-          complianceScore = 0; complianceStatus = 'UNKNOWN';
-        } else if (!lastDate) {
-          complianceScore = 3; complianceStatus = 'NO HISTORY';
-        } else {
-          daysSince = Math.max(0, Math.floor((today - lastDate) / 86400000));
-          const within = daysSince <= cadence.days;
-          complianceScore = within ? -3 : 3;
-          complianceStatus = within ? 'WITHIN TIME FRAME' : 'OVERDUE';
-        }
-
-        const riskScore = Math.max(0, purposeScore + complianceScore);
-        const riskTier = riskScore >= 10 ? 'HIGH' : riskScore >= 5 ? 'MEDIUM' : 'LOW';
-
-        let attentionReason;
-        if (activeFailedPenalty >= 10) attentionReason = 'Repeated QA/MS Interventions';
-        else if (activeFailedPenalty > 0) attentionReason = 'QA/MS Intervention';
-        else if (complianceStatus === 'OVERDUE') attentionReason = cadence.label + ' Visit Overdue';
-        else if (complianceStatus === 'NO HISTORY') attentionReason = 'No Visit History';
-        else attentionReason = 'No Risk Factors';
-
-        return {
-          store: s.name, brand: s.brand, region: s.region,
-          lastVisitDate: lastDate ? slFormatDate(lastDate) : '—',
-          lastPurpose: lastPurpose || '—',
-          daysSince, totalYtd, storeYtd, failedCount, curingCount,
-          riskScore, riskTier, action: ACTION_LABEL[riskTier], attentionReason,
-          complianceStatus, // internal only — stripped below, drives the coverage-gap KPI
-        };
-      }).sort((a, b) => b.riskScore - a.riskScore || a.store.localeCompare(b.store));
+      const rows = DB.stores.concat(logOnlyEntries)
+        .map(s => demoComputeStoreRisk(s, year, today))
+        .sort((a, b) => b.riskScore - a.riskScore || a.store.localeCompare(b.store));
 
       const high        = rows.filter(r => r.riskTier === 'HIGH').length;
       const medium       = rows.filter(r => r.riskTier === 'MEDIUM').length;
@@ -2484,48 +2485,6 @@ function syncFieldClears() {
     var el = document.getElementById(p[0]);
     if (el) el.hidden = !p[1];
   });
-}
-
-// Visitor roster management
-function toggleVM() { document.getElementById('vmPanel').classList.toggle('open'); document.getElementById('vmMsg').textContent = ''; }
-
-function doAddVisitor() {
-  var n = document.getElementById('vmInput').value.trim();
-  if (!n) { setVMMsg('Enter a visitor name.','err'); return; }
-  setVMMsg('Adding…','');
-  google.script.run
-    .withSuccessHandler(function(r) {
-      if (r.success) {
-        allVisitors = (r.visitors||[]).map(function(x,i){ return { name: x, color: VCOLS[i%VCOLS.length] }; });
-        document.getElementById('vmInput').value = '';
-        setVMMsg('"'+n.toUpperCase()+'" added.','ok');
-      } else { setVMMsg(r.message,'err'); }
-    })
-    .withFailureHandler(function(e){ setVMMsg(e.message,'err'); })
-    .manageVisitor('add', n);
-}
-
-function doRemoveVisitor() {
-  var n = document.getElementById('vmInput').value.trim();
-  if (!n) { setVMMsg('Enter the name to remove.','err'); return; }
-  google.script.run
-    .withSuccessHandler(function(r) {
-      if (r.success) {
-        allVisitors = (r.visitors||[]).map(function(x,i){ return { name: x, color: VCOLS[i%VCOLS.length] }; });
-        selVisitors = selVisitors.filter(function(v){ return v !== n.toUpperCase(); });
-        renderChips();
-        document.getElementById('vmInput').value = '';
-        setVMMsg('"'+n.toUpperCase()+'" removed.','ok');
-      } else { setVMMsg(r.message,'err'); }
-    })
-    .withFailureHandler(function(e){ setVMMsg(e.message,'err'); })
-    .manageVisitor('remove', n);
-}
-
-function setVMMsg(msg, type) {
-  var el = document.getElementById('vmMsg');
-  el.textContent = msg;
-  el.className = 'vm-msg' + (type ? ' '+type : '');
 }
 
 // Submit

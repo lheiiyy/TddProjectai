@@ -57,15 +57,11 @@ const SL_SETTINGS_COL = {
 // previously duplicated here as a local SL_PURPOSES list, which could drift
 // out of sync with the shared one.
 
-// ── Risk Score thresholds ─────────────────────────────────────
-const SL_RISK = {
-  HIGH_THRESHOLD:   8,
-  MEDIUM_THRESHOLD: 4,
-  FAILED_WEIGHT:    3,   // Failed QA/MS × 3
-  DAYS_DIVISOR:     30,  // Days since last visit ÷ 30
-  LOW_VISIT_LIMIT:  3,   // Total visits < 3 → +5 penalty
-  LOW_VISIT_BONUS:  5,
-};
+// Risk scoring: this module used to have its own independent "Bible §6"
+// formula/thresholds (SL_RISK + _sl_computeHealth(), retired) that could
+// silently disagree with Store Health's score for the same store. It now
+// calls the same canonical engine Store Health uses — _computeStoreRisk()
+// in SVMKPI_RISK.gs — via _sl_computeCanonicalHealth() below.
 
 // ── Recent visits to display ──────────────────────────────────
 const SL_RECENT_LIMIT = 10;
@@ -150,7 +146,7 @@ function sl_getStoreData(storeName) {
   if (!log) return null;
 
   const lastRow = log.getLastRow();
-  if (lastRow < 2) return _sl_emptyResult(target);
+  if (lastRow < 2) return _sl_emptyResult(target, log);
 
   // Read cols A–H only (columns 1–8) — skip the auxiliary columns
   const raw = log.getRange(2, 1, lastRow - 1, 8).getValues();
@@ -161,7 +157,7 @@ function sl_getStoreData(storeName) {
     return store === target;
   });
 
-  if (rows.length === 0) return _sl_emptyResult(target);
+  if (rows.length === 0) return _sl_emptyResult(target, log);
 
   // ── Step 3: Sort filtered rows by date desc (newest first) ─
   rows.sort((a, b) => {
@@ -216,8 +212,8 @@ function sl_getStoreData(storeName) {
     remarks: String(row[SL_COL.REMARKS] || '').trim()               || '—',
   }));
 
-  // ── Step 9: Health score ──────────────────────────────────
-  const health = _sl_computeHealth(totalVisits, purposeCounts['FAILED QA/MS'], lastDate);
+  // ── Step 9: Health score — canonical engine, shared with Store Health ─
+  const health = _sl_computeCanonicalHealth(log, target);
 
   // ── Step 10: AI insight ───────────────────────────────────
   const insight = _sl_generateInsight({
@@ -266,60 +262,41 @@ function _sl_getMeta(storeName) {
 }
 
 /**
- * _sl_computeHealth(totalVisits, failedCount, lastDate)
- * Computes the store risk score using the Bible §6 formula.
- *
- * Risk Score =
- *   (Failed QA/MS count × 3)
- *   + (Days since last visit ÷ 30)
- *   + (Total visits < 3 ? 5 : 0)
- *
- * Thresholds:
- *   score >= 8  → HIGH
- *   score >= 4  → MEDIUM
- *   score <  4  → LOW
- *
- * @param {number} totalVisits
- * @param {number} failedCount
- * @param {Date}   lastDate
- * @returns {{ score: number, label: string, components: object }}
+ * _sl_computeCanonicalHealth(log, storeName)
+ * Looks up a single store's risk score/tier from the SAME canonical
+ * engine that powers Store Health — _computeStoreRisk() in
+ * SVMKPI_RISK.gs — instead of this module's own, independently-tuned
+ * "Bible §6" formula (retired: it could score a store completely
+ * differently here than on the Store Health sheet for the exact same
+ * data, e.g. a never-visited store scored HIGH here via a days-since/30
+ * penalty but only the modest "no history" +3 on Store Health).
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} log - MASTER_LOG sheet
+ * @param {string} storeName - Already normalized (uppercase, trimmed)
+ * @returns {{ score: number, label: string, components: { daysSince: number } }}
  */
-function _sl_computeHealth(totalVisits, failedCount, lastDate) {
-  const now       = new Date();
-  const daysSince = lastDate instanceof Date
-    ? Math.max(0, Math.floor((now - lastDate) / (1000 * 60 * 60 * 24)))
-    : 999;
-
-  const failedPart  = (failedCount || 0) * SL_RISK.FAILED_WEIGHT;
-  const daysPart    = parseFloat((daysSince / SL_RISK.DAYS_DIVISOR).toFixed(2));
-  const lowVisitPen = totalVisits < SL_RISK.LOW_VISIT_LIMIT ? SL_RISK.LOW_VISIT_BONUS : 0;
-  const score       = parseFloat((failedPart + daysPart + lowVisitPen).toFixed(2));
-
-  const label = score >= SL_RISK.HIGH_THRESHOLD   ? 'HIGH'
-              : score >= SL_RISK.MEDIUM_THRESHOLD  ? 'MEDIUM'
-              :                                      'LOW';
-
+function _sl_computeCanonicalHealth(log, storeName) {
+  const data = _getData(log);
+  const riskRows = _computeStoreRisk(data, new Date());
+  const row = riskRows.find(r => r.store === storeName);
   return {
-    score,
-    label,
+    score: row ? row.riskScore : 0,
+    label: row ? row.riskTier : 'LOW',
     components: {
-      failedPart,
-      daysPart,
-      lowVisitPen,
-      daysSince,
+      daysSince: (row && row.daysSince != null) ? row.daysSince : 999,
     },
   };
 }
 
 /**
- * _sl_emptyResult(storeName)
+ * _sl_emptyResult(storeName, log)
  * Returns a zeroed-out result object for a store with no MASTER_LOG history.
  * @param {string} storeName
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} log - MASTER_LOG sheet
  * @returns {StoreResult}
  */
-function _sl_emptyResult(storeName) {
+function _sl_emptyResult(storeName, log) {
   const meta = _sl_getMeta(storeName);
-  const health = _sl_computeHealth(0, 0, null);
+  const health = _sl_computeCanonicalHealth(log, storeName);
   return {
     meta,
     summary:      { totalVisits: 0, lastVisitDate: '—', lastVisitor: '—', lastPurpose: '—' },

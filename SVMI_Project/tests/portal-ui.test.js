@@ -719,6 +719,11 @@ async function goToTab(p, name) {
   await page.waitForTimeout(200);
   const carets = await page.$$eval('.combo-caret', e => e.length);
   check('every combobox has a caret (store, visitors, purpose, SI store)', carets === 4, 'carets=' + carets);
+  // Roster management is now admin-only (System Tools > Store & Roster
+  // Manager) — Input Portal's old self-service "Manage Roster" quick
+  // panel was removed entirely, not merely hidden.
+  check('Input Portal has no "Manage Roster" quick panel', !(await page.isVisible('.vm-toggle')));
+  check('Input Portal has no leftover #vmPanel element', (await page.$('#vmPanel')) === null);
   // caret opens the visitor list without typing anything
   const visCaret = await page.$('#visDrop ~ * , .ss-wrap:has(#visSearch) .combo-caret');
   await page.click('.ss-wrap:has(#visSearch) .combo-caret');

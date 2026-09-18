@@ -711,7 +711,7 @@ function _buildLeaderboardFormulas(sheet, ML) {
     // Fixed match logic:
     // Normalize MASTER_LOG!F by removing spaces around pipes before matching.
     sheet.getRange(sheetRow, 9).setFormula(
-      `=SUMPRODUCT(--ISNUMBER(SEARCH("|"&TRIM(SETTINGS!F${settingsRow})&"|","|"&REGEXREPLACE(TRIM(${ML}!F$2:F$5000),"\\s*\\|\\s*","|")&"|")))`
+      `=SUMPRODUCT(--ISNUMBER(SEARCH("|"&TRIM(SETTINGS!F${settingsRow})&"|","|"&REGEXREPLACE(TRIM(${ML}!F$2:F$${MASTER_LOG_MAX_ROW}),"\\s*\\|\\s*","|")&"|")))`
     );
   });
 }

@@ -390,6 +390,60 @@ Less manual than it looks, but not everything is truly live:
 
 ---
 
+## Phase 0 hardening (pre-work for configuration-driven administration)
+
+A user-supplied addendum asked for a much larger rearchitecture — a
+configuration service, year-neutral reporting, versioned risk/compliance/
+KPI rules, an audit log, rollback, and a year-rollover workflow. Before any
+of that, a research pass identified five smaller, independent gaps worth
+fixing first since every later phase builds on top of them:
+
+- **`manageVisitor()` is now admin-gated.** Input Portal's own non-admin
+  "⚙ Manage Roster" quick panel (which used to justify leaving this
+  function ungated) has been removed entirely — the admin-only System
+  Tools "Store & Roster Manager" card is now its only caller, so it checks
+  `sl_isAdmin()` itself like its siblings (`managePurpose()`,
+  `portal_saveStore()`, `portal_removeStore()`). Roster management is now
+  exclusively a System Tools action.
+- **One canonical risk engine, not two.** Store Insights' single-store
+  health card used to run its own independent "Bible §6" formula
+  (`SL_RISK`/`_sl_computeHealth()`, retired) that could score the exact
+  same store completely differently than the Store Health sheet — most
+  visibly, a never-visited store scored HIGH here (a days-since/30
+  penalty) but only the modest "no history" +3 there. Both now go through
+  `_computeStoreRisk()` (SVMKPI_RISK.gs) via the new
+  `_sl_computeCanonicalHealth()` helper (SVMKPI_STORE_LOOKUP.gs).
+- **No more 5,000-row ceiling.** Four generated-formula/conditional-format
+  spots (`SVMKPI_KPI_REBUILD.gs`'s weekly SUMPRODUCTs, `SVMKPI_LAYOUT.gs`'s
+  Visitor Leaderboard, `SVMKPI_MASTER_REBUILD.gs`'s brand color-coding)
+  hardcoded `MASTER_LOG!...$5000` — a visit logged past row 5000 silently
+  fell outside all of them. Replaced with one shared
+  `MASTER_LOG_MAX_ROW` constant (SVMKPI_CORE.gs, currently 200,000) —
+  comfortably past any realistic visit volume, so a rebuild is never
+  required again just because the log grew.
+- **`processSubmissionAsync()` now locks its MASTER_LOG write** via
+  `LockService.getScriptLock()` (10s timeout), so two near-simultaneous
+  submissions can never interleave. A busy lock fails cleanly ("Server is
+  busy processing another submission…") rather than risking a corrupted
+  write; the lock is always released, even if the write itself throws.
+- **One shared date parser.** `_parseDateCell()` (SVMKPI_CORE.gs) replaces
+  three independent date-parsing implementations that had quietly drifted
+  apart — `processSubmissionAsync()`'s write-side manual split,
+  `_getData()`'s read-side fallback (the only one of the three that never
+  routed through the script timezone), and `checkDuplicateVisit()`'s own
+  rebuild. All three now call the same function, which also strips any
+  time-of-day component to local midnight (a Sheets cell that somehow
+  carries a time no longer causes two same-day visits to compare as
+  different `.getTime()` values elsewhere in the project).
+
+None of this changes what an ordinary visit submission looks like from the
+Input Portal side — these are all internal consistency/robustness fixes,
+covered by `canonical-risk-engine.test.js`, `submission-lock.test.js`, and
+`date-parsing.test.js` (new), plus updated assertions in
+`roster-auto-refresh.test.js` and `portal-ui.test.js`.
+
+---
+
 ## Checks before you push
 
 No linter, but three checks are worth running:
@@ -428,13 +482,33 @@ node SVMI_Project/tests/roster-auto-refresh.test.js
 # _computeStoreRisk() keeps a removed store's full history with its
 # category degraded to "—" instead of dropping the store entirely
 node SVMI_Project/tests/store-remove-history.test.js
+
+# covers the risk-engine consolidation: Store Insights' single-store
+# health card (sl_getStoreData()/_sl_computeCanonicalHealth(),
+# SVMKPI_STORE_LOOKUP.gs) and the Store Health sheet
+# (_computeStoreRisk(), SVMKPI_RISK.gs) must always agree on the exact
+# same score/tier for the same store — they used to run two independent
+# formulas that could silently disagree
+node SVMI_Project/tests/canonical-risk-engine.test.js
+
+# covers the LockService fix around processSubmissionAsync()'s MASTER_LOG
+# write: a normal submission still succeeds and releases the lock;
+# contention (tryLock fails) reports a clean "server busy" failure
+# without writing anything; a write failure mid-lock still releases it
+node SVMI_Project/tests/submission-lock.test.js
+
+# covers _parseDateCell() (SVMKPI_CORE.gs), the one shared date parser
+# that replaced three independent implementations, plus
+# checkDuplicateVisit()'s integration with it
+node SVMI_Project/tests/date-parsing.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a
 real spreadsheet — they catch UI/layout regressions, not data-correctness
 issues. `risk-scoring.test.js`, `kpi-roster-history.test.js`,
-`roster-auto-refresh.test.js`, and `store-remove-history.test.js` are the
-exception: they run actual `.gs`
+`roster-auto-refresh.test.js`, `store-remove-history.test.js`,
+`canonical-risk-engine.test.js`, `submission-lock.test.js`, and
+`date-parsing.test.js` are the exception: they run actual `.gs`
 functions directly (against a mocked Sheet/Range, not a mock of the
 *business logic*), so they do catch data-correctness bugs (this is how the
 "never-visited stores silently

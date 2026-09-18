@@ -161,6 +161,7 @@ function newSandbox(settingsRows, masterLogRows) {
     },
     SHEET: { SETTINGS: 'SETTINGS', MASTER_LOG: 'MASTER_LOG' },
     DATA_YEAR: 2026,
+    MASTER_LOG_MAX_ROW: 200000, // normally SVMKPI_CORE.gs; this sandbox doesn't load that file
     _getSheet: (name) => ({ __name: name }),
     Logger: { log: () => {} },
     console,

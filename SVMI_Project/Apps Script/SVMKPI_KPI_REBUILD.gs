@@ -110,12 +110,13 @@ function _visitorWeekFormula(ref, year, month, s, e) {
   // Normalize pipe spacing:
   // "JAMES | LEO" -> "JAMES|LEO"
   // "GIO | RICE | JAMES" -> "GIO|RICE|JAMES"
-  const visitedBy = `REGEXREPLACE(TRIM(MASTER_LOG!F$2:F$5000),"\\s*\\|\\s*","|")`;
+  const maxRow = MASTER_LOG_MAX_ROW; // SVMKPI_CORE.gs — see comment there
+  const visitedBy = `REGEXREPLACE(TRIM(MASTER_LOG!F$2:F$${maxRow}),"\\s*\\|\\s*","|")`;
 
   return `=SUMPRODUCT(
     --ISNUMBER(SEARCH("|"&${ref}&"|","|"&${visitedBy}&"|")),
-    --(MASTER_LOG!B$2:B$5000>=DATE(${year},${month},${s})),
-    --(MASTER_LOG!B$2:B$5000<=DATE(${year},${month},${e}))
+    --(MASTER_LOG!B$2:B$${maxRow}>=DATE(${year},${month},${s})),
+    --(MASTER_LOG!B$2:B$${maxRow}<=DATE(${year},${month},${e}))
   )`;
 }
 

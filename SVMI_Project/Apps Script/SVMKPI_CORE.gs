@@ -139,6 +139,18 @@ const MONTH_NAMES = [
 // Data year — update annually or derive from config cell
 const DATA_YEAR = 2026;
 
+// Upper row bound used by a handful of generated Sheets formulas/rules
+// that can't use a true open-column reference (MASTER_LOG!F:F etc.) —
+// SUMPRODUCT's boolean array comparisons would otherwise misread row 1's
+// text header against a >=/<= DATE(...) comparison as a phantom match.
+// Previously a literal 5000 in each of these spots (SVMKPI_KPI_REBUILD.gs,
+// SVMKPI_LAYOUT.gs's Visitor Leaderboard, SVMKPI_MASTER_REBUILD.gs's brand
+// conditional formatting) — a visit logged past row 5000 silently fell
+// outside all of them. One shared, generous ceiling instead: comfortably
+// past any realistic MASTER_LOG size, so a rebuild is never required
+// again just because visit volume grew.
+const MASTER_LOG_MAX_ROW = 200000;
+
 /**
  * sl_getDataYear()
  * Exposes DATA_YEAR to the client — SVMI_PORTAL.html's Unvisited This
@@ -274,6 +286,40 @@ function _getSheet(name) {
 }
 
 /**
+ * _parseDateCell(value)
+ * Single source of truth for turning a MASTER_LOG-style date value — a
+ * real Sheets Date object, OR a plain "YYYY-MM-DD"-ish string (e.g. a
+ * freshly-submitted payload.dateVisited before it's ever touched a
+ * sheet) — into a local-midnight JS Date with any time-of-day component
+ * stripped. Every date comparison in this project should go through
+ * this instead of parsing independently: three separate implementations
+ * previously existed — processSubmissionAsync()'s write-side manual
+ * split, this function's own former inline `new Date(row[...])` fallback
+ * (which, unlike the other two, never routed through the script
+ * timezone), and checkDuplicateVisit()'s own rebuild (INPUT_PORTAL.gs) —
+ * each handling "the value is a string, not a Date object" slightly
+ * differently.
+ * @param {Date|string} value
+ * @returns {Date|null} local-midnight Date, or null if unparseable
+ */
+function _parseDateCell(value) {
+  var tz = Session.getScriptTimeZone();
+  var s;
+  if (value instanceof Date) {
+    if (isNaN(value.getTime())) return null;
+    s = Utilities.formatDate(value, tz, 'yyyy-MM-dd');
+  } else {
+    s = String(value == null ? '' : value).trim().substring(0, 10);
+  }
+  var parts = s.split('-');
+  if (parts.length !== 3) return null;
+  var y = parseInt(parts[0], 10), m = parseInt(parts[1], 10), d = parseInt(parts[2], 10);
+  if (!y || !m || !d) return null;
+  var result = new Date(y, m - 1, d);
+  return isNaN(result.getTime()) ? null : result;
+}
+
+/**
  * _getData(masterLog)
  * Read all data from MASTER_LOG once. Normalize all enum columns.
  * All populate functions receive this object — none read MASTER_LOG directly.
@@ -303,7 +349,7 @@ function _getData(masterLog) {
 
   raw.forEach(row => {
     timestamps .push(row[COL.TIMESTAMP - 1]);
-    dates      .push(row[COL.DATE      - 1] instanceof Date ? row[COL.DATE - 1] : new Date(row[COL.DATE - 1]));
+    dates      .push(_parseDateCell(row[COL.DATE - 1]));
     stores     .push(String(row[COL.STORE   - 1]).trim());
     brands     .push(_normalizeEnum(row[COL.BRAND   - 1]));
     regions    .push(_normalizeEnum(row[COL.REGION  - 1]));

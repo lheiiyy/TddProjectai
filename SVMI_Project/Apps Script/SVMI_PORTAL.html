@@ -118,11 +118,7 @@ textarea.fi{resize:vertical;min-height:50px}
 .store-info.visible{display:block}
 .store-info span{font-weight:700}
 
-/* ── Visitor manager ── */
-.vm-toggle{font-size:10px;color:var(--tld-d);background:none;border:none;cursor:pointer;
-  padding:0;margin-top:4px;text-decoration:underline;font-family:Arial}
-.vm-panel{background:#f7fafc;border:1px solid #e2e8f0;border-radius:4px;padding:8px;margin-top:5px;display:none}
-.vm-panel.open{display:block}
+/* ── Visitor manager (Store & Roster Manager, System Tools — admin-only) ── */
 .vm-row{display:flex;gap:5px;margin-bottom:5px}
 .vm-input{flex:1;padding:5px 7px;font-size:11px;border:1px solid #cbd5e0;border-radius:4px;background:var(--card);font-family:Arial;outline:none}
 .vm-btn{padding:5px 9px;font-size:11px;font-weight:700;border:none;border-radius:4px;cursor:pointer;white-space:nowrap;font-family:Arial}
@@ -569,17 +565,6 @@ textarea.fi{padding-right:28px}
           <button type="button" class="combo-caret" title="Show all visitors"
             onmousedown="event.preventDefault();toggleCombo('visDrop','visSearch')">▼</button>
           <div class="ss-drop" id="visDrop"></div>
-        </div>
-        <button class="vm-toggle" onclick="toggleVM()">⚙ Manage Roster</button>
-        <div class="vm-panel" id="vmPanel">
-          <div style="font-size:10px;font-weight:700;color:#4a5568;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px">Visitor Roster</div>
-          <div class="vm-row">
-            <input type="text" id="vmInput" class="vm-input" placeholder="Visitor name…"
-              onkeydown="if(event.key==='Enter')doAddVisitor()" autocomplete="off">
-            <button class="vm-btn vm-add" onclick="doAddVisitor()">+ Add</button>
-            <button class="vm-btn vm-rem" onclick="doRemoveVisitor()">− Remove</button>
-          </div>
-          <div class="vm-msg" id="vmMsg"></div>
         </div>
       </div>
 
@@ -1504,48 +1489,6 @@ function syncFieldClears() {
     var el = document.getElementById(p[0]);
     if (el) el.hidden = !p[1];
   });
-}
-
-// Visitor roster management
-function toggleVM() { document.getElementById('vmPanel').classList.toggle('open'); document.getElementById('vmMsg').textContent = ''; }
-
-function doAddVisitor() {
-  var n = document.getElementById('vmInput').value.trim();
-  if (!n) { setVMMsg('Enter a visitor name.','err'); return; }
-  setVMMsg('Adding…','');
-  google.script.run
-    .withSuccessHandler(function(r) {
-      if (r.success) {
-        allVisitors = (r.visitors||[]).map(function(x,i){ return { name: x, color: VCOLS[i%VCOLS.length] }; });
-        document.getElementById('vmInput').value = '';
-        setVMMsg('"'+n.toUpperCase()+'" added.','ok');
-      } else { setVMMsg(r.message,'err'); }
-    })
-    .withFailureHandler(function(e){ setVMMsg(e.message,'err'); })
-    .manageVisitor('add', n);
-}
-
-function doRemoveVisitor() {
-  var n = document.getElementById('vmInput').value.trim();
-  if (!n) { setVMMsg('Enter the name to remove.','err'); return; }
-  google.script.run
-    .withSuccessHandler(function(r) {
-      if (r.success) {
-        allVisitors = (r.visitors||[]).map(function(x,i){ return { name: x, color: VCOLS[i%VCOLS.length] }; });
-        selVisitors = selVisitors.filter(function(v){ return v !== n.toUpperCase(); });
-        renderChips();
-        document.getElementById('vmInput').value = '';
-        setVMMsg('"'+n.toUpperCase()+'" removed.','ok');
-      } else { setVMMsg(r.message,'err'); }
-    })
-    .withFailureHandler(function(e){ setVMMsg(e.message,'err'); })
-    .manageVisitor('remove', n);
-}
-
-function setVMMsg(msg, type) {
-  var el = document.getElementById('vmMsg');
-  el.textContent = msg;
-  el.className = 'vm-msg' + (type ? ' '+type : '');
 }
 
 // Submit

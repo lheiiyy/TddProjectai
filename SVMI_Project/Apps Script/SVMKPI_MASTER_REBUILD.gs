@@ -29,7 +29,8 @@ const MR = {
  * rebuildMasterLogHeaders()
  * Writes/restores MASTER_LOG row 1 headers with formatting.
  * Applies brand-based background color conditional formatting
- * to col D (Brand) for the first 5000 data rows.
+ * to col D (Brand) for the first MASTER_LOG_MAX_ROW data rows
+ * (SVMKPI_CORE.gs — a generous ceiling, not a real limit).
  * Does NOT touch data in rows 2+.
  */
 function rebuildMasterLogHeaders() {
@@ -62,14 +63,17 @@ function rebuildMasterLogHeaders() {
   const colWidths = [140, 95, 120, 110, 95, 120, 120, 180, 90, 80];
   colWidths.forEach((w, i) => sheet.setColumnWidth(i + 1, w));
 
-  // ── Brand conditional formatting (col D, rows 2:5000) ───────
-  const dataRange = sheet.getRange('D2:D5000');
+  // ── Brand conditional formatting (col D, rows 2:MASTER_LOG_MAX_ROW) ─
+  // MASTER_LOG_MAX_ROW (SVMKPI_CORE.gs) — previously a literal D2:D5000,
+  // which silently stopped color-coding any visit past row 5000.
+  const conditionalRangeA1 = `D2:D${MASTER_LOG_MAX_ROW}`;
+  const dataRange = sheet.getRange(conditionalRangeA1);
 
   // Remove existing conditional format rules on this range
   const existingRules = sheet.getConditionalFormatRules();
   const filteredRules = existingRules.filter(rule => {
     const ranges = rule.getRanges();
-    return !ranges.some(r => r.getA1Notation() === 'D2:D5000');
+    return !ranges.some(r => r.getA1Notation() === conditionalRangeA1 || r.getA1Notation() === 'D2:D5000');
   });
 
   const brandColors = [
@@ -85,7 +89,7 @@ function rebuildMasterLogHeaders() {
       .whenTextEqualTo(brand)
       .setBackground(bg)
       .setFontColor(MR.BODY)
-      .setRanges([sheet.getRange('D2:D5000')])
+      .setRanges([sheet.getRange(conditionalRangeA1)])
       .build()
   );
 
