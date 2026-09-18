@@ -1137,8 +1137,8 @@ function submitNewEntry(form) {
 function submitCertification(form) {
   if (!form.key) throw new Error('Please pick a trainee from the list.');
   if (STATUS_VALUES.indexOf(form.newStatus) === -1) throw new Error('Invalid status.');
-  if (['CERTIFIED', 'FAILED', 'QUIT', 'DISQUALIFIED', 'PROMOTION'].indexOf(form.newStatus) !== -1 && !form.certBy) {
-    throw new Error('Please record who certified/closed this (Cert By) before saving a final outcome.');
+  if (['CERTIFIED', 'EXTENDED'].indexOf(form.newStatus) !== -1 && !form.certBy) {
+    throw new Error('Please record who certified/extended this (Cert By) before saving.');
   }
 
   // Several phones can update at nearly the same moment — a lock keeps

@@ -1326,8 +1326,8 @@
       };
 
       if (!form.key) { msg.textContent = 'Please pick a trainee.'; msg.className = 'err'; return; }
-      if (!form.certBy && form.newStatus !== 'EXTENDED') {
-        msg.textContent = 'Please fill in "Cert By" before saving a final outcome.';
+      if (!form.certBy && (form.newStatus === 'CERTIFIED' || form.newStatus === 'EXTENDED')) {
+        msg.textContent = 'Please fill in "Cert By" before saving.';
         msg.className = 'err';
         return;
       }
