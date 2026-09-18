@@ -18,6 +18,8 @@ const vm = require('vm');
 
 const coreSrc   = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'SVMKPI_CORE.gs'), 'utf8');
 const yearSrc   = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'SVMKPI_REPORTING_YEAR.gs'), 'utf8');
+const calSrc    = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'SVMKPI_CALENDAR.gs'), 'utf8');
+const cmpCfgSrc = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'SVMKPI_COMPLIANCE_CONFIG.gs'), 'utf8');
 const riskSrc   = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'SVMKPI_RISK.gs'), 'utf8');
 const lookupSrc = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'SVMKPI_STORE_LOOKUP.gs'), 'utf8');
 
@@ -65,6 +67,8 @@ function newSandbox(buildRows) {
   vm.createContext(sandbox);
   vm.runInContext(coreSrc, sandbox);
   vm.runInContext(yearSrc, sandbox); // declares getDefaultReportingYear() (Phase 1C)
+  vm.runInContext(calSrc, sandbox);  // declares resolveCalendarPeriod() (Phase 1D)
+  vm.runInContext(cmpCfgSrc, sandbox); // declares _cmp_resolveByCategory()'s hardcoded-default fallback (Phase 1D)
   vm.runInContext(riskSrc, sandbox);
   vm.runInContext(lookupSrc, sandbox);
 

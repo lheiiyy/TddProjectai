@@ -1058,6 +1058,281 @@ responsive-layout checks, zero regressions.
 
 ---
 
+## Phase 1D — versioned Risk + Compliance + KPI configuration + calendar cadence
+
+Phase 1C made the reporting YEAR explicit and configuration-driven-in-
+spirit. Phase 1D makes the actual business RULES — risk thresholds/
+weights, compliance cadence, KPI weights/targets, Purpose behavior —
+genuinely configurable and historically reproducible through Phase 1A's
+versioning engine, **without rewriting any existing calculation
+algorithm**. Every new resolver falls back to the exact pre-Phase-1D
+hardcoded constant whenever no configuration version has been created
+yet, so this phase ships with **zero behavior change** until an admin
+actually creates a CONFIG_RISK/CONFIG_COMPLIANCE/CONFIG_KPI/CONFIG_PURPOSES
+version.
+
+### Calendar-period model (`SVMKPI_CALENDAR.gs`, new)
+
+SVMI's compliance cadence is CALENDAR periods (month/quarter/half-year),
+never a rolling N-day window — `resolveCalendarPeriod(date, periodFamily)`
+is the one centralized resolver every other module calls into. Only the
+three families the app's existing behavior actually needs are implemented:
+
+| Family | Example | Boundaries |
+|---|---|---|
+| `MONTH` | September 2026 | 1st → last day of that calendar month |
+| `QUARTER` | Q3 2026 | 1st day of quarter → last day of quarter |
+| `SEMI_ANNUAL` | H2 2026 | Jul 1 → Dec 31 (calendar half-year) |
+
+Returns `{periodId, periodStart, periodEnd, year}`, or `null` for an
+invalid date or an unrecognized family — never guesses.
+
+**Behavior change from pre-Phase-1D**: the old "Flight Provincial" window
+in `sl_getComplianceGaps()` (`SVMKPI_STORE_LOOKUP.gs`) was a ROLLING 6
+calendar months ending at the reference month — itself a rolling-window
+model, the same category of thing Phase 1D's business decision rules out.
+It is now the calendar half-year (Jan–Jun / Jul–Dec) containing the
+reference month. No existing test asserted the old rolling window, so
+this was a safe, deliberate change — not an accidental regression.
+
+### Period-to-date compliance
+
+`sl_getComplianceGaps(brandFilter, monthNumber, reportingYear,
+evaluationDateStr)` (Phase 1D's 4th parameter) now evaluates
+**period-to-date**: for the calendar period containing the reference
+month, qualifying MASTER_LOG activity is counted from the period's START
+through the **evaluation date** — never past it, even if the period
+itself hasn't finished yet.
+
+```
+Evaluation date: 2026-09-18
+2026-09-05 → included    2026-09-17 → included
+2026-09-18 → included    2026-09-19 → EXCLUDED (after the evaluation date)
+```
+
+**Default evaluation-date behavior** (documented, never silent): if
+`evaluationDateStr` is omitted —
+- a SPECIFIC month/year WAS requested → defaults to that period's own
+  END (evaluates it as fully elapsed — this exactly reproduces every
+  pre-Phase-1D call's behavior, since none of them clipped to "today" at
+  all);
+- NO month/year was requested either (a genuinely "current period, right
+  now" query) → defaults to today.
+
+An explicit historical `evaluationDateStr` never gets silently replaced
+by today's date.
+
+### Compliance configuration (`SVMKPI_COMPLIANCE_CONFIG.gs`, new)
+
+`CONFIG_COMPLIANCE`'s Entity ID is CATEGORY (e.g. `NCR`, `FAR PROVINCIAL`)
+— cadence is genuinely a per-category rule in the existing app, not a
+per-store one. Two new/newly-real fields:
+
+- **`periodDefinition`** — Phase 1A left this an unused placeholder; it's
+  now populated automatically (never independently hand-edited) from
+  `cadenceType` via `_cal_familyFromCadenceType()`, so the two columns
+  can never drift apart.
+- **`requiredCount`** — how many qualifying visits the period requires
+  (the spec's own worked example: "2026 = 1 visit/period, 2027 = 2
+  visits/period"). Optional; defaults to 1 (the existing "at least one
+  visit" behavior) when blank.
+
+`cmp_getCadenceDays(category, dateRef)` is a drop-in, config-driven
+replacement for the old `_sl_getCadenceDays()` lookup table — same "0 =
+unrecognized" contract — used by the risk engine's own (unchanged)
+rolling-day compliance check (see "Risk configuration" below). Falls back
+to `CMP_DEFAULT_RULES` (copied exactly from the old hardcoded
+`RISK_CADENCE` map and `sl_getComplianceGaps()`'s old category branches)
+when no CONFIG_COMPLIANCE version exists.
+
+### Risk configuration (`SVMKPI_RISK_CONFIG.gs`, new)
+
+Connects the EXISTING canonical `_computeStoreRisk()` (`SVMKPI_RISK.gs`)
+— unchanged algorithm — to versioned thresholds and per-purpose weights.
+No second risk engine was created.
+
+- `resolveRiskConfigurationAsOf(dateStr)` — `lowThreshold`/
+  `mediumThreshold`/`highThreshold`, replacing `_sl_riskTier()`'s hardcoded
+  5/10 cutoffs. Global (Entity ID = `DEFAULT`) — there is no per-store
+  dimension in the existing risk algorithm, so this resolver deliberately
+  takes no `storeId` (inventing an unused parameter would misrepresent
+  behavior that doesn't exist).
+- `risk_resolvePurposeWeight(purposeName, dateStr)` — the one genuinely
+  per-entity dimension, resolved via a documented 3-step fallback chain:
+  1. `CONFIG_PURPOSES.riskWeight` for that purpose (deliberate, Phase 1D's
+     no-inheritance path — see "Purpose configuration" below);
+  2. `CONFIG_RISK`'s matching legacy named field (`weightFailedQaMs`
+     etc. — the pre-existing 4-field shape from Phase 1A's schema);
+  3. `RISK_PURPOSE_SCORE`'s hardcoded constant (`SVMKPI_RISK.gs`) — the
+     ultimate fallback pre-migration.
+  A purpose with none of the three returns `null` — no weight at all,
+  never a different purpose's number.
+
+`_sl_computeMonthlyPurposeScores(monthBuckets, monthLimit, dateRef)`
+resolves each purpose's weight ONCE per call, as of the overall evaluation
+date — not re-resolved per historical month within the same YTD roll-up.
+**Documented limitation**: the existing `monthBuckets` aggregation already
+collapses individual events into per-month counts before scoring ever
+sees them, so true per-EVENT historical weight resolution (a visit
+counted under whichever weight was effective on ITS OWN date, even within
+one YTD calculation spanning a rule change) isn't achievable without
+restructuring that aggregation — out of this phase's scope (connect
+existing algorithm to config, not redesign it).
+
+### KPI weight/target configuration (`SVMKPI_KPI_CONFIG.gs`, new) — a documented gap
+
+**No KPI weight/target/scoring algorithm exists anywhere in the current
+app** — `buildKPI2026()`/`getKPI2026Report()` are a pure visit-count
+tracker (confirmed absent since the original Phase 0 audit and Phase 1A's
+own schema comment). Per Phase 1D's own "no business-rule invention"
+constraint, this file builds ONLY the configuration storage/validation/
+effective-dated-resolution layer — `kpi_create`/`kpi_update`/
+`resolveKPIConfigurationAsOf(kpiId, dateStr)` — and does **not** wire a
+weight or target into any live calculation, because none exists to
+consume one. `buildKPI2026()`/`getKPI2026Report()` remain completely
+untouched by this file's existence (verified directly: the same tracker
+produces identical results for 2026/2027/2028 whether or not a CONFIG_KPI
+row exists).
+
+Validation discovered from the (nonexistent) consuming algorithm, so kept
+deliberately generic rather than invented: `weight` must be numeric (no
+"must sum to 100" rule — nothing requires that); `targetType` is one of
+`NUMERIC`/`PERCENTAGE`/`COUNT` (a minimal closed set covering plausible
+future needs, not a fabricated meaning for any specific KPI); a
+`PERCENTAGE` target must be 0–100.
+
+### Purpose configuration dependencies (`SVMKPI_PURPOSE_CONFIG.gs`, new)
+
+Creating a new Purpose (a `CONFIG_PURPOSES` version) does **not**
+automatically give it KPI or risk behavior.
+`purpose_getConfigurationStatus(purposeName, dateStr)` distinguishes:
+
+- **`exists`** — a resolvable `CONFIG_PURPOSES` version, OR (backward
+  compatibility) membership in the 4 original `APPROVED_PURPOSES`
+  (`SVMKPI_CORE.gs`), which have always been usable without ever needing
+  a `CONFIG_PURPOSES` row.
+- **`active`** — same as `exists` today; there's no separate "exists but
+  inactive" state beyond the envelope's own ACTIVE/INACTIVE lifecycle,
+  which resolution already filters on.
+- **`hasKpiConfig`** — any `CONFIG_KPI` version's `purposeRef` (as of the
+  date) names this purpose. Purely structural (a config row exists), not
+  "is being applied in a calculation" — see the KPI section above.
+- **`hasRiskConfig`** — `risk_resolvePurposeWeight(...) !== null`. The 4
+  legacy purposes report `true` here via the hardcoded/legacy fallback
+  chain (they genuinely do have risk configuration, just not a deliberate
+  `CONFIG_PURPOSES.riskWeight`); a brand-new purpose reports `false` until
+  one is deliberately set.
+- **`valid`**/**`incomplete`** — `valid` requires exists + both configs
+  present; `incomplete` is `exists` without both. A purpose is never
+  silently upgraded from incomplete to valid.
+
+No automatic inheritance anywhere: creating "Purpose #5" never copies
+Purpose #1–4's weights, targets, or any other configuration.
+
+### Store ID as the configuration-resolution identity
+
+Neither `CONFIG_RISK` (global singleton) nor `CONFIG_COMPLIANCE` (keyed by
+Category) was ever Store-Name-keyed — the Phase 1D requirement is about
+the RESOLUTION PATH: `resolveComplianceConfigurationAsOf(storeId, dateStr)`
+resolves the store's CATEGORY as of that date via Phase 1B's
+`resolveStoreAsOf()` FIRST (a store's category is itself effective-dated
+and can change over time), then resolves that category's rule — Store
+Name is never consulted anywhere in the chain. `sl_getComplianceGaps()`
+resolves each store's rule via `store_resolveIdByCurrentName()` → Store
+ID → `resolveComplianceConfigurationAsOf()`, falling back to a raw
+SETTINGS category lookup only when the Store ID doesn't resolve yet
+(same graceful-degradation pattern Phase 1B established).
+
+### Historical configuration resolution + effective-date/backdate handling
+
+Every new resolver follows the same Phase 1A pattern: `entity/rule + date
+→ applicable configuration version`, never "the current active rule."
+Immediate (`Effective From = today`) and future-dated changes are allowed
+outright; a backdated change (`Effective From < today`) requires
+`options.backdateConfirmed === true` AND a non-empty reason, or is
+rejected with `requiresBackdateConfirmation: true` — identical to Phase
+1A's existing contract, reused as-is (no second backdate-handling
+mechanism was built).
+
+### Audit + rollback
+
+Every successful Risk/Compliance/KPI/Purpose mutation writes one
+append-only `CONFIG_AUDIT` row via Phase 1A's existing
+`cfg_createConfiguration()`/`_cfg_writeAudit()` — actor, area, entity,
+action, previous/new value snapshot, effective dates, reason, version. A
+backdated mutation's reason is exactly what a human typed (the same "why"
+Phase 1A already captures); nothing here adds a second audit mechanism.
+`risk_rollback()`/`cmp_rollback()`/`kpi_rollback()`/`purpose_rollback()`
+are thin wrappers over Phase 1A's existing `cfg_rollbackConfiguration()`
+— restoring an old version creates a NEW version (never edits or deletes
+history), and both the new version's Reason field and its audit entry
+name which version was restored.
+
+### Reporting Year vs. Configuration Version — not interchangeable
+
+Phase 1C's Reporting Year answers "which year's event population is being
+reported." Configuration effective date answers "which business rules
+were applicable at the relevant calculation date." **A reporting year
+never automatically selects one configuration version for the whole
+year** — a risk-threshold or compliance-requirement change can land in
+the MIDDLE of a reporting year, and every resolver here takes an explicit
+date (not a year) for exactly that reason. `resolveRiskConfigurationAsOf`/
+`resolveComplianceConfigurationAsOf`/`resolveKPIConfigurationAsOf` all
+accept a specific calculation/evaluation DATE, never a bare year — an
+operational/current calculation uses whatever is effective on today's
+date; a historical calculation uses whatever was effective on the
+historical date being evaluated. Current configuration is never silently
+substituted for historical configuration, or vice versa.
+
+**Report Snapshot Version remains deferred to Phase 1E.** This phase
+establishes correct DYNAMIC configuration resolution (ask "what applied
+on date D" and get the right answer, every time, computed fresh) — it
+does NOT freeze/finalize any report's result. Nothing in SVMI is a
+"frozen historical report" as of Phase 1D; re-running the same query
+against the same date always re-resolves configuration live. Freezing
+that answer into an immutable, retrievable snapshot is Phase 1E's job.
+
+### Tests
+
+`tests/calendar-period.test.js` (25 checks, new) — MONTH/QUARTER/
+SEMI_ANNUAL first/middle/last day, period transitions, leap-year
+boundaries, invalid period definitions, historical/future evaluation
+dates.
+
+`tests/compliance-config.test.js` (42 checks, new) — period-to-date
+compliant/insufficient/excludes-after-evaluation-date, the spec's own
+2026=1-visit/2027=2-visits worked example, future rule non-interference,
+effective-date boundaries, inactive/overlapping/missing configuration,
+Store ID resolution (category changes over time, Store Name changes and
+lookalike names don't break identity, Store ID stability), security
+(non-admin, spoofed payload fields, no audit-success on invalid input),
+backdating, rollback, and a 5,200-row multi-year/multi-store scale
+fixture.
+
+`tests/risk-config.test.js` (33 checks, new) — unchanged output under
+default config, configured threshold/weight changes taking effect,
+historical/future configuration resolution (the spec's 2026=A/2027=B risk
+example), backdating, rollback, confirmation that no second risk engine
+exists, the full purpose-weight fallback chain, and security.
+
+`tests/kpi-purpose-config.test.js` (44 checks, new) — KPI creation/
+validation (weight/targetType/PERCENTAGE-range)/historical resolution/no
+duplicates/missing-configuration safety, the visit-count tracker proven
+untouched across 2026/2027/2028, Purpose exists/active/hasKpiConfig/
+hasRiskConfig for both a legacy and a brand-new purpose, deliberate KPI
+and risk configuration, no-inheritance between two independently-created
+purposes, and security for both services.
+
+`tests/store-lookup-date-handling.test.js` and `tests/reporting-year.test.js`
+were updated (each now also loads `SVMKPI_CALENDAR.gs` and, where they
+exercise `sl_getComplianceGaps()`, `SVMKPI_COMPLIANCE_CONFIG.gs`) — every
+pre-existing assertion in both still passes unchanged.
+
+Full suite after Phase 1D: **667/667** unit checks (18 files) + **66/66**
+responsive-layout checks, zero regressions.
+
+---
+
 ## Checks before you push
 
 No linter, but three checks are worth running:
@@ -1150,6 +1425,24 @@ node SVMI_Project/tests/store-scale.test.js
 # hand-computed 2026 regression check, and a 9,000-row multi-year scale
 # fixture (57 checks)
 node SVMI_Project/tests/reporting-year.test.js
+
+# Phase 1D: resolveCalendarPeriod() — MONTH/QUARTER/SEMI_ANNUAL boundaries,
+# transitions, leap years, invalid period definitions (25 checks)
+node SVMI_Project/tests/calendar-period.test.js
+
+# Phase 1D: versioned compliance configuration + period-to-date
+# evaluation, Store ID resolution, security, 5,200-row scale fixture (42 checks)
+node SVMI_Project/tests/compliance-config.test.js
+
+# Phase 1D: versioned risk configuration feeding the unchanged canonical
+# risk engine — thresholds, purpose-weight fallback chain, backdating,
+# rollback, security (33 checks)
+node SVMI_Project/tests/risk-config.test.js
+
+# Phase 1D: versioned KPI weight/target configuration (infrastructure
+# only — documented no-consumer gap) + deliberate Purpose KPI/risk
+# configuration with no automatic inheritance (44 checks)
+node SVMI_Project/tests/kpi-purpose-config.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a
@@ -1159,8 +1452,10 @@ issues. `risk-scoring.test.js`, `kpi-roster-history.test.js`,
 `canonical-risk-engine.test.js`, `submission-lock.test.js`,
 `date-parsing.test.js`, `store-lookup-date-handling.test.js`,
 `duplicate-prevention.test.js`, `config-service.test.js`,
-`store-identity.test.js`, `store-scale.test.js`, and
-`reporting-year.test.js` are the
+`store-identity.test.js`, `store-scale.test.js`,
+`reporting-year.test.js`, `calendar-period.test.js`,
+`compliance-config.test.js`, `risk-config.test.js`, and
+`kpi-purpose-config.test.js` are the
 exception: they run actual `.gs`
 functions directly (against a mocked Sheet/Range, not a mock of the
 *business logic*), so they do catch data-correctness bugs (this is how the

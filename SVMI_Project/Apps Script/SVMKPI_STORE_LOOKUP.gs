@@ -24,6 +24,13 @@
 // getDefaultReportingYear() (SVMKPI_REPORTING_YEAR.gs) as
 // sl_getComplianceGaps()'s fallback when no reportingYear is supplied —
 // never a hardcoded year.
+// Phase 1D: sl_getComplianceGaps() also reuses resolveCalendarPeriod()
+// (SVMKPI_CALENDAR.gs, hard dependency) and, defensively (typeof-checked,
+// falls back to the pre-Phase-1D per-category branches when absent),
+// store_resolveIdByCurrentName() (SVMKPI_STORE_CONFIG.gs) and
+// resolveComplianceConfigurationAsOf()/_cmp_resolveByCategory()
+// (SVMKPI_COMPLIANCE_CONFIG.gs) for period-to-date, config-driven
+// compliance — see that function's own docblock.
 // ============================================================
 
 
@@ -706,24 +713,48 @@ function sl_getUnvisitedThisMonth(brandFilter) {
  * @returns {{ store, brand, region, category, lastVisitDate, daysSince, windowLabel }[]}
  */
 /**
- * sl_getComplianceGaps(brandFilter, monthNumber, reportingYear)
- * Returns stores that have NOT met their category visit frequency
- * for the given month (or current month if monthNumber is 0/null).
+ * sl_getComplianceGaps(brandFilter, monthNumber, reportingYear, evaluationDateStr)
+ * Returns stores that have NOT met their category's PERIOD-TO-DATE visit
+ * requirement for the given month (or current month if monthNumber is
+ * 0/null).
  *
- * Uses a set-based scan of ALL MASTER_LOG rows so historical
- * months are checked correctly (not just last-visit comparison).
+ * Phase 1D: this is now the calendar-period-to-date compliance model
+ * (business decision — calendar periods, never a rolling-N-day window):
+ * for the calendar period (month/quarter/semi-annual, via
+ * resolveCalendarPeriod(), SVMKPI_CALENDAR.gs) containing the reference
+ * month, qualifying activity is counted from the period's START through
+ * the EVALUATION DATE (never past it) — an event dated after the
+ * evaluation date, even if still inside the same period, does not count.
+ * The required visit COUNT per period and the calendar-period family are
+ * both configuration-driven via CONFIG_COMPLIANCE, resolved through the
+ * store's Store ID (Phase 1B — never Store Name) as of the evaluation
+ * date, falling back to the pre-Phase-1D hardcoded per-category rule
+ * (CMP_DEFAULT_RULES, SVMKPI_COMPLIANCE_CONFIG.gs) when no CONFIG_
+ * COMPLIANCE version exists yet or the store's ID doesn't resolve —
+ * zero behavior change pre-migration. The previous "Flight Provincial"
+ * window was a ROLLING 6 calendar months ending at the reference month;
+ * it is now the calendar half-year (Jan–Jun / Jul–Dec) containing it,
+ * per the Phase 1D calendar-period business decision (no existing test
+ * asserted the old rolling window, so this is a safe, deliberate change
+ * — see DEPLOY.md).
  *
  * @param {string[]|string} brandFilter  — array of UPPERCASE brand names to keep
  *   (empty array = no filter), or the legacy single brand name / 'ALL' / ''
  * @param {number} monthNumber  — 1-12 for specific month, 0/null for current
  * @param {number} [reportingYear] — Phase 1C: the calendar year the month/
- *   quarter/6-month windows are anchored to. Omit for
- *   getDefaultReportingYear() (SVMKPI_REPORTING_YEAR.gs) — the latest year
- *   actually present in MASTER_LOG, never a hardcoded literal. Previously
- *   this was DATA_YEAR (SVMKPI_CORE.gs), which is no longer read here.
+ *   quarter/half-year windows are anchored to. Omit for
+ *   getDefaultReportingYear() (SVMKPI_REPORTING_YEAR.gs).
+ * @param {string} [evaluationDateStr] — Phase 1D: the explicit evaluation
+ *   date ('YYYY-MM-DD') period-to-date counting is clipped to, and
+ *   configuration is resolved as of. Omit and a specific month/year WAS
+ *   requested → defaults to that period's own end (evaluates the period
+ *   as fully elapsed, matching pre-Phase-1D behavior exactly). Omit with
+ *   NO month/year requested either (a genuinely "right now" query) →
+ *   defaults to today. Never silently substitutes today for an
+ *   explicitly historical evaluation.
  * @returns {object[]} sorted A-Z by store name
  */
-function sl_getComplianceGaps(brandFilter, monthNumber, reportingYear) {
+function sl_getComplianceGaps(brandFilter, monthNumber, reportingYear, evaluationDateStr) {
   const ss       = SpreadsheetApp.getActiveSpreadsheet();
   const now      = new Date();
   const year     = (reportingYear != null && !isNaN(Number(reportingYear)))
@@ -731,16 +762,34 @@ function sl_getComplianceGaps(brandFilter, monthNumber, reportingYear) {
     : getDefaultReportingYear();
 
   // ── Determine reference month ─────────────────────────────
+  const specificPeriodRequested = !!(monthNumber || reportingYear != null);
   const refMonthIdx = (monthNumber && monthNumber >= 1 && monthNumber <= 12)
     ? monthNumber - 1          // convert to 0-based
     : now.getMonth();          // current month
+  const periodRefDate = new Date(year, refMonthIdx, 1);
 
-  // ── Window boundaries anchored to reference month ─────────
-  const monthStart   = new Date(year, refMonthIdx, 1);
-  const monthEnd     = new Date(year, refMonthIdx + 1, 0, 23, 59, 59, 999);
-  const qStart       = new Date(year, Math.floor(refMonthIdx / 3) * 3, 1);
-  const qEnd         = new Date(year, Math.floor(refMonthIdx / 3) * 3 + 3, 0, 23, 59, 59, 999);
-  const sixMonthsAgo = new Date(year, refMonthIdx - 5, 1); // 6-month window ending last day of ref month
+  // ── Calendar-period boundaries (SVMKPI_CALENDAR.gs) ───────
+  const monthPeriod   = resolveCalendarPeriod(periodRefDate, CAL_PERIOD_FAMILY.MONTH);
+  const quarterPeriod = resolveCalendarPeriod(periodRefDate, CAL_PERIOD_FAMILY.QUARTER);
+  const semiPeriod    = resolveCalendarPeriod(periodRefDate, CAL_PERIOD_FAMILY.SEMI_ANNUAL);
+
+  // ── Evaluation date: explicit > (a specific period was requested ->
+  //    that period's own end, i.e. evaluate it as fully elapsed) > now ──
+  let evaluationDate;
+  if (evaluationDateStr) {
+    evaluationDate = _parseDateCell(evaluationDateStr) || now;
+  } else if (specificPeriodRequested) {
+    evaluationDate = monthPeriod.periodEnd;
+  } else {
+    evaluationDate = now;
+  }
+
+  // Period-to-date: never count activity after the evaluation date, even
+  // if still inside the same period.
+  const clip = (periodEnd) => (periodEnd.getTime() < evaluationDate.getTime() ? periodEnd : evaluationDate);
+  const monthStart   = monthPeriod.periodStart,   monthEnd   = clip(monthPeriod.periodEnd);
+  const qStart       = quarterPeriod.periodStart, qEnd       = clip(quarterPeriod.periodEnd);
+  const semiStart    = semiPeriod.periodStart,    semiEnd    = clip(semiPeriod.periodEnd);
 
   // ── Read SETTINGS ─────────────────────────────────────────
   const settings = ss.getSheetByName('SETTINGS');
@@ -762,10 +811,11 @@ function sl_getComplianceGaps(brandFilter, monthNumber, reportingYear) {
   // ── Scan MASTER_LOG once — build all needed maps ──────────
   const log = ss.getSheetByName('MASTER_LOG');
 
-  // Sets: stores visited within each window type
-  const visitedInMonth    = new Set();
-  const visitedInQuarter  = new Set();
-  const visitedInSixMonths = new Set();
+  // Maps: visit COUNT within each period-to-date window (not just a
+  // boolean "any visit" — Phase 1D's requiredCount can be > 1)
+  const countInMonth    = new Map();
+  const countInQuarter  = new Map();
+  const countInSemi     = new Map();
 
   // Maps: last visit date and YTD count per store
   const lastVisitByStore = new Map();
@@ -790,10 +840,11 @@ function sl_getComplianceGaps(brandFilter, monthNumber, reportingYear) {
       const existing = lastVisitByStore.get(store);
       if (!existing || date > existing) lastVisitByStore.set(store, date);
 
-      // Window membership — set-based, covers any visit in the window
-      if (date >= monthStart    && date <= monthEnd) visitedInMonth.add(store);
-      if (date >= qStart        && date <= qEnd)     visitedInQuarter.add(store);
-      if (date >= sixMonthsAgo  && date <= monthEnd) visitedInSixMonths.add(store);
+      // Period-to-date window membership — counted, not just boolean
+      const bump = (map) => map.set(store, (map.get(store) || 0) + 1);
+      if (date >= monthStart && date <= monthEnd) bump(countInMonth);
+      if (date >= qStart     && date <= qEnd)     bump(countInQuarter);
+      if (date >= semiStart  && date <= semiEnd)  bump(countInSemi);
     });
   }
 
@@ -802,23 +853,34 @@ function sl_getComplianceGaps(brandFilter, monthNumber, reportingYear) {
 
   allStores.forEach(({ brand, region, category }, store) => {
     const last      = lastVisitByStore.get(store) || null;
-    const daysSince = last ? Math.floor((now - last) / 86400000) : null;
+    const daysSince = last ? Math.floor((evaluationDate - last) / 86400000) : null;
     const ytd       = ytdByStore.get(store) || 0;
 
-    let compliant   = false;
-    let windowLabel = '';
+    // Store ID (Phase 1B) is the configuration-resolution entry point;
+    // falls back to the raw SETTINGS category when Store ID isn't
+    // available/migrated yet — the same graceful-degradation Phase 1B
+    // established elsewhere.
+    let rule = null;
+    if (typeof store_resolveIdByCurrentName === 'function' && typeof resolveComplianceConfigurationAsOf === 'function') {
+      const storeId = store_resolveIdByCurrentName(store);
+      if (storeId) rule = resolveComplianceConfigurationAsOf(storeId, evaluationDate);
+    }
+    if (!rule && typeof _cmp_resolveByCategory === 'function') {
+      rule = _cmp_resolveByCategory(category, evaluationDate);
+    }
 
-    if (category === 'NCR' || category === 'NEAR PROVINCIAL') {
-      windowLabel = 'Monthly';
-      compliant   = visitedInMonth.has(store);
-    } else if (category === 'FAR PROVINCIAL') {
-      windowLabel = 'Quarterly';
-      compliant   = visitedInQuarter.has(store);
-    } else if (category === 'FLIGHT PROVINCIAL') {
-      windowLabel = 'Semi-Annual';
-      compliant   = visitedInSixMonths.has(store);
+    let compliant, windowLabel, requiredCount, actualCount;
+
+    if (rule) {
+      requiredCount = rule.requiredCount || 1;
+      const family = rule.periodDefinition;
+      if (family === CAL_PERIOD_FAMILY.MONTH) { windowLabel = 'Monthly'; actualCount = countInMonth.get(store) || 0; }
+      else if (family === CAL_PERIOD_FAMILY.QUARTER) { windowLabel = 'Quarterly'; actualCount = countInQuarter.get(store) || 0; }
+      else if (family === CAL_PERIOD_FAMILY.SEMI_ANNUAL) { windowLabel = 'Semi-Annual'; actualCount = countInSemi.get(store) || 0; }
+      else return; // resolved rule with an unrecognized period family — skip rather than guess
+      compliant = actualCount >= requiredCount;
     } else {
-      return; // unknown category — skip
+      return; // unknown category, no config, no hardcoded default — skip (matches pre-Phase-1D behavior)
     }
 
     if (!compliant) {
@@ -831,6 +893,8 @@ function sl_getComplianceGaps(brandFilter, monthNumber, reportingYear) {
         daysSince,
         windowLabel,
         ytdVisits: ytd,
+        requiredCount,
+        actualCount,
       });
     }
   });

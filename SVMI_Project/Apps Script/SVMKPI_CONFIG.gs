@@ -157,13 +157,23 @@ const CFG_AREA_SCHEMAS = {
 
   PURPOSES: {
     sheetName: 'CONFIG_PURPOSES',
-    // Entity ID = normalized Purpose Name (interim). Deliberately NO
-    // KPI/risk-weight fields yet — Phase 1A must not invent that business
-    // rule. A new Purpose existing here says nothing about how it scores;
-    // Phase 1D adds the fields (and the "must be deliberately configured
-    // before it participates in KPI/risk" rule) when it defines them.
+    // Entity ID = normalized Purpose Name (interim, unchanged from Phase 1A).
+    //
+    // Phase 1D: `riskWeight` is the deliberate, per-purpose risk-scoring
+    // input SVMKPI_RISK_CONFIG.gs's risk_resolvePurposeWeight() consumes.
+    // Optional and NOT required — a purpose can exist with no riskWeight
+    // at all (see purpose_getConfigurationStatus(), SVMKPI_PURPOSE_CONFIG.gs:
+    // "hasRiskConfig" is false in that case). Deliberately NOT
+    // auto-populated for a new purpose — no automatic inheritance from
+    // any other purpose's weight, per the Phase 1D business decision.
+    // The 4 pre-existing purposes (STORE VISIT/FAILED QA/MS/CURING-
+    // SUPPORT/TLTC) don't need a CONFIG_PURPOSES row with this field set
+    // at all: their weights keep resolving from CONFIG_RISK's existing
+    // named fields (backward-compatible legacy fallback — see
+    // risk_resolvePurposeWeight()), so no migration was required.
     fields: [
       { key: 'purposeName', header: 'Purpose Name' },
+      { key: 'riskWeight',  header: 'Risk Weight (deliberate, no inheritance)' },
     ],
     required: ['purposeName'],
   },
@@ -201,8 +211,24 @@ const CFG_AREA_SCHEMAS = {
     // not populate or interpret it.
     fields: [
       { key: 'cadenceType',      header: 'Cadence Type' },       // MONTHLY | QUARTERLY | SEMI_ANNUAL
-      { key: 'cadenceDays',      header: 'Cadence Days' },       // numeric — replaces RISK_CADENCE's fixed lookup
-      { key: 'periodDefinition', header: 'Period Definition (placeholder — see DEPLOY.md)' },
+      { key: 'cadenceDays',      header: 'Cadence Days' },       // numeric — the ROLLING-day threshold
+        // SVMKPI_RISK.gs's canonical risk score still uses (its own
+        // existing algorithm, unchanged — see SVMKPI_RISK_CONFIG.gs)
+      // Phase 1D: no longer an unused placeholder — populated by
+      // SVMKPI_COMPLIANCE_CONFIG.gs's cmp_create()/cmp_update() from
+      // cadenceType via _cal_familyFromCadenceType() (SVMKPI_CALENDAR.gs),
+      // so it's always derived/consistent with cadenceType rather than an
+      // independently-editable field that could drift out of sync. This
+      // is the CALENDAR-period family (MONTH|QUARTER|SEMI_ANNUAL) the new
+      // period-to-date compliance evaluator (sl_getComplianceGaps()) uses
+      // via resolveCalendarPeriod() — a genuinely different model from
+      // cadenceDays' rolling-day threshold above.
+      { key: 'periodDefinition', header: 'Period Definition (calendar-period family)' },
+      { key: 'requiredCount',    header: 'Required Visits Per Period' }, // Phase 1D — e.g.
+        // "1 visit per period" vs "2 visits per period" (see DEPLOY.md's
+        // historical-example test). Optional; defaults to 1 (the
+        // existing "at least one visit" behavior) when blank, so
+        // pre-Phase-1D fixtures/rows that never set this are unaffected.
       { key: 'graceDays',        header: 'Grace Period Days' },
     ],
     required: ['cadenceType', 'cadenceDays'],
@@ -210,14 +236,31 @@ const CFG_AREA_SCHEMAS = {
 
   KPI: {
     sheetName: 'CONFIG_KPI',
-    // No KPI target/weight business rule exists anywhere in the current
-    // app (confirmed: zero TARGET/GOAL_/QUOTA constants in the codebase
-    // as of the Phase 0 audit) — this schema is deliberately minimal and
-    // generic. Phase 1D defines the real rule; Phase 1A only proves the
-    // envelope works uniformly across every area, including this one.
+    // DOCUMENTED GAP (Phase 1D, per its own "no business-rule invention"
+    // constraint): no KPI target/weight business rule exists anywhere in
+    // the current app — buildKPI2026()/getKPI2026Report() (SVMKPI_KPI_
+    // REBUILD.gs/SVMKPI_REPORTS.gs) are a pure visit-count tracker with
+    // NO weighting, scoring, or target-comparison logic to plug a
+    // "weight" or "target" value into (reconfirmed here; the same gap
+    // Phase 1A's own comment already flagged). Phase 1D therefore builds
+    // ONLY the configuration STORAGE/validation/effective-dated-
+    // resolution layer (SVMKPI_KPI_CONFIG.gs) as infrastructure for a
+    // future KPI-scoring feature — it does NOT invent what a "KPI
+    // weight" or "KPI target" means, and does NOT wire either value into
+    // any live calculation. See DEPLOY.md's Phase 1D section and the
+    // completion report's "unresolved business-rule gaps" item.
+    //
+    // `targetType` lets a target be represented with its own type instead
+    // of an arbitrary string — a minimal closed set covering plausible
+    // future needs (NUMERIC a plain count/number, PERCENTAGE a 0-100
+    // rate, COUNT an integer tally), not a fabricated business meaning
+    // for any specific KPI, since none exist yet to observe a real type
+    // from. Optional; when blank, `targetValue` is stored as an
+    // untyped/opaque value (unchanged from Phase 1A).
     fields: [
       { key: 'kpiName',     header: 'KPI Name' },
       { key: 'targetValue', header: 'Target Value' },
+      { key: 'targetType',  header: 'Target Type (NUMERIC | PERCENTAGE | COUNT)' },
       { key: 'weight',      header: 'Weight' },
       { key: 'purposeRef',  header: 'Purpose Reference' },
     ],
@@ -499,6 +542,49 @@ function cfg_validateConfiguration(area, entityId, fields, effectiveFrom, effect
     const days = Number(fields && fields.cadenceDays);
     if (fields && fields.cadenceDays != null && fields.cadenceDays !== '' && (isNaN(days) || days <= 0)) {
       errors.push('Cadence Days must be a positive number.');
+    }
+    // Phase 1D
+    if (fields && fields.requiredCount != null && fields.requiredCount !== '') {
+      const rc = Number(fields.requiredCount);
+      if (isNaN(rc) || rc <= 0 || Math.floor(rc) !== rc) {
+        errors.push('Required Visits Per Period must be a positive whole number.');
+      }
+    }
+    if (fields && fields.periodDefinition) {
+      const fam = String(fields.periodDefinition).trim().toUpperCase();
+      if (CAL_PERIOD_FAMILIES.indexOf(fam) === -1) {
+        errors.push('Period Definition must be one of: ' + CAL_PERIOD_FAMILIES.join(', ') + '.');
+      }
+    }
+  }
+
+  // Phase 1D
+  if (area === CFG_AREA.PURPOSES) {
+    if (fields && fields.riskWeight != null && fields.riskWeight !== '' && isNaN(Number(fields.riskWeight))) {
+      errors.push('Risk Weight must be numeric.');
+    }
+  }
+
+  if (area === CFG_AREA.KPI) {
+    if (fields && fields.weight != null && fields.weight !== '' && isNaN(Number(fields.weight))) {
+      errors.push('Weight must be numeric.');
+    }
+    if (fields && fields.targetType) {
+      const validTargetTypes = ['NUMERIC', 'PERCENTAGE', 'COUNT'];
+      const tt = String(fields.targetType).trim().toUpperCase();
+      if (validTargetTypes.indexOf(tt) === -1) {
+        errors.push('Target Type must be one of: ' + validTargetTypes.join(', ') + '.');
+      }
+      if ((tt === 'NUMERIC' || tt === 'PERCENTAGE' || tt === 'COUNT') &&
+          fields.targetValue != null && fields.targetValue !== '' && isNaN(Number(fields.targetValue))) {
+        errors.push('Target Value must be numeric for Target Type ' + tt + '.');
+      }
+      if (tt === 'PERCENTAGE' && fields.targetValue != null && fields.targetValue !== '') {
+        const pv = Number(fields.targetValue);
+        if (!isNaN(pv) && (pv < 0 || pv > 100)) {
+          errors.push('Target Value must be between 0 and 100 for Target Type PERCENTAGE.');
+        }
+      }
     }
   }
 

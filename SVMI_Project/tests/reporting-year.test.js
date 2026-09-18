@@ -30,6 +30,8 @@ const vm = require('vm');
 const APPS = (name) => fs.readFileSync(path.join(__dirname, '..', 'Apps Script', name), 'utf8');
 const coreSrc    = APPS('SVMKPI_CORE.gs');
 const yearSrc    = APPS('SVMKPI_REPORTING_YEAR.gs');
+const calSrc     = APPS('SVMKPI_CALENDAR.gs');
+const cmpCfgSrc  = APPS('SVMKPI_COMPLIANCE_CONFIG.gs');
 const riskSrc    = APPS('SVMKPI_RISK.gs');
 const lookupSrc  = APPS('SVMKPI_STORE_LOOKUP.gs');
 const kpiSrc     = APPS('SVMKPI_KPI_REBUILD.gs');
@@ -176,6 +178,8 @@ function newLookupSandbox(masterLogRows, settingsRows) {
   vm.createContext(sandbox);
   vm.runInContext(coreSrc, sandbox);
   vm.runInContext(yearSrc, sandbox);
+  vm.runInContext(calSrc, sandbox);
+  vm.runInContext(cmpCfgSrc, sandbox);
   vm.runInContext(riskSrc, sandbox);
   vm.runInContext(lookupSrc, sandbox);
   return sandbox;

@@ -24,6 +24,13 @@
 // here): getDefaultReportingYear() — Phase 1C. _computeStoreRisk()'s
 // evaluation year is now an explicit parameter (never the old DATA_YEAR
 // literal); this is the fallback ONLY when the caller omits it.
+// Reuses from SVMKPI_RISK_CONFIG.gs / SVMKPI_COMPLIANCE_CONFIG.gs
+// (read-only — never redeclared here, and never a hard dependency: every
+// call site falls back to this file's own pre-Phase-1D hardcoded
+// constants when those files aren't loaded): resolveRiskConfigurationAsOf(),
+// risk_resolvePurposeWeight(), cmp_getCadenceDays() — Phase 1D. The
+// canonical scoring ALGORITHM in this file is unchanged; only the
+// threshold/weight/cadence NUMBERS it reads are now configuration-driven.
 // Reuses from SVMKPI_RISK_LAYOUT.gs (read-only — never redeclared here):
 //   RISK_ROW, RISK_KPI_CARDS, buildRiskEngineLayout(),
 //   applyRiskLastRefreshed(), applyRiskKPICards(),
@@ -128,13 +135,24 @@ function _sl_normalizeText(value) {
 }
 
 /**
- * _sl_getCadenceDays(category)
+ * _sl_getCadenceDays(category, dateRef)
+ * Phase 1D: resolves via cmp_getCadenceDays() (SVMKPI_COMPLIANCE_CONFIG.gs)
+ * — CONFIG_COMPLIANCE as of `dateRef`, itself falling back to these exact
+ * hardcoded values when no version exists — when that file is loaded.
+ * Falls back to the hardcoded RISK_CADENCE map directly (unchanged
+ * pre-Phase-1D behavior) when it isn't, so this file still works
+ * standalone (existing tests that load only SVMKPI_RISK.gs are
+ * unaffected).
  * @param {string} category — SETTINGS category (NCR, NEAR PROVINCIAL,
  *   FAR PROVINCIAL, FLIGHT PROVINCIAL — or already-normalized MONTHLY/
  *   QUARTERLY/SEMI-ANNUAL)
+ * @param {Date} [dateRef] - resolution date; omit for today
  * @returns {number} required days between visits, or 0 if unrecognized
  */
-function _sl_getCadenceDays(category) {
+function _sl_getCadenceDays(category, dateRef) {
+  if (typeof cmp_getCadenceDays === 'function') {
+    return cmp_getCadenceDays(category, dateRef);
+  }
   const cat = _sl_normalizeText(category);
   if (cat === 'NCR' || cat === 'NEAR PROVINCIAL' || cat === 'MONTHLY') return RISK_CADENCE.MONTHLY;
   if (cat === 'FAR PROVINCIAL' || cat === 'QUARTERLY') return RISK_CADENCE.QUARTERLY;
@@ -206,7 +224,7 @@ function _sl_getStoreMetaLookup() {
  * @returns {{score:number, status:string, cadenceDays:number, daysSince:(number|null), label:string}}
  */
 function _sl_computeComplianceScore(lastDate, category, today) {
-  const cadenceDays = _sl_getCadenceDays(category);
+  const cadenceDays = _sl_getCadenceDays(category, today);
   const categoryLabel = _sl_getCategoryLabel(category);
 
   if (!cadenceDays) {
@@ -232,14 +250,23 @@ function _sl_computeComplianceScore(lastDate, category, today) {
 }
 
 /**
- * _sl_riskTier(score)
- * Approved Risk Tier: 0-4 LOW, 5-9 MEDIUM, 10+ HIGH. Cutoffs unchanged
- * from v1 — only the score feeding them is new.
+ * _sl_riskTier(score, dateRef)
+ * Approved Risk Tier: LOW/MEDIUM/HIGH by threshold. Phase 1D: cutoffs
+ * resolve via resolveRiskConfigurationAsOf() (SVMKPI_RISK_CONFIG.gs) as
+ * of `dateRef` when that file is loaded — same 5/10 defaults as v1
+ * (RISK_CFG_DEFAULT_THRESHOLDS) when no CONFIG_RISK version exists yet.
+ * Falls back to the literal 5/10 cutoffs directly (unchanged pre-Phase-1D
+ * behavior) when the config file isn't loaded at all.
+ * @param {number} score
+ * @param {Date} [dateRef] - resolution date; omit for today
  * @returns {string}
  */
-function _sl_riskTier(score) {
-  if (score >= 10) return RISK_TIER_LABEL.HIGH;
-  if (score >= 5) return RISK_TIER_LABEL.MEDIUM;
+function _sl_riskTier(score, dateRef) {
+  const t = (typeof resolveRiskConfigurationAsOf === 'function')
+    ? resolveRiskConfigurationAsOf(dateRef)
+    : { mediumThreshold: 5, highThreshold: 10 };
+  if (score >= t.highThreshold) return RISK_TIER_LABEL.HIGH;
+  if (score >= t.mediumThreshold) return RISK_TIER_LABEL.MEDIUM;
   return RISK_TIER_LABEL.LOW;
 }
 
@@ -271,11 +298,34 @@ function _sl_attentionReason(activeFailedPenalty, complianceStatus, categoryLabe
  * just 1 point (floored at 0) — a single failure (+5) takes 5 clean
  * months to fully decay, not one; repeated failing months never get the
  * chance to decay at all.
+ * Phase 1D: each purpose's weight resolves via risk_resolvePurposeWeight()
+ * (SVMKPI_RISK_CONFIG.gs) as of `dateRef` when that file is loaded —
+ * falling back to RISK_PURPOSE_SCORE directly (unchanged pre-Phase-1D
+ * behavior) when it isn't. Resolved ONCE per call (as of the overall
+ * evaluation date), not re-resolved per historical month within the
+ * same YTD roll-up — the existing monthBuckets aggregation already
+ * collapses events to per-month counts before this function ever sees
+ * them, so per-EVENT historical weight resolution isn't achievable
+ * without restructuring that aggregation itself, which is out of this
+ * phase's scope (documented in DEPLOY.md).
  * @param {object[]} monthBuckets — 12 entries: {failedCount, storeVisitCount, curingCount, tltcCount}
  * @param {number} monthLimit — 0-based index of the last month to include
+ * @param {Date} [dateRef] - weight-resolution date; omit for today
  * @returns {{basePurposeScore:number, activeFailedPenalty:number, totalPurposeScore:number}}
  */
-function _sl_computeMonthlyPurposeScores(monthBuckets, monthLimit) {
+function _sl_computeMonthlyPurposeScores(monthBuckets, monthLimit, dateRef) {
+  const _weightOf = (purpose) => {
+    if (typeof risk_resolvePurposeWeight === 'function') {
+      const r = risk_resolvePurposeWeight(purpose, dateRef);
+      if (r) return r.weight;
+    }
+    return RISK_PURPOSE_SCORE[purpose];
+  };
+  const wStoreVisit = _weightOf('STORE VISIT');
+  const wCuring = _weightOf('CURING/SUPPORT');
+  const wTltc = _weightOf('TLTC');
+  const wFailed = _weightOf('FAILED QA/MS');
+
   let activeFailedPenalty = 0;
   let basePurposeScore = 0;
 
@@ -283,12 +333,12 @@ function _sl_computeMonthlyPurposeScores(monthBuckets, monthLimit) {
     const b = monthBuckets[m];
     if (!b) continue;
 
-    basePurposeScore += (b.storeVisitCount * RISK_PURPOSE_SCORE['STORE VISIT']);
-    basePurposeScore += (b.curingCount * RISK_PURPOSE_SCORE['CURING/SUPPORT']);
-    basePurposeScore += (b.tltcCount * RISK_PURPOSE_SCORE['TLTC']);
+    basePurposeScore += (b.storeVisitCount * wStoreVisit);
+    basePurposeScore += (b.curingCount * wCuring);
+    basePurposeScore += (b.tltcCount * wTltc);
 
     if (b.failedCount > 0) {
-      activeFailedPenalty += (b.failedCount * RISK_PURPOSE_SCORE['FAILED QA/MS']);
+      activeFailedPenalty += (b.failedCount * wFailed);
     } else if (activeFailedPenalty > 0) {
       activeFailedPenalty = Math.max(0, activeFailedPenalty - 1);
     }
@@ -416,12 +466,12 @@ function _computeStoreRisk(data, today, year) {
 
   return Object.values(byStore).map(s => {
     const lastPurpose = _sl_resolveTiebreak(s.lastPurposes);
-    const monthlyScore = _sl_computeMonthlyPurposeScores(s.monthlyBuckets, monthLimit);
+    const monthlyScore = _sl_computeMonthlyPurposeScores(s.monthlyBuckets, monthLimit, today);
     const compliance = _sl_computeComplianceScore(s.lastDate, s.category, today);
 
     const rawScore = monthlyScore.totalPurposeScore + compliance.score;
     const totalScore = Math.max(0, parseFloat(rawScore.toFixed(2)));
-    const tier = _sl_riskTier(totalScore);
+    const tier = _sl_riskTier(totalScore, today);
     const reason = _sl_attentionReason(
       monthlyScore.activeFailedPenalty,
       compliance.status,
