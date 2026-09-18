@@ -73,7 +73,18 @@ const ROW_HEIGHTS = {
 // ═══════════════════════════════════════════════════════════════
 // SECTION 2: LAYOUT ENTRY POINT
 // ═══════════════════════════════════════════════════════════════
-function buildExecutiveSummaryLayout() {
+/**
+ * buildExecutiveSummaryLayout(year)
+ * Phase 1C: `year` selects the reporting year baked into the title and
+ * the two year-bound formula groups (Monthly by Brand, Brand Performance
+ * peak month) — SAME implementation for any year, never a hardcoded
+ * literal. Omit for getDefaultReportingYear() (SVMKPI_REPORTING_YEAR.gs).
+ * Rebuilds the ONE "EXECUTIVE SUMMARY" sheet in place; does not create or
+ * maintain multiple simultaneous per-year sheets.
+ * @param {number} [year]
+ */
+function buildExecutiveSummaryLayout(year) {
+  const reportYear = (year != null && !isNaN(Number(year))) ? Number(year) : getDefaultReportingYear();
   const ss    = SpreadsheetApp.getActiveSpreadsheet();
   let   sheet = ss.getSheetByName('EXECUTIVE SUMMARY');
 
@@ -103,7 +114,7 @@ function buildExecutiveSummaryLayout() {
   _applyColumnWidths(sheet);
   _applyRowHeights(sheet);
 
-  buildTitle(sheet);
+  buildTitle(sheet, reportYear);
   buildKPI(sheet);
   buildMonthly(sheet);
   buildRegion(sheet);
@@ -118,7 +129,7 @@ function buildExecutiveSummaryLayout() {
 
   // Write native Google Sheets formulas into all data cells
   // so the dashboard auto-updates when MASTER_LOG receives new rows
-  _buildESFormulas(sheet);
+  _buildESFormulas(sheet, reportYear);
 
   SpreadsheetApp.flush();
   Logger.log('✅ Executive Summary layout and formulas rebuilt.');
@@ -127,10 +138,10 @@ function buildExecutiveSummaryLayout() {
 // ═══════════════════════════════════════════════════════════════
 // SECTION 3: DASHBOARD LAYOUT BUILDERS
 // ═══════════════════════════════════════════════════════════════
-function buildTitle(sheet) {
+function buildTitle(sheet, year) {
   _merge(sheet, 'C2:I2');
   sheet.getRange('C2')
-    .setValue('STORE VISIT PROGRAM — EXECUTIVE SUMMARY ' + DATA_YEAR)
+    .setValue('STORE VISIT PROGRAM — EXECUTIVE SUMMARY ' + year)
     .setBackground('#1F3864')
     .setFontColor(C.WHITE_TEXT)
     .setFontSize(16)
@@ -555,7 +566,7 @@ function _applyAllBorders(sheet) {
 // SECTION 7: NATIVE FORMULA WRITER
 // Auto-updates dashboard from MASTER_LOG without script refresh.
 // ═══════════════════════════════════════════════════════════════
-function _buildESFormulas(sheet) {
+function _buildESFormulas(sheet, year) {
   const ML = 'MASTER_LOG'; // sheet reference prefix
 
   // ── KPI Cards (row 7, cols 3-9) ──────────────────────────────
@@ -572,9 +583,9 @@ function _buildESFormulas(sheet) {
 
   // ── Monthly by Brand (rows 11-22, cols 4-9) ─────────────────
   const brands = APPROVED_BRANDS; // single source of truth — SVMKPI_CORE.gs
-  // Computed from DATA_YEAR rather than hardcoded, so this stays correct
-  // in leap years too (Feb 28 vs 29) once DATA_YEAR is updated annually.
-  const monthEnds = Array.from({ length: 12 }, (_, m) => new Date(DATA_YEAR, m + 1, 0).getDate());
+  // Computed from the requested reporting year rather than hardcoded, so
+  // this stays correct in leap years too (Feb 28 vs 29) for any year.
+  const monthEnds = Array.from({ length: 12 }, (_, m) => new Date(year, m + 1, 0).getDate());
 
   for (let m = 0; m < 12; m++) {
     const row   = 11 + m;
@@ -583,7 +594,7 @@ function _buildESFormulas(sheet) {
 
     brands.forEach(brand => {
       rowFormulas.push(
-        `=COUNTIFS(${ML}!D:D,"${brand}",${ML}!B:B,">="&DATE(${DATA_YEAR},${month},1),${ML}!B:B,"<="&DATE(${DATA_YEAR},${month},${monthEnds[m]}))`
+        `=COUNTIFS(${ML}!D:D,"${brand}",${ML}!B:B,">="&DATE(${year},${month},1),${ML}!B:B,"<="&DATE(${year},${month},${monthEnds[m]}))`
       );
     });
 
@@ -639,8 +650,8 @@ function _buildESFormulas(sheet) {
   _buildLeaderboardFormulas(sheet, ML);
 
   // ── Brand Performance (rows 50-54, cols 4-7) ────────────────
-  const dateFrom = Array.from({length:12},(_,i)=>`DATE(${DATA_YEAR},${i+1},1)`).join(',');
-  const dateTo   = Array.from({length:12},(_,i)=>i<11?`DATE(${DATA_YEAR},${i+2},1)`:`DATE(${DATA_YEAR + 1},1,1)`).join(',');
+  const dateFrom = Array.from({length:12},(_,i)=>`DATE(${year},${i+1},1)`).join(',');
+  const dateTo   = Array.from({length:12},(_,i)=>i<11?`DATE(${year},${i+2},1)`:`DATE(${year + 1},1,1)`).join(',');
   const mnNames  = MONTH_NAMES.map(m=>`"${m}"`).join(','); // single source of truth — SVMKPI_CORE.gs
 
   brands.forEach((brand, i) => {

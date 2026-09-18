@@ -19,8 +19,11 @@
 //       sl_* functions below directly via google.script.run.
 // ------------------------------------------------------------
 // Read-only module. Never writes to any sheet.
-// Completely independent from SVMKPI_CORE / LAYOUT / ADMIN.
 // Reads from: MASTER_LOG (cols A–H), SETTINGS (cols A–C)
+// Reuses _parseDateCell() (SVMKPI_CORE.gs, Phase 0.5) and, as of Phase 1C,
+// getDefaultReportingYear() (SVMKPI_REPORTING_YEAR.gs) as
+// sl_getComplianceGaps()'s fallback when no reportingYear is supplied —
+// never a hardcoded year.
 // ============================================================
 
 
@@ -703,7 +706,7 @@ function sl_getUnvisitedThisMonth(brandFilter) {
  * @returns {{ store, brand, region, category, lastVisitDate, daysSince, windowLabel }[]}
  */
 /**
- * sl_getComplianceGaps(brandFilter, monthNumber)
+ * sl_getComplianceGaps(brandFilter, monthNumber, reportingYear)
  * Returns stores that have NOT met their category visit frequency
  * for the given month (or current month if monthNumber is 0/null).
  *
@@ -713,14 +716,19 @@ function sl_getUnvisitedThisMonth(brandFilter) {
  * @param {string[]|string} brandFilter  — array of UPPERCASE brand names to keep
  *   (empty array = no filter), or the legacy single brand name / 'ALL' / ''
  * @param {number} monthNumber  — 1-12 for specific month, 0/null for current
+ * @param {number} [reportingYear] — Phase 1C: the calendar year the month/
+ *   quarter/6-month windows are anchored to. Omit for
+ *   getDefaultReportingYear() (SVMKPI_REPORTING_YEAR.gs) — the latest year
+ *   actually present in MASTER_LOG, never a hardcoded literal. Previously
+ *   this was DATA_YEAR (SVMKPI_CORE.gs), which is no longer read here.
  * @returns {object[]} sorted A-Z by store name
  */
-function sl_getComplianceGaps(brandFilter, monthNumber) {
+function sl_getComplianceGaps(brandFilter, monthNumber, reportingYear) {
   const ss       = SpreadsheetApp.getActiveSpreadsheet();
   const now      = new Date();
-  // DATA_YEAR comes from SVMKPI_CORE.gs (single source of truth for the
-  // reporting year) — previously redeclared locally here, which shadowed
-  // the shared constant and could silently drift out of sync with it.
+  const year     = (reportingYear != null && !isNaN(Number(reportingYear)))
+    ? Number(reportingYear)
+    : getDefaultReportingYear();
 
   // ── Determine reference month ─────────────────────────────
   const refMonthIdx = (monthNumber && monthNumber >= 1 && monthNumber <= 12)
@@ -728,11 +736,11 @@ function sl_getComplianceGaps(brandFilter, monthNumber) {
     : now.getMonth();          // current month
 
   // ── Window boundaries anchored to reference month ─────────
-  const monthStart   = new Date(DATA_YEAR, refMonthIdx, 1);
-  const monthEnd     = new Date(DATA_YEAR, refMonthIdx + 1, 0, 23, 59, 59, 999);
-  const qStart       = new Date(DATA_YEAR, Math.floor(refMonthIdx / 3) * 3, 1);
-  const qEnd         = new Date(DATA_YEAR, Math.floor(refMonthIdx / 3) * 3 + 3, 0, 23, 59, 59, 999);
-  const sixMonthsAgo = new Date(DATA_YEAR, refMonthIdx - 5, 1); // 6-month window ending last day of ref month
+  const monthStart   = new Date(year, refMonthIdx, 1);
+  const monthEnd     = new Date(year, refMonthIdx + 1, 0, 23, 59, 59, 999);
+  const qStart       = new Date(year, Math.floor(refMonthIdx / 3) * 3, 1);
+  const qEnd         = new Date(year, Math.floor(refMonthIdx / 3) * 3 + 3, 0, 23, 59, 59, 999);
+  const sixMonthsAgo = new Date(year, refMonthIdx - 5, 1); // 6-month window ending last day of ref month
 
   // ── Read SETTINGS ─────────────────────────────────────────
   const settings = ss.getSheetByName('SETTINGS');
@@ -773,8 +781,8 @@ function sl_getComplianceGaps(brandFilter, monthNumber) {
       const date = _parseDateCell(row[1]);
       if (!date) return;
 
-      // YTD: count all visits in DATA_YEAR
-      if (date.getFullYear() === DATA_YEAR) {
+      // YTD: count all visits in the requested reporting year
+      if (date.getFullYear() === year) {
         ytdByStore.set(store, (ytdByStore.get(store) || 0) + 1);
       }
 

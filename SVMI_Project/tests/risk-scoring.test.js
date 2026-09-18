@@ -47,6 +47,12 @@ function newSandbox(settingsRows) {
     },
     SHEET: { SETTINGS: 'SETTINGS', MASTER_LOG: 'MASTER_LOG' },
     DATA_YEAR: 2026,
+    // Phase 1C: _computeStoreRisk() now takes an explicit `year` param,
+    // falling back to getDefaultReportingYear() (SVMKPI_REPORTING_YEAR.gs)
+    // when omitted — this sandbox doesn't load that file (it only tests
+    // SVMKPI_RISK.gs in isolation), so stub the same fixed answer
+    // DATA_YEAR used to give directly, matching this file's fixtures.
+    getDefaultReportingYear: () => 2026,
     console,
   };
   vm.createContext(sandbox);

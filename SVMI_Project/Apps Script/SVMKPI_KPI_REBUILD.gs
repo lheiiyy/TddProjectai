@@ -7,14 +7,20 @@
 // Each visitor gets a unique identity color matching the live sheet.
 // ============================================================
 
-// A function, not a top-level const, so 'KPI ' + DATA_YEAR isn't evaluated
-// before SVMKPI_CORE.gs's DATA_YEAR exists (Apps Script's cross-file
-// top-level load-order hazard) — every call site below is inside a function,
-// so this resolves at runtime once every file's top-level code has run.
-// Once DATA_YEAR is bumped, the next rebuild creates/uses a fresh
-// "KPI <year>" tab rather than continuing to write into last year's sheet.
-function _kpiSheetName() {
-  return 'KPI ' + DATA_YEAR;
+// A function, not a top-level const, so cross-file references aren't
+// evaluated before every file's top-level code has run (Apps Script's
+// cross-file load-order hazard) — every call site below is inside a
+// function, so this resolves at runtime.
+//
+// Phase 1C: `year` is now an explicit parameter (never a hardcoded
+// literal) — omit it for getDefaultReportingYear() (SVMKPI_REPORTING_
+// YEAR.gs), the latest year actually present in MASTER_LOG. Rebuilding
+// for a different year reuses/renames this ONE sheet; it does not create
+// or maintain multiple simultaneous per-year sheets (that kind of
+// snapshot/archival behavior is explicitly deferred to a later phase).
+function _kpiSheetName(year) {
+  const y = (year != null && !isNaN(Number(year))) ? Number(year) : getDefaultReportingYear();
+  return 'KPI ' + y;
 }
 
 // ── Color palette ───────────────────────────────────────────
@@ -123,17 +129,21 @@ function _visitorWeekFormula(ref, year, month, s, e) {
 // ═══════════════════════════════════════════════════════════════
 // MAIN ENTRY POINT
 // ═══════════════════════════════════════════════════════════════
-function buildKPI2026() {
+/**
+ * buildKPI2026(year)
+ * Rebuilds the "KPI <year>" weekly tracker sheet — SAME implementation
+ * for any requested year (Phase 1C), not a per-year copy. Historically
+ * named for its original single-year use; kept as-is rather than renamed,
+ * to avoid touching every existing menu item/portal button/HTML call site
+ * that already calls it by this name — see DEPLOY.md's Phase 1C section.
+ * @param {number} [year] - Reporting year. Omit for
+ *   getDefaultReportingYear() (SVMKPI_REPORTING_YEAR.gs) — the latest
+ *   year actually present in MASTER_LOG, never a hardcoded literal.
+ */
+function buildKPI2026(year) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  // Derived from SVMKPI_CORE.gs's DATA_YEAR (the project's single source of
-  // truth for the reporting year), read here rather than as a top-level
-  // const: Apps Script does not guarantee which file's top-level code runs
-  // first, and a deploy tool can push files in a different order than the
-  // online editor would, throwing "DATA_YEAR is not defined" before any
-  // function ever runs. Reading it inside this function defers it until
-  // every file has finished loading.
-  const KPI_YEAR = DATA_YEAR;
+  const KPI_YEAR = (year != null && !isNaN(Number(year))) ? Number(year) : getDefaultReportingYear();
 
   // ── Read visitor roster from SETTINGS!F ───────────────────
   const settings = ss.getSheetByName('SETTINGS');
@@ -176,9 +186,9 @@ function buildKPI2026() {
   if (!visitors.length) throw new Error('No visitors found in SETTINGS!F.');
 
   // ── Get or create sheet ────────────────────────────────────
-  let sheet = ss.getSheetByName(_kpiSheetName());
+  let sheet = ss.getSheetByName(_kpiSheetName(KPI_YEAR));
   if (!sheet) {
-    sheet = ss.insertSheet(_kpiSheetName());
+    sheet = ss.insertSheet(_kpiSheetName(KPI_YEAR));
   } else {
     sheet.clear();
     sheet.clearFormats();

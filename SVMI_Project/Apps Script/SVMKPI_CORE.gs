@@ -136,7 +136,13 @@ const MONTH_NAMES = [
   'JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER',
 ];
 
-// Data year — update annually or derive from config cell
+// Data year — LEGACY compatibility constant only (Phase 1C). No longer an
+// authoritative runtime selector: nothing in the live KPI/risk/compliance
+// calculation path reads this directly anymore (see
+// SVMKPI_REPORTING_YEAR.gs's getDefaultReportingYear(), which derives the
+// real default from whatever years actually exist in MASTER_LOG). Kept
+// only for sl_getDataYear()'s historical fallback shape and the debug
+// logger below; never passed as an explicit reporting year anywhere.
 const DATA_YEAR = 2026;
 
 // Upper row bound used by a handful of generated Sheets formulas/rules
@@ -153,15 +159,20 @@ const MASTER_LOG_MAX_ROW = 200000;
 
 /**
  * sl_getDataYear()
- * Exposes DATA_YEAR to the client — SVMI_PORTAL.html's Unvisited This
- * Month month label used to hardcode the literal 2026 instead of reading
- * this, so it would keep saying "2026" for every year after DATA_YEAR is
- * next bumped. Trivial read-only getter; no reason to route it through
- * sl_getComplianceGaps()'s response shape instead.
+ * Exposes the current reporting year to the client — SVMI_PORTAL.html's
+ * top-bar year and Unvisited This Month month label read this instead of
+ * hardcoding a literal.
+ *
+ * Phase 1C: now delegates to getDefaultReportingYear()
+ * (SVMKPI_REPORTING_YEAR.gs) — the latest year actually present in
+ * MASTER_LOG — rather than returning the static DATA_YEAR literal, so
+ * this stays correct automatically as new years of data arrive instead
+ * of requiring an annual manual bump. Name/contract unchanged for the
+ * existing caller.
  * @returns {number}
  */
 function sl_getDataYear() {
-  return DATA_YEAR;
+  return getDefaultReportingYear();
 }
 
 

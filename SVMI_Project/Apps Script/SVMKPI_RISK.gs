@@ -19,7 +19,11 @@
 // ------------------------------------------------------------
 // Reuses from SVMKPI_CORE.gs (read-only — never redeclared here):
 //   SHEET.MASTER_LOG, SHEET.SETTINGS, COL, _getSheet(), _getData(),
-//   _normalizeEnum(), APPROVED_PURPOSES, DATA_YEAR, _log()
+//   _normalizeEnum(), APPROVED_PURPOSES, _log()
+// Reuses from SVMKPI_REPORTING_YEAR.gs (read-only — never redeclared
+// here): getDefaultReportingYear() — Phase 1C. _computeStoreRisk()'s
+// evaluation year is now an explicit parameter (never the old DATA_YEAR
+// literal); this is the fallback ONLY when the caller omits it.
 // Reuses from SVMKPI_RISK_LAYOUT.gs (read-only — never redeclared here):
 //   RISK_ROW, RISK_KPI_CARDS, buildRiskEngineLayout(),
 //   applyRiskLastRefreshed(), applyRiskKPICards(),
@@ -303,17 +307,26 @@ function _sl_computeMonthlyPurposeScores(monthBuckets, monthLimit) {
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * _computeStoreRisk(data, today)
+ * _computeStoreRisk(data, today, year)
  * Groups MASTER_LOG data (from CORE.gs _getData()) by store and
  * computes the v2.0.0 Store Health metrics for each store.
+ *
+ * `year` (Phase 1C) is the reporting year the YTD/monthly-purpose scoring
+ * is evaluated against — the SAME implementation runs for any year; only
+ * the event population it counts changes. Compliance (days-since-last-
+ * visit vs. cadence) was always year-independent and is untouched. When
+ * omitted, defaults to getDefaultReportingYear() (SVMKPI_REPORTING_YEAR.gs)
+ * — never a hardcoded literal, so this never silently keeps meaning one
+ * fixed year forever.
  * @param {object} data  - Parsed data object from CORE.gs _getData()
  * @param {Date}   today - Reference date for "days since visit"
+ * @param {number} [year] - Reporting year for YTD/monthly scoring
  * @returns {object[]} One row object per store, unsorted
  */
-function _computeStoreRisk(data, today) {
+function _computeStoreRisk(data, today, year) {
   const byStore = {};
   const metaLookup = _sl_getStoreMetaLookup();
-  const evaluationYear = DATA_YEAR;
+  const evaluationYear = (year != null && !isNaN(Number(year))) ? Number(year) : getDefaultReportingYear();
   const monthLimit = (today.getFullYear && today.getFullYear() === evaluationYear)
     ? today.getMonth()
     : 11;
@@ -475,15 +488,16 @@ function buildRiskEngineSheet() {
 }
 
 /**
- * populateRiskEngine(sheet, data)
+ * populateRiskEngine(sheet, data, year)
  * Computes per-store risk rows and writes them to the STORE HEALTH
  * sheet, sorted by Risk Score descending (highest risk first).
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet - STORE HEALTH sheet
  * @param {object} data - Parsed data object from CORE.gs _getData()
+ * @param {number} [year] - Reporting year (Phase 1C); see _computeStoreRisk()
  */
-function populateRiskEngine(sheet, data) {
+function populateRiskEngine(sheet, data, year) {
   const today = new Date();
-  const rows  = _computeStoreRisk(data, today)
+  const rows  = _computeStoreRisk(data, today, year)
     .sort((a, b) => b.riskScore - a.riskScore || a.store.localeCompare(b.store));
 
   if (rows.length === 0) return;
@@ -538,17 +552,20 @@ function populateRiskEngine(sheet, data) {
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * refreshRiskEngine()
+ * refreshRiskEngine(year)
  * Sole externally-called entry point. Builds the sheet (if needed)
  * and repopulates it from MASTER_LOG via CORE.gs's _getData().
+ * @param {number} [year] - Reporting year (Phase 1C); omit for
+ *   getDefaultReportingYear() (SVMKPI_REPORTING_YEAR.gs) — the latest
+ *   year actually present in MASTER_LOG, never a hardcoded literal.
  * @returns {{ success: boolean, rows: number }}
  */
-function refreshRiskEngine() {
+function refreshRiskEngine(year) {
   const masterLog = _getSheet(SHEET.MASTER_LOG);
   const data      = _getData(masterLog);
   const sheet     = buildRiskEngineSheet();
 
-  populateRiskEngine(sheet, data);
+  populateRiskEngine(sheet, data, year);
   SpreadsheetApp.flush();
 
   const scannedRows = (data && typeof data.totalRows === 'number')

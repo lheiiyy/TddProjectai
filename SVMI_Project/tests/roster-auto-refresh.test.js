@@ -136,6 +136,11 @@ const sandbox = {
   SHEET: { SETTINGS: 'SETTINGS', MASTER_LOG: 'MASTER_LOG' },
   DATA_YEAR: 2026,
   MASTER_LOG_MAX_ROW: 200000, // normally SVMKPI_CORE.gs; this sandbox doesn't load that file
+  // Phase 1C: buildKPI2026()/getKPI2026Report() fall back to
+  // getDefaultReportingYear() (SVMKPI_REPORTING_YEAR.gs) when no year is
+  // passed; this sandbox doesn't load that file either, so stub the same
+  // fixed answer DATA_YEAR used to give directly.
+  getDefaultReportingYear: () => 2026,
   sl_isAdmin: () => true, // manageVisitor() is now admin-gated; this test calls it directly as an admin would
   _getSheet: () => ({}),
   _getData: () => ({ dates: [], rawVisitors: [] }), // no visits yet in this scenario

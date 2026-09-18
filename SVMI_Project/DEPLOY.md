@@ -146,29 +146,41 @@ still loads by default when the app opens; only the list order changed.
 
 ## Annual rollover
 
-`DATA_YEAR` (`SVMKPI_CORE.gs`) is the single source of truth for the
-reporting year — every date calculation (Unvisited This Month's window, the
-KPI 2026 report's P{period}W{week} labels, Store Health's cadence math) reads
-from it, so bumping that one constant is enough to make the underlying
-numbers correct for the new year.
+**As of Phase 1C, there is no annual rollover step.** `DATA_YEAR`
+(`SVMKPI_CORE.gs`) is a legacy compatibility constant only — nothing in the
+live KPI/risk/compliance calculation path reads it anymore. The reporting
+year every calculation actually uses is resolved at call time by
+`getDefaultReportingYear()` (`SVMKPI_REPORTING_YEAR.gs`), which is the
+LATEST calendar year actually present in `MASTER_LOG`'s Date Visited
+column — re-derived from live data on every call, never a static literal
+someone has to remember to bump. See "Phase 1C" below for the full design.
 
-Two things follow that constant automatically, so nothing else needs
-editing by hand:
+In practice this means: once a visit dated in the new year lands in
+`MASTER_LOG`, every default-year calculation (Store Health, Unvisited This
+Month's compliance windows, a KPI rebuild run with no explicit year) starts
+using that new year automatically, with no code change and no constant to
+edit.
 
-- **The KPI sheet name** — `_kpiSheetName()` (`SVMKPI_KPI_REBUILD.gs`)
-  returns `'KPI ' + DATA_YEAR`, not a hardcoded `'KPI 2026'`. The next
-  "Rebuild KPI 2026" after a `DATA_YEAR` bump creates a fresh `KPI 2027` tab
-  rather than continuing to write into the old year's sheet — last year's
-  tab is left behind as-is, as a historical record.
+Two things that used to require a manual bump now happen automatically:
+
+- **The KPI sheet name** — `_kpiSheetName(year)` (`SVMKPI_KPI_REBUILD.gs`)
+  returns `'KPI ' + year`, where `year` defaults to
+  `getDefaultReportingYear()`. Running "Rebuild KPI 2026" once 2027 data
+  exists creates/reuses a `KPI 2027` tab automatically — no constant to
+  bump first. Note this REUSES one sheet per rebuild, it does not keep
+  multiple years' sheets alive simultaneously as permanent snapshots (that
+  kind of archival behavior is a later, explicitly deferred phase — see
+  "Reporting Year vs. Report Snapshot Version" below).
 - **The portal's top-bar year** — the "Store Visit Monitoring Initiative ·
-  2026 · …" subtitle reads the same `dataYear` value the Unvisited tab's
-  month label already uses (via `sl_getDataYear()`), instead of a static
-  string.
+  2026 · …" subtitle and the Unvisited tab's month label both read
+  `sl_getDataYear()`, which itself now returns `getDefaultReportingYear()`.
 
-What still needs a manual look after bumping `DATA_YEAR`: menu items, tool
-labels and confirmation dialogs that say "KPI 2026" by name (e.g. "Rebuild
-KPI 2026") are just display text — cosmetic, not wired to `DATA_YEAR` — and
-are fine to leave as a familiar label or reword at your discretion.
+What still needs a manual look: menu items, tool labels and confirmation
+dialogs that say "KPI 2026" by name (e.g. "Rebuild KPI 2026") are just
+display text — cosmetic, not wired to any year constant — and are fine to
+leave as a familiar label or reword at your discretion; the underlying
+`buildKPI2026()`/`getKPI2026Report()` functions behind those labels are
+year-neutral regardless of what the button says (see "Phase 1C" below).
 
 ---
 
@@ -828,6 +840,224 @@ rewritten `processSubmissionAsync()`, now loading `SVMKPI_CONFIG.gs`/
 
 ---
 
+## Phase 1C — reporting-year abstraction + year-neutral KPI/report APIs
+
+Phase 1B made Store ID the authoritative store identity. Phase 1C does the
+same kind of thing for the calendar: it removes `2026` as a hardcoded
+business assumption from every live calculation and replaces it with an
+explicit, runtime `year` parameter, backed by a small centralized service
+that discovers "which years actually have data" straight from `MASTER_LOG`.
+
+### Reporting Year, precisely
+
+**Reporting Year** is the calendar year a report/query is computed for.
+For this phase it's always derived directly from an event's own **Event
+Date** (the Date Visited on a MASTER_LOG row) — there is no fiscal-year
+logic, and no change to the calendar-period cadence rules themselves (that
+redesign, if it ever happens, is a separate later phase).
+
+This is one of four related-but-distinct concepts in this project now; the
+others are:
+
+- **Configuration Version** (Phase 1A/1B) — a specific effective-dated set
+  of field values for one configuration entity (a store, a risk rule,
+  etc.), identified by Version ID. A report for Reporting Year 2026 can
+  still consume whichever Configuration Version was effective at each
+  event's own date — Phase 1C doesn't change how configuration is
+  selected; it only makes the YEAR the calculation runs for explicit.
+  Actually *consuming* configuration versions inside KPI/risk/compliance
+  math is Phase 1D's job, not done here.
+- **Report Snapshot Version** — NOT built yet. A future concept for
+  freezing which configuration versions and which data produced a specific
+  historical report run, so it can be reproduced identically later even
+  after configuration/data have since changed. Phase 1C's year-neutral
+  resolvers are the building block a snapshot mechanism would need, but no
+  freezing/snapshot-version/report-archival behavior exists yet — nothing
+  in this project is a "frozen historical report" as of this phase.
+
+### The reporting-year service (`SVMKPI_REPORTING_YEAR.gs`, new)
+
+One centralized place for "which years exist" and "is this a valid year" —
+every other module calls into it rather than re-deriving/parsing years on
+its own:
+
+- **`getAvailableReportingYears()`** — scans `MASTER_LOG`'s Date Visited
+  column via the existing `_parseDateCell()` and returns the DISTINCT
+  calendar years found among valid, parseable dates, **ascending**
+  (`[2026, 2027, 2029]`). Never invents a year that falls between two years
+  that do have data (2026+2029 present but no 2028 rows → `[2026, 2029]`,
+  never `[2026, 2027, 2028, 2029]`). Malformed/blank dates are silently
+  skipped, matching every other date-handling path in this project.
+  Missing/empty `MASTER_LOG` returns `[]` rather than throwing.
+  **Ordering note for a future UI dropdown:** this function's own contract
+  is always ascending; a caller wanting "latest first" reverses the array
+  itself (`.slice().reverse()`) rather than this function changing its
+  contract per-caller.
+- **`normalizeReportingYear(year)`** — accepts a numeric year (`2026`) or
+  an equivalent numeric string (`"2026"`) and returns a plain integer;
+  anything else (`null`, `undefined`, `"hello"`, `"20XX"`, a decimal like
+  `2026.5`, an out-of-[1900,2999]-range value) returns `null`. Never
+  silently coerces or floors an unrelated value into a year.
+- **`validateReportingYear(year)`** — `true` iff `normalizeReportingYear`
+  would succeed.
+- **`getDefaultReportingYear()`** — the year used whenever a caller omits
+  one explicitly: the LATEST year in `getAvailableReportingYears()`, or
+  (only if `MASTER_LOG` has no valid dates at all) today's real calendar
+  year. This is the one deliberate policy choice Phase 1C had to make (spec
+  §13's "acceptable defaults" list) — documented here rather than left
+  implicit, and re-derived from live data every call, so an omitted year
+  can never keep secretly meaning `2026` just because an old constant said
+  so.
+
+### DATA_YEAR / KPI_YEAR: no longer authoritative
+
+`DATA_YEAR` (`SVMKPI_CORE.gs`) still exists as a literal `2026`, but as of
+this phase **nothing in the live calculation path reads it directly**.
+`KPI_YEAR` never existed as a separate top-level constant — it was always
+a local alias for `DATA_YEAR` inside `buildKPI2026()`, and that local is
+now the resolved `year` parameter instead. An explicitly-requested year is
+never overridden by either constant; the only thing `DATA_YEAR` still
+affects is `debugConstants()`'s log line and the long-dead, never-called
+`_countIfs()` helper (see "Hardcoded-year inventory" below) — nothing a
+real user-facing calculation depends on.
+
+### Year-neutral KPI/report functions
+
+Every function below now takes an **explicit, optional `year` parameter**,
+defaulting to `getDefaultReportingYear()` — the SAME implementation runs
+for any year; only the event population it counts changes:
+
+| Function | File | What changed |
+|---|---|---|
+| `_computeStoreRisk(data, today, year)` | `SVMKPI_RISK.gs` | YTD/monthly-purpose scoring now scoped to `year`; compliance (days-since-visit vs. cadence) was always year-independent and is untouched |
+| `populateRiskEngine(sheet, data, year)` / `refreshRiskEngine(year)` | `SVMKPI_RISK.gs` | thread `year` down to `_computeStoreRisk()` |
+| `sl_getComplianceGaps(brandFilter, monthNumber, reportingYear)` | `SVMKPI_STORE_LOOKUP.gs` | month/quarter/6-month windows anchor to `reportingYear` instead of `DATA_YEAR` |
+| `buildKPI2026(year)` / `_kpiSheetName(year)` | `SVMKPI_KPI_REBUILD.gs` | rebuilds the `"KPI <year>"` sheet for any requested year — reuses/renames the ONE sheet, doesn't keep multiple years' sheets alive at once |
+| `getKPI2026Report(year)` | `SVMKPI_REPORTS.gs` | reads the `year`-named sheet; week labels (`_weekRanges(year, month)`) and the response's `year` field both follow the parameter |
+| `buildExecutiveSummaryLayout(year)` | `SVMKPI_LAYOUT.gs` | the title cell and the two year-bound formula groups (Monthly by Brand, Brand Performance peak month) use `year` |
+| `sl_getDataYear()` | `SVMKPI_CORE.gs` | now returns `getDefaultReportingYear()` instead of the `DATA_YEAR` literal — same name/contract, real data-driven answer |
+
+**Naming note:** `buildKPI2026`/`getKPI2026Report`/`_kpiSheetName` keep
+their historical names rather than being renamed to something like
+`buildKPIReport`/`getKPIReport` — renaming would mean touching every menu
+item, portal button, and `SVMI_PORTAL.html` call site that already
+references them by name, which is a larger, unrelated change than this
+phase calls for. What matters per the phase's own framing ("the underlying
+implementation itself must become year-neutral, not a thin wrapper hiding
+a hardcoded implementation") is satisfied: there is exactly ONE
+implementation per function, parameterized, not a wrapper-per-year.
+
+None of this touches the actual KPI/risk/compliance business rules
+themselves — weights, thresholds, cadence windows, purpose scores, and the
+Store-ID/Store-Name identity model (Phase 1B) are all unchanged. The only
+behavior change is that the calculation can now be explicitly told which
+year to run for.
+
+### Default-year behavior
+
+Before this phase, every calculation implicitly meant "whatever
+`DATA_YEAR` says" — effectively always `2026` until someone remembered to
+bump it. As of Phase 1C: omitting `year` anywhere in the table above means
+"the latest year actually present in `MASTER_LOG`" (`getDefaultReportingYear()`),
+falling back only to today's real calendar year if `MASTER_LOG` has no
+valid dates at all. This was chosen as the least-disruptive option from
+the spec's own acceptable list — it reproduces today's fixture/live-data
+behavior exactly (currently `2026`) while auto-advancing once next year's
+data exists, with no code change required.
+
+### UI year-selector contract
+
+`getAvailableReportingYears()` is client-callable via `google.script.run`,
+giving the UI everything it needs to eventually populate a reporting-year
+picker: an ascending, deduplicated array straight from live data. No
+frontend selector was added in this phase — neither `SVMI_PORTAL.html` nor
+the Demo previously had one, and adding a new picker control would be a UI
+addition beyond "establish the backend contract" (the phase's own scope
+boundary explicitly discourages a UI redesign here). The Demo's
+`SVMI_Command_Center_Demo.html` also keeps its own self-contained,
+hardcoded-2026 sample dataset untouched — it's a synthetic in-memory
+preview environment with no real `MASTER_LOG`, closer to a worked example
+than live backend code.
+
+### Hardcoded-year inventory (what was found, what changed)
+
+- `SVMKPI_CORE.gs`'s `DATA_YEAR = 2026` — kept as a legacy constant (no
+  longer read by any live calculation); `sl_getDataYear()` now delegates
+  to `getDefaultReportingYear()`.
+- `SVMKPI_CORE.gs`'s `_countIfs()` still reads `DATA_YEAR` directly — this
+  function is dead code (confirmed via a full-project grep: it's never
+  called anywhere, a leftover from the removed `populate*` engine) and was
+  left untouched rather than refactoring code with zero runtime effect.
+- `SVMKPI_KPI_REBUILD.gs` (`KPI_YEAR` local alias, `_kpiSheetName()`),
+  `SVMKPI_REPORTS.gs` (`getKPI2026Report()`), `SVMKPI_RISK.gs`
+  (`evaluationYear`), `SVMKPI_STORE_LOOKUP.gs`
+  (`sl_getComplianceGaps()`'s window boundaries), `SVMKPI_LAYOUT.gs`
+  (`buildTitle()`, `_buildESFormulas()`'s Monthly-by-Brand and Brand
+  Performance peak-month formulas) — all converted from reading `DATA_YEAR`
+  directly to an explicit `year` parameter, per the table above.
+- `sl_getVisitedThisMonth()`/`sl_getUnvisitedThisMonth()`
+  (`SVMKPI_STORE_LOOKUP.gs`) were NOT touched — they were never
+  `DATA_YEAR`-hardcoded to begin with; they already compute "this calendar
+  month" from `new Date()` directly, a genuinely different (and
+  year-agnostic-by-design) concept from a selectable reporting year.
+- `SVMI_Command_Center_Demo.html`'s several `DATA_YEAR = 2026`/`year = 2026`
+  copies are its own self-contained synthetic sample dataset (documentation/
+  example tier, not live backend code) and were left as-is.
+- Literal `"2026"` occurrences in comments, menu-item labels ("Rebuild KPI
+  2026"), and confirmation-dialog text are cosmetic display strings, not
+  wired to any runtime year value — left as familiar labels.
+
+### Store ID compatibility
+
+Phase 1B made Store ID the authoritative store identity for `CONFIG_STORES`
+and added a Store ID column to `MASTER_LOG`, but explicitly did NOT rewrite
+the pre-existing risk/compliance engines (`_computeStoreRisk()`,
+`sl_getComplianceGaps()`) — those still group by Store NAME, a
+characteristic that predates Phase 1B and was a deliberate scope boundary
+("do not rewrite the risk engine"). Phase 1C's year-neutrality change is
+orthogonal to store identity entirely: it doesn't touch how either function
+keys its per-store map, and does nothing to regress Phase 1B's Store ID
+column or `INPUT_PORTAL.gs`'s duplicate-detection Store ID resolution,
+which remain fully intact. Converting Risk/Compliance to a Store-ID-keyed
+model is real future work (Phase 1D territory: "risk configuration
+consumption," "compliance configuration consumption"), not something this
+phase does.
+
+### Tests
+
+`tests/reporting-year.test.js` (57 checks, new) — year discovery (one/
+multiple/nonconsecutive years, duplicate events collapsing to one entry,
+empty/missing `MASTER_LOG`, malformed dates, the `2026-12-31`/`2027-01-01`
+boundary), year validation/normalization (numeric, string, invalid string,
+`null`, `undefined`, decimal, out-of-range, object), default-year
+resolution (latest-available vs. empty-log fallback), year-neutral
+`_computeStoreRisk()` across 2026/2027/2028 fixtures, cross-year isolation
+for both `_computeStoreRisk()` and `sl_getComplianceGaps()` (a 2026 event
+never counts toward a 2027 report and vice versa), `buildKPI2026(year)`/
+`getKPI2026Report(year)`/`_kpiSheetName(year)` for two different explicit
+years, a hand-computed 2026 regression check (exact `basePurposeScore`/
+`activeFailedPenalty`/`purposeScore` values, not just "a result exists"),
+and a 9,000-row multi-year scale fixture proving discovery/filtering never
+reintroduces a row-count ceiling.
+
+Six pre-existing test files (`risk-scoring.test.js`,
+`store-remove-history.test.js`, `roster-auto-refresh.test.js`,
+`kpi-roster-history.test.js`, `canonical-risk-engine.test.js`,
+`store-lookup-date-handling.test.js`) needed a one-line update each — a
+`getDefaultReportingYear` stub (or, for the two that already load real
+`SVMKPI_CORE.gs` against a working `MASTER_LOG` mock, the real
+`SVMKPI_REPORTING_YEAR.gs` service) — since `_computeStoreRisk()`/
+`buildKPI2026()`/`sl_getComplianceGaps()` now call it when no year is
+passed. Every one of those files' existing assertions pass completely
+unchanged otherwise — this is the "2026 regression comparison" the phase
+explicitly asked for: the refactored implementation produces the exact
+same output for the exact same 2026 fixtures.
+
+Full suite after Phase 1C: **523/523** unit checks (14 files) + **66/66**
+responsive-layout checks, zero regressions.
+
+---
+
 ## Checks before you push
 
 No linter, but three checks are worth running:
@@ -913,6 +1143,13 @@ node SVMI_Project/tests/store-identity.test.js
 # Phase 1B: 4,999/5,000/5,001/10,000-row MASTER_LOG fixtures proving the
 # Store-ID-aware duplicate lookup never reintroduces a scan-range ceiling
 node SVMI_Project/tests/store-scale.test.js
+
+# Phase 1C: reporting-year discovery/validation/default resolution,
+# year-neutral _computeStoreRisk()/sl_getComplianceGaps()/buildKPI2026()/
+# getKPI2026Report() across 2026/2027/2028, cross-year isolation, a
+# hand-computed 2026 regression check, and a 9,000-row multi-year scale
+# fixture (57 checks)
+node SVMI_Project/tests/reporting-year.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a
@@ -922,7 +1159,8 @@ issues. `risk-scoring.test.js`, `kpi-roster-history.test.js`,
 `canonical-risk-engine.test.js`, `submission-lock.test.js`,
 `date-parsing.test.js`, `store-lookup-date-handling.test.js`,
 `duplicate-prevention.test.js`, `config-service.test.js`,
-`store-identity.test.js`, and `store-scale.test.js` are the
+`store-identity.test.js`, `store-scale.test.js`, and
+`reporting-year.test.js` are the
 exception: they run actual `.gs`
 functions directly (against a mocked Sheet/Range, not a mock of the
 *business logic*), so they do catch data-correctness bugs (this is how the

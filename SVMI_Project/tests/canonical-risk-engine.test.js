@@ -23,6 +23,7 @@ const path = require('path');
 const vm = require('vm');
 
 const coreSrc   = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'SVMKPI_CORE.gs'), 'utf8');
+const yearSrc   = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'SVMKPI_REPORTING_YEAR.gs'), 'utf8');
 const riskSrc   = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'SVMKPI_RISK.gs'), 'utf8');
 const lookupSrc = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'SVMKPI_STORE_LOOKUP.gs'), 'utf8');
 
@@ -69,6 +70,7 @@ function newSandbox(buildRows) {
   };
   vm.createContext(sandbox);
   vm.runInContext(coreSrc, sandbox);   // declares DATA_YEAR, APPROVED_PURPOSES, COL, _getData(), _parseDateCell()
+  vm.runInContext(yearSrc, sandbox);   // declares getDefaultReportingYear() (Phase 1C) — _computeStoreRisk()'s fallback
   vm.runInContext(riskSrc, sandbox);   // declares _computeStoreRisk()
   vm.runInContext(lookupSrc, sandbox); // declares sl_getStoreData(), _sl_computeCanonicalHealth()
 

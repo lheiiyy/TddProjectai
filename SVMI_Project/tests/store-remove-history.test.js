@@ -167,6 +167,11 @@ function newRiskSandbox(settingsRows) {
     },
     SHEET: { SETTINGS: 'SETTINGS', MASTER_LOG: 'MASTER_LOG' },
     DATA_YEAR: 2026,
+    // Phase 1C: _computeStoreRisk() falls back to getDefaultReportingYear()
+    // (SVMKPI_REPORTING_YEAR.gs) when no year is passed; this sandbox only
+    // loads SVMKPI_RISK.gs, so stub the same fixed answer this file's
+    // fixtures (all dated 2026) already assume.
+    getDefaultReportingYear: () => 2026,
     console,
   };
   vm.createContext(sandbox);

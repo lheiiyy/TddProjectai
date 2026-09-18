@@ -15,9 +15,12 @@
 // and needs no reformatting here.
 //
 // Read-only module. Never writes to any sheet. Reuses CELL (Executive
-// Summary cell map) and DATA_YEAR from SVMKPI_CORE.gs, KPI_* constants
-// from SVMKPI_KPI_REBUILD.gs, and RISK_* constants from SVMKPI_RISK.gs /
-// SVMKPI_RISK_LAYOUT.gs — never redeclares any of them.
+// Summary cell map) from SVMKPI_CORE.gs, KPI_* constants and
+// _kpiSheetName()/_weekRanges() from SVMKPI_KPI_REBUILD.gs, RISK_*
+// constants from SVMKPI_RISK.gs / SVMKPI_RISK_LAYOUT.gs, and (Phase 1C)
+// getDefaultReportingYear() from SVMKPI_REPORTING_YEAR.gs as
+// getKPI2026Report()'s fallback when no year is supplied — never
+// redeclares any of them.
 // ============================================================
 
 
@@ -100,7 +103,7 @@ function getExecutiveSummaryReport() {
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * getKPI2026Report()
+ * getKPI2026Report(year)
  * Each visitor's monthly TOTAL column, Q1–Q4/YTD summary, AND a per-week
  * breakdown labeled "P{period}W{week}" — period = calendar month (P1 =
  * January), week = a continuous count across the whole year (P1W1 is the
@@ -110,16 +113,24 @@ function getExecutiveSummaryReport() {
  * are built from (_weekRanges(), SVMKPI_KPI_REBUILD.gs) — a short
  * month's unused W5 slot (a disabled, static 0 in the sheet, not a real
  * formula) is skipped rather than given a fake label.
+ *
+ * Phase 1C: `year` selects which "KPI <year>" sheet to read (SAME
+ * implementation for any year, historically-named function kept for
+ * compatibility — see DEPLOY.md). Omit for getDefaultReportingYear()
+ * (SVMKPI_REPORTING_YEAR.gs), never a hardcoded literal. Throws if that
+ * year's sheet hasn't been built yet (this reader never builds one).
+ * @param {number} [year]
  * @returns {{
  *   year: number, months: string[], weekLabels: string[],
  *   visitors: {name:string, monthly:string[], weekly:string[], q1:string, q2:string, q3:string, q4:string, ytd:string}[],
  *   team: {monthly:string[], weekly:string[], q1:string, q2:string, q3:string, q4:string, ytd:string}
  * }}
  */
-function getKPI2026Report() {
+function getKPI2026Report(year) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(_kpiSheetName());
-  if (!sheet) throw new Error('"' + _kpiSheetName() + '" sheet not found. Run "Rebuild KPI 2026" first.');
+  const reportYear = (year != null && !isNaN(Number(year))) ? Number(year) : getDefaultReportingYear();
+  const sheet = ss.getSheetByName(_kpiSheetName(reportYear));
+  if (!sheet) throw new Error('"' + _kpiSheetName(reportYear) + '" sheet not found. Run "Rebuild KPI 2026" first.');
 
   const DATA_ROW_START = 6; // matches buildKPI2026() in SVMKPI_KPI_REBUILD.gs
   const monthTotCols = KPI_MONTHS.map((_, mi) => KPI_MON_START + mi * KPI_BLOCK + 5); // W1-W5,TOT,spacer — offset 5 = TOT
@@ -129,7 +140,7 @@ function getKPI2026Report() {
   let weekCounter = 0;
   for (let mi = 0; mi < 12; mi++) {
     const month = mi + 1;
-    const weeks = _weekRanges(DATA_YEAR, month);
+    const weeks = _weekRanges(reportYear, month);
     const sc = KPI_MON_START + mi * KPI_BLOCK;
     weeks.forEach((_, wi) => {
       weekCounter++;
@@ -169,7 +180,7 @@ function getKPI2026Report() {
     visitors.push(r);
   }
 
-  return { year: DATA_YEAR, months: KPI_MONTHS, weekLabels: weekCols.map(w => w.label), visitors, team };
+  return { year: reportYear, months: KPI_MONTHS, weekLabels: weekCols.map(w => w.label), visitors, team };
 }
 
 
