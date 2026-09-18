@@ -505,6 +505,151 @@ purely so the preview demonstrates the same business rule as the live app.
 
 ---
 
+## Phase 1A — configuration data model, versioning, and audit foundation
+
+**Status: foundation only.** `SVMKPI_CONFIG.gs` is new, self-contained
+infrastructure — nothing in `INPUT_PORTAL.gs` or the existing
+`SVMKPI_*.gs` business logic (risk engine, KPI rebuild, reports, Store &
+Roster Manager) reads from or writes to any `CONFIG_*` sheet yet. Wiring
+the real engines to consume this is later Phase 1 sub-phases' job; this
+phase only had to prove the model itself is sound.
+
+### Configuration areas
+
+Seven business-configuration areas, each its own dedicated sheet (created
+on first use, never pre-existing in a fresh spreadsheet), plus one audit
+log:
+
+| Area | Sheet | Entity ID (interim) | Domain fields |
+|---|---|---|---|
+| Stores | `CONFIG_STORES` | normalized Store Name | Store Name, Brand, Region, Category |
+| Visitors | `CONFIG_VISITORS` | normalized Visitor Name | Visitor Name |
+| Purposes | `CONFIG_PURPOSES` | normalized Purpose Name | Purpose Name |
+| Risk | `CONFIG_RISK` | `DEFAULT` (one global rule set, matching today's actual architecture) | Low/Medium/High thresholds, 4 purpose weights |
+| Compliance | `CONFIG_COMPLIANCE` | normalized Category (e.g. `NCR`) | Cadence Type, Cadence Days, Period Definition (placeholder — see below), Grace Days |
+| KPI | `CONFIG_KPI` | admin-chosen KPI key | KPI Name, Target Value, Weight, Purpose Reference |
+| System | `CONFIG_SYSTEM` | admin-chosen setting key | Setting Value, Setting Label |
+| Audit | `CONFIG_AUDIT` | — (not versioned itself; append-only log) | see below |
+
+**Interim identity note** (same disclosed tradeoff as Phase 0.5's
+duplicate-visit check): Store/Visitor/Purpose entities are keyed by
+normalized *name* for now, not an immutable ID — that migration is a
+later Phase 1 sub-phase. Nothing regresses; identity is already
+name-based everywhere else in the app today.
+
+**`CONFIG_COMPLIANCE`'s "Period Definition" column is a deliberate,
+unpopulated placeholder.** Whether a calendar-period compliance rule means
+"at least one visit in the current period," "...in the previous period,"
+"...period-to-date," or something else is a genuine business ambiguity
+the master plan explicitly flagged as needing a stop-and-report rather
+than an invented answer. Phase 1A defines where that decision will live;
+it does not make the decision.
+
+**`CONFIG_SYSTEM` ships with zero populated rows.** Per the
+business-vs-technical split already established in the Phase 0
+verification report, nothing currently qualifies as a new genuinely
+business-configurable system setting that isn't either developer-only
+(row-range constants, lock timeouts — stay as code) or already living in
+`SETTINGS` (admin emails, guest password — moving those now would be an
+unrequested migration). The schema exists so a real future setting has a
+principled home; `settingKey` is a fixed, code-known identifier, not a
+free-form admin-typed field, so this never becomes a generic key/value
+editor.
+
+### Versioning model
+
+Every configuration area shares one envelope (columns A–I of its sheet):
+Version ID, Entity ID, Version #, Effective From, Effective To, Status
+(`ACTIVE`/`INACTIVE`), Created At, Created By, Reason. Domain-specific
+fields follow at column J onward, each its own typed column — never a
+JSON blob or generic key/value pair, so each sheet maps cleanly to one
+future relational table if this ever moves to PostgreSQL.
+
+**A configuration "change" is always a new row, never an edit to an old
+one** — except a version's own Status, which can flip between
+`ACTIVE`/`INACTIVE` (via activate/deactivate) without touching any other
+field, itself audited. This is what makes history reproducible without a
+separate "history" table: the `CONFIG_*` sheet already *is* its own
+history.
+
+**Effective dating / historical resolution:** `cfg_resolveConfigurationAsOf(area, entityId, date)`
+is the one centralized place this logic lives — no future consumer should
+ever re-derive "what applied on this date" itself. Among all `ACTIVE`
+versions for an entity where `EffectiveFrom <= date` and (`EffectiveTo`
+is blank or `date <= EffectiveTo`), it returns the one with the latest
+`EffectiveFrom` (ties broken by highest version number). An open-ended
+version answers for every date from its `EffectiveFrom` onward until a
+*later* version's `EffectiveFrom` supersedes it for those later dates —
+nothing is ever written back to the earlier row to make that happen. This
+was a deliberate choice over having each new version edit the *previous*
+version's `EffectiveTo` on creation, which would itself be an in-place
+edit to an otherwise-closed historical row.
+
+### Backdating
+
+`cfg_createConfiguration()` (and `cfg_rollbackConfiguration()`, which is
+itself a new-version creation) detects `EffectiveFrom < today` and
+refuses the mutation (`requiresBackdateConfirmation: true`) unless the
+caller passes `options.backdateConfirmed === true` **and** a non-empty
+`reason`. This is the literal mechanism behind "never silently backdate."
+
+### Audit log
+
+Every successful mutation (`CREATE`/`ACTIVATE`/`DEACTIVATE`/`ROLLBACK`)
+writes exactly one append-only row to `CONFIG_AUDIT`: timestamp, actor,
+area, entity ID, action, previous value, new value, effective from/to,
+reason, version. A rejected/invalid mutation writes nothing. Previous/New
+Value are compact human-readable snapshots (`key=value; key=value`) of
+the domain fields — the one place this model uses a serialized string
+rather than typed columns, and deliberately so: it's an audit log's diff
+display, not a live configuration table, which is exactly the pattern
+real relational audit-log schemas use.
+
+### Rollback
+
+`cfg_rollbackConfiguration(area, entityId, targetVersionId, reason, effectiveFromStr, options)`
+never deletes or edits anything — rolling back a current v3 to v1's
+values creates v4 (copying v1's field values), while v1–v3 remain exactly
+as they were and stay fully queryable. The rollback itself is audited as
+a `ROLLBACK` action, and both the new version's own Reason column and its
+audit entry record which version was restored.
+
+### Admin authorization
+
+Every mutation (`cfg_createConfiguration`, `cfg_activateConfiguration`,
+`cfg_deactivateConfiguration`, `cfg_rollbackConfiguration`) checks
+`sl_isAdmin()` (the existing SVMKPI_ACCESS.gs function — no new role
+model) as its first statement, server-side, independent of anything the
+client sends. No `cfg_*` function reads a client-supplied "admin"/"role"
+field from its payload — there is no such field to spoof. Read-only
+access (`cfg_getConfiguration`, `cfg_resolveConfigurationAsOf`,
+`cfg_getAuditLog`) is not admin-gated, matching this app's existing
+convention for read paths (e.g. `sl_getStoreData()`).
+
+### Configuration service API
+
+`SVMKPI_CONFIG.gs` — `cfg_getConfiguration`, `cfg_resolveConfigurationAsOf`,
+`cfg_createConfiguration`, `cfg_activateConfiguration`,
+`cfg_deactivateConfiguration`, `cfg_rollbackConfiguration`,
+`cfg_validateConfiguration`, `cfg_getAuditLog`, plus internal (`_cfg_*`)
+sheet/version-read/row-building helpers. This is the only place any
+future code should read or write a `CONFIG_*` sheet — no `.gs` file
+should ever open one directly, the same discipline `SVMKPI_CORE.gs`'s
+`_getData()` already established for `MASTER_LOG`.
+
+Covered end-to-end by `tests/config-service.test.js` (71 checks): creation
+validation, effective-dating/resolution (before/on/after/boundary/
+overlap/adjacent), versioning (1st/2nd/multiple/historical/current),
+audit (actor/previous/new/reason/no-audit-on-failure), security
+(non-admin rejected/admin succeeds/payload-spoofing doesn't bypass),
+backdating (blocked/confirmed-no-reason-still-blocked/confirmed-with-
+reason-succeeds/future-needs-no-confirmation), rollback
+(no-deletion/new-version/historical-still-queryable), activate/
+deactivate, and portability (every assertion addresses a version by its
+Version ID/Entity ID, never by array or row position).
+
+---
+
 ## Checks before you push
 
 No linter, but three checks are worth running:
@@ -576,6 +721,11 @@ node SVMI_Project/tests/store-lookup-date-handling.test.js
 # visitor/date allowed; multi-visitor partial overlap blocked; and two
 # submissions racing each other never both create the same visit
 node SVMI_Project/tests/duplicate-prevention.test.js
+
+# Phase 1A: covers SVMKPI_CONFIG.gs end-to-end — creation validation,
+# effective-dating/resolution, versioning, audit, admin security,
+# backdating, rollback, activate/deactivate, and portability (71 checks)
+node SVMI_Project/tests/config-service.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a
@@ -583,8 +733,9 @@ real spreadsheet — they catch UI/layout regressions, not data-correctness
 issues. `risk-scoring.test.js`, `kpi-roster-history.test.js`,
 `roster-auto-refresh.test.js`, `store-remove-history.test.js`,
 `canonical-risk-engine.test.js`, `submission-lock.test.js`,
-`date-parsing.test.js`, `store-lookup-date-handling.test.js`, and
-`duplicate-prevention.test.js` are the exception: they run actual `.gs`
+`date-parsing.test.js`, `store-lookup-date-handling.test.js`,
+`duplicate-prevention.test.js`, and `config-service.test.js` are the
+exception: they run actual `.gs`
 functions directly (against a mocked Sheet/Range, not a mock of the
 *business logic*), so they do catch data-correctness bugs (this is how the
 "never-visited stores silently
