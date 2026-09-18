@@ -185,8 +185,10 @@
 
     /* monitoring list rows */
     .monlist { margin-top: 6px; }
-    .monrow { background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--tld); border-radius: 5px; padding: 8px 10px; margin-top: 6px; font-size: 12.5px; }
+    .monrow { background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--tld); border-radius: 5px; padding: 8px 10px; margin-top: 6px; font-size: 12.5px; cursor: pointer; transition: border-color .15s; }
+    .monrow:hover { border-color: var(--tld); }
     .monrow.overdue { border-left-color: #c53030; background: #FFF9F8; }
+    .monrow.overdue:hover { border-color: #c53030; }
     .monrow .mtop { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
     .monrow .mtop .mtopRight { display: flex; align-items: center; gap: 5px; flex: none; }
     .monrow .mname { font-weight: 700; color: var(--text); }
@@ -680,7 +682,7 @@
 
     <!-- ============================= TRAINERS MONITORING PANEL ============================= -->
     <div id="panelMonitor" class="panel">
-      <small class="hint">Every trainee, searchable and filterable — for trainers checking their own roster or execs scanning everyone.</small>
+      <small class="hint">Every trainee, searchable and filterable — for trainers checking their own roster or execs scanning everyone. Tap a row to jump straight to updating their status.</small>
 
       <div id="monWarnBanner"></div>
 
@@ -1158,7 +1160,7 @@
         if (r.batch) meta.push(r.batch);
         if (r.deadline) meta.push('Due ' + r.deadline);
         var overdueBadge = r.isOverdue ? '<span class="badge badgeOverdue">⚠️ Past Due</span>' : '';
-        return '<div class="monrow' + (r.isOverdue ? ' overdue' : '') + '">' +
+        return '<div class="monrow' + (r.isOverdue ? ' overdue' : '') + '" data-key="' + String(r.key).replace(/"/g,'&quot;') + '">' +
           '<div class="mtop"><span class="mname">' + r.fullName + '</span>' +
           '<span class="mtopRight">' + overdueBadge + '<span class="' + statusBadgeClass(r.status) + '">' + r.status + '</span></span></div>' +
           '<div class="msub">' + r.motherStore + (r.motherStation ? ' · ' + r.motherStation : '') + '</div>' +
@@ -1203,6 +1205,31 @@
       document.getElementById('deadlineRow').style.display = (status === 'EXTENDED') ? 'block' : 'none';
     }
     onStatusChange();
+
+    // ---------- jump from Monitoring straight to updating that person ----------
+    document.getElementById('monList').addEventListener('click', function(e) {
+      var row = e.target.closest('.monrow');
+      if (row && row.dataset.key) openUpdateFor(row.dataset.key);
+    });
+    function openUpdateFor(key) {
+      var t = monitoringData.filter(function(r) { return r.key === key; })[0];
+      if (!t) return;
+      var sel = document.getElementById('key');
+      // Certify's picker only lists PROBATIONARY/EXTENDED/CERTIFIED by
+      // default — add this exact person if their current status put them
+      // outside that list, so tapping anyone found in Monitoring always works.
+      var exists = Array.prototype.some.call(sel.options, function(o) { return o.value === key; });
+      if (!exists) {
+        var opt = document.createElement('option');
+        opt.value = key;
+        opt.textContent = t.fullName + ' — ' + t.motherStore + ' (' + t.status + ')';
+        sel.appendChild(opt);
+      }
+      sel.value = key;
+      switchMode('update');
+      closeModeMenu();
+      onTraineeChange();
+    }
 
     // ---------- trainee summary card ----------
     function onTraineeChange() {
