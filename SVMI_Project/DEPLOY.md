@@ -1336,10 +1336,13 @@ responsive-layout checks, zero regressions.
 ## Phase 1E — historical report snapshots + per-year report sheets
 
 **Files:** new `Apps Script/SVMKPI_REPORT_SNAPSHOT.gs`; new
-`tests/report-snapshot.test.js` (89 checks); additive-only changes to
+`tests/report-snapshot.test.js` (163 checks); additive-only changes to
 `Apps Script/SVMKPI_CONFIG.gs` (two new `CFG_ACTION` values —
 `FINALIZE`/`SUPERSEDE` — and a `CFG_AREA.REPORT` audit tag; nothing
-existing changed shape).
+existing changed shape). A follow-up completeness fix (below) later
+changed only `_snap_captureCalculatedResult()` inside
+`SVMKPI_REPORT_SNAPSHOT.gs` itself — `SVMKPI_LAYOUT.gs`,
+`SVMKPI_KPI_REBUILD.gs`, and `SVMKPI_REPORTS.gs` were never touched.
 
 **The core rule:** a finalized historical report must never silently
 change because configuration or source data changes later. Two distinct
@@ -1365,16 +1368,78 @@ already a pure, evaluation-date-aware reader (Phase 1D) and is called
 as-is. Neither has any side effect on a live presentation sheet.
 Executive Summary / KPI 2026 have **no** pure-calculation equivalent —
 they are native Sheets formulas written into the ONE shared
-`EXECUTIVE SUMMARY`/`KPI <year>` sheet. Rebuilding those as a side
-effect of finalizing a report would be a surprising mutation of a
-shared, cross-year sheet, and neither value is configuration-sensitive
-anyway (both are raw MASTER_LOG event counts, untouched by Risk/
-Compliance/KPI configuration). So: if that year's sheets already exist
-(built through the normal, pre-existing "Rebuild Dashboard"/"Rebuild
-KPI" workflow), their current values are read read-only and frozen in;
-if not, the snapshot's `executiveSummary`/`kpi` sections are `null` with
-an explanatory note. This is the one documented scope limitation of this
-phase.
+`EXECUTIVE SUMMARY`/`KPI <year>` sheet, read back via
+`getExecutiveSummaryReport()`/`getKPI2026Report()`
+(`SVMKPI_REPORTS.gs`).
+
+> **Completeness fix (post-launch correction).** The first version of
+> this phase captured Executive Summary/KPI only *if* their presentation
+> sheet already happened to exist, recording `null` otherwise — which
+> meant a finalized snapshot was not always genuinely self-contained,
+> contradicting this phase's own core rule. `_snap_captureCalculatedResult()`
+> was corrected (this is the ONLY function that changed; `SVMKPI_LAYOUT.gs`/
+> `SVMKPI_KPI_REBUILD.gs`/`SVMKPI_REPORTS.gs` were not touched) so that a
+> **successful** finalize/supersede now always produces non-null
+> `storeRisk`/`complianceGaps`/`totals`/`executiveSummary`/`kpi` — never a
+> partial snapshot reported as success:
+>
+> - **Executive Summary is ALWAYS rebuilt** for the requested `year` via
+>   `buildExecutiveSummaryLayout(year)` before every read, unconditionally
+>   — never "only if missing." Reason: `EXECUTIVE SUMMARY` is the ONE
+>   shared sheet across every reporting year, and
+>   `getExecutiveSummaryReport()` has no way to tell which year it
+>   currently represents. Skipping the rebuild whenever the sheet happens
+>   to already exist could silently freeze a *different* year's numbers
+>   into the snapshot (e.g. finalizing 2026 while the shared sheet still
+>   shows 2027 from an earlier "Rebuild Dashboard" click) — this is a
+>   real, higher-severity risk than merely "sometimes incomplete," so it
+>   is closed unconditionally rather than opportunistically.
+> - **`KPI <year>` is only built if that exact sheet doesn't exist yet.**
+>   Its sheet name is already year-scoped (`_kpiSheetName()`, Phase 1C),
+>   so there is no cross-year contamination risk the way Executive
+>   Summary has — rebuilding an already-correct, already-year-scoped
+>   sheet on every finalize would be pure waste. Existence is checked via
+>   a direct `getSheetByName()` lookup, never inferred from a caught
+>   exception's message, so a genuinely different failure from
+>   `getKPI2026Report()` (a real bug, not a missing sheet) is never
+>   misreported as "just needed building" — it propagates and fails the
+>   whole finalize, exactly like any other calculation failure.
+> - **Any failure here now fails the entire finalize/supersede call** —
+>   `_snap_captureCalculatedResult()` throws instead of swallowing into a
+>   `null` + note, and the existing "Report calculation failed" handling
+>   in `finalizeReport()`/`supersedeReportSnapshot()` (unchanged) ensures
+>   no snapshot and no audit-success entry are ever created from an
+>   incomplete capture.
+> - **A genuinely empty year never triggers either builder.** If
+>   `_computeStoreRisk()` returns no stores at all (item 34's safeguard),
+>   `_snap_captureCalculatedResult()` short-circuits before ever calling
+>   `buildExecutiveSummaryLayout()`/`buildKPI2026()` — a report that's
+>   about to be rejected as "nothing to report" never mutates the shared
+>   presentation sheets first.
+>
+> **Real, disclosed side effect — not transactionally atomic with
+> `REPORT_SNAPSHOTS`:** finalizing or superseding a report now mutates
+> the live, shared `EXECUTIVE SUMMARY` tab every time, and may create a
+> `KPI <year>` tab the first time. This is the same mutation an admin
+> would already cause by clicking "Rebuild Dashboard"/"Rebuild KPI" —
+> finalization just triggers that same, already-existing, already-
+> trusted code path automatically instead of leaving the report
+> incomplete. If a builder partially writes to a shared sheet and then
+> throws, that partial write is **not** rolled back — no new rollback
+> mechanism for presentation-sheet mutations was introduced; the
+> `REPORT_SNAPSHOTS` write (the actual source of truth) still correctly
+> never happens in that case, and the live sheet's next successful
+> rebuild (from any subsequent finalize, or a manual "Rebuild Dashboard")
+> overwrites it fully because these builders always do a full clear+
+> rebuild, never a partial patch.
+>
+> **Still true, unchanged by this fix:** neither builder gained
+> `evaluationDate`-clipping — both remain full-calendar-year calculations
+> for `year`, exactly as they always have been. Executive Summary/KPI
+> are **not** period-to-date the way Risk/Compliance are; do not treat
+> them as such. Neither reads any `CONFIG_*` sheet, so neither is
+> configuration-sensitive — the freeze/isolation guarantee for them is
+> about MASTER_LOG content at calculation time, not configuration.
 
 **Report Snapshot entity** (`REPORT_SNAPSHOTS` sheet, explicit headers,
 never a row-number identity): Snapshot ID (`REPORT-<year>-v<n>`, e.g.
@@ -1489,30 +1554,64 @@ deferred to Phase 1F: a snapshot-management UI, a rollback-to-a-prior-
 snapshot UI, and a general report/configuration admin dashboard — only
 the UI layer remains deferred, not any further backend concept.
 
-**Tests** (`tests/report-snapshot.test.js`, 89 checks): basic
+**Tests** (`tests/report-snapshot.test.js`, 163 checks): basic
 finalization + identity; a second finalize for an already-finalized
 year is rejected; the mandatory historical-freeze scenario (finalize,
-change risk config, retrieve v1 — byte-for-byte unchanged, provenance
-included); draft-vs-finalized separation (same year/date, draft reflects
-new config, finalized doesn't); full correction/supersession flow
-(reason required, old snapshot unchanged + SUPERSEDED, new snapshot
-FINALIZED + latest, both retrievable, audit records the relationship);
-rejecting a supersede of an already-superseded/unknown snapshot; a
-synthetic-DRAFT-row test proving "latest finalized" is never "highest
-version number"; multi-year isolation (2026/2027/2028, same
-implementation, no cross-year contamination, correct per-year sheet
-names); configuration-provenance capture and its own freeze test;
-security (non-admin, spoofed `isAdmin`/`role` in `options`, invalid
-input, a calculation failure, and a simulated persistence failure — none
-of these ever create a snapshot or an audit-success record); concurrency
+change risk config, retrieve v1 — byte-for-byte unchanged **across the
+full result, including executiveSummary/kpi**, provenance included);
+draft-vs-finalized separation (same year/date, draft reflects new
+config, finalized doesn't); full correction/supersession flow (reason
+required, old snapshot unchanged + SUPERSEDED, new snapshot FINALIZED +
+latest, both retrievable, audit records the relationship); rejecting a
+supersede of an already-superseded/unknown snapshot; a synthetic-DRAFT-
+row test proving "latest finalized" is never "highest version number";
+multi-year isolation (2026/2027/2028, same implementation, no cross-year
+contamination — including a direct check that each year's captured
+Executive Summary reports that exact year, not another one — correct
+per-year sheet names); configuration-provenance capture and its own
+freeze test; security (non-admin, spoofed `isAdmin`/`role` in `options`,
+invalid input, a calculation failure, a simulated persistence failure,
+and Executive Summary/KPI builder failures — none of these ever create a
+snapshot or an audit-success record, and a genuinely different KPI
+reader failure is proven never misreported as "missing"); concurrency
 (lock contention, two racing finalizes, two racing supersedes — always
-exactly one winner, never a duplicate or lost version); the empty-year
-safeguard (a truly empty year rejected; a year with real stores but zero
-visits correctly accepted); and a 5,200+-row, multi-year, multi-store,
-multi-config-version scale fixture (71ms).
+exactly one winner, never a duplicate/lost version or a duplicate audit
+entry); the empty-year safeguard (a truly empty year rejected without
+ever touching the presentation builders; a year with real stores but
+zero visits correctly accepted); and a 5,200+-row, multi-year,
+multi-store, multi-config-version scale fixture.
 
-Full suite after Phase 1E: **756/756** unit checks (19 files) + **66/66**
-responsive-layout checks, zero regressions.
+Plus the completeness-fix-specific tests: **Test A** (no presentation
+sheets exist — finalize builds and captures both); **Test B** (KPI's
+already-correct year-scoped sheet is NOT rebuilt and is captured as-is;
+Executive Summary that already represents a *different* year IS always
+rebuilt before capture — the mandatory stale-year protection test);
+**Test C** (delete `REPORT_2026`, change live MASTER_LOG/configuration,
+regenerate — the regenerated sheet's content matches the frozen
+snapshot's values, and regeneration itself triggers zero new Executive
+Summary/KPI builds, while a separately-computed fresh draft proves the
+live data really did change in the meantime); **Test D** (all five
+required sections present); **Test E** (change config AND MASTER_LOG AND
+rebuild the live Executive Summary/KPI sheets after finalizing — the
+entire stored Result JSON and provenance remain unchanged, not just
+Risk/Compliance); and **Test G/H** (Executive Summary and KPI builder
+failures each independently produce no snapshot and no audit entry; a
+persistence failure after a successful capture is still never reported
+as success, while explicitly confirming the already-run presentation
+builds are not rolled back).
+
+Full suite after the Phase 1E completeness fix: **830/830** unit checks
+(19 files) + **66/66** responsive-layout checks, zero regressions.
+`finalizeReport()` over the existing 5,200+-row scale fixture (now
+including the Executive Summary rebuild + KPI build) measured **~65-85ms**
+in this test environment (was ~65-70ms before this fix) — comfortably
+inside the existing 10-second `LockService.tryLock()` timeout convention
+with no change needed to it. This is a Node `vm`-sandbox measurement
+against stubbed presentation-report functions (see the stub's own
+comment in `report-snapshot.test.js`), not a measurement of real Google
+Sheets formula-evaluation latency — real Apps Script execution time for
+the Executive Summary/KPI rebuild steps should be verified against an
+actual spreadsheet before relying on this margin in production.
 
 ---
 
@@ -1630,8 +1729,11 @@ node SVMI_Project/tests/kpi-purpose-config.test.js
 # Phase 1E: historical report snapshots — finalize/supersede, the
 # historical-freeze + draft-vs-finalized + correction tests, per-year
 # isolation, configuration provenance, security, concurrency (racing
-# finalize/supersede calls), the empty-year safeguard, and a 5,200-row
-# scale fixture (89 checks)
+# finalize/supersede calls), the empty-year safeguard, a 5,200-row scale
+# fixture, and the completeness-fix tests (Executive Summary always
+# rebuilt for the requested year incl. the stale-year protection case,
+# KPI built only when its year-scoped sheet is missing, builder-failure
+# handling, and full-result historical isolation) (163 checks)
 node SVMI_Project/tests/report-snapshot.test.js
 ```
 

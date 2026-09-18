@@ -1,15 +1,39 @@
 // Phase 1E: Historical Report Snapshots + Per-Year Report Sheets
 // (SVMKPI_REPORT_SNAPSHOT.gs).
 //
-// Covers the Phase 1E spec's mandatory test sections 26-34: historical
+// Covers the Phase 1E spec's mandatory test sections 26-34 (historical
 // freeze, draft-vs-finalized separation, correction/supersession,
 // per-year isolation, configuration provenance, security, concurrency,
-// scale, and the empty-year safeguard.
+// scale, the empty-year safeguard) PLUS the completeness fix's own
+// mandatory tests A-H: _snap_captureCalculatedResult() now ALWAYS
+// rebuilds Executive Summary for the requested year and builds "KPI
+// <year>" only when that exact sheet is missing, so a finalized snapshot
+// is genuinely self-contained (storeRisk/complianceGaps/totals/
+// executiveSummary/kpi all non-null) regardless of what presentation
+// sheets happened to exist beforehand.
 //
 // Runs the REAL Apps Script code in a Node vm sandbox — same generic
 // writable-Sheet-mock Proxy pattern already used by compliance-config/
 // risk-config/kpi-purpose-config.test.js (Phase 1D), extended with a
 // LockService mock (submission-lock.test.js's established pattern).
+//
+// Executive Summary/KPI themselves are NOT re-simulated with a fake
+// Google Sheets formula engine (SVMKPI_LAYOUT.gs/SVMKPI_KPI_REBUILD.gs
+// write ~1,000 combined lines of native Sheets formulas/styling that
+// this project has never unit-tested and that this fix does not touch).
+// Instead, per this project's own established convention of stubbing
+// dependencies a file under test only CALLS rather than loading their
+// real source (see config-service.test.js's header comment re:
+// sl_isAdmin()/logError()), this file stubs buildExecutiveSummaryLayout()/
+// getExecutiveSummaryReport()/buildKPI2026()/getKPI2026Report() directly
+// with small, controlled, INSPECTABLE implementations that: (a) derive a
+// real, changeable number from the CURRENT MASTER_LOG mock content at
+// call time (so tests can prove capture reflects "now" at finalize time
+// and never again afterward), and (b) record every call they receive
+// (year argument) so tests can assert exactly when the real production
+// code decided to build vs. not build. This verifies the SNAPSHOT
+// SERVICE's orchestration/freeze behavior — never a reimplementation of
+// Executive Summary/KPI's own arithmetic.
 
 const fs = require('fs');
 const path = require('path');
@@ -83,7 +107,65 @@ function makeSpreadsheetMock() {
   };
 }
 
-function newSandbox({ masterLogRows, settingsRows, tryLockReturns = true } = {}) {
+// ── Controlled Executive Summary / KPI stub engine ──────────────────────
+// See the file header for why this stubs the presentation-report engine
+// boundary rather than loading/re-simulating ~1,000 lines of real Sheets
+// formula-writing code.
+function makeReportEngineStub(ssMock, opts) {
+  opts = opts || {};
+  const calls = { buildES: [], buildKPI: [] };
+
+  function countMasterLogRowsForYear(year) {
+    const ml = ssMock.getSheetByName('MASTER_LOG');
+    if (!ml) return 0;
+    const lastRow = ml.getLastRow();
+    if (lastRow < 2) return 0;
+    const raw = ml.getRange(2, 1, lastRow - 1, 2).getValues(); // Timestamp, Date
+    let n = 0;
+    raw.forEach(r => { if (String(r[1] || '').indexOf(String(year) + '-') === 0) n++; });
+    return n;
+  }
+
+  function buildExecutiveSummaryLayout(year) {
+    calls.buildES.push(year);
+    if (opts.esBuildThrows) throw new Error('simulated Executive Summary build failure');
+    let sheet = ssMock.getSheetByName('EXECUTIVE SUMMARY');
+    if (!sheet) sheet = ssMock.insertSheet('EXECUTIVE SUMMARY'); else sheet.clear();
+    const total = countMasterLogRowsForYear(year);
+    sheet.getRange(1, 1, 1, 2).setValues([['YEAR', year]]);
+    sheet.getRange(2, 1, 1, 2).setValues([['TOTAL_VISITS', total]]);
+  }
+  function getExecutiveSummaryReport() {
+    const sheet = ssMock.getSheetByName('EXECUTIVE SUMMARY');
+    if (!sheet || sheet.getLastRow() < 2) throw new Error('EXECUTIVE SUMMARY sheet not found. Run "Rebuild Executive Summary" first.');
+    const yearRow = sheet.getRange(1, 1, 1, 2).getValues()[0];
+    const totalRow = sheet.getRange(2, 1, 1, 2).getValues()[0];
+    return { year: Number(yearRow[1]), kpi: [{ label: 'Total Visits', value: String(totalRow[1]) }] };
+  }
+
+  function _kpiSheetName(year) { return 'KPI ' + year; }
+  function buildKPI2026(year) {
+    calls.buildKPI.push(year);
+    if (opts.kpiBuildThrows) throw new Error('simulated KPI build failure');
+    const name = _kpiSheetName(year);
+    let sheet = ssMock.getSheetByName(name);
+    if (!sheet) sheet = ssMock.insertSheet(name); else sheet.clear();
+    const total = countMasterLogRowsForYear(year);
+    sheet.getRange(1, 1, 1, 2).setValues([['YTD_TOTAL', total]]);
+  }
+  function getKPI2026Report(year) {
+    if (opts.kpiReadThrowsAlways) throw new Error(opts.kpiReadThrowsAlways);
+    const name = _kpiSheetName(year);
+    const sheet = ssMock.getSheetByName(name);
+    if (!sheet || sheet.getLastRow() < 1) throw new Error('"' + name + '" sheet not found. Run "Rebuild KPI 2026" first.');
+    const totalRow = sheet.getRange(1, 1, 1, 2).getValues()[0];
+    return { year, team: { ytd: String(totalRow[1]) } };
+  }
+
+  return { calls, buildExecutiveSummaryLayout, getExecutiveSummaryReport, buildKPI2026, _kpiSheetName, getKPI2026Report };
+}
+
+function newSandbox({ masterLogRows, settingsRows, tryLockReturns = true, stubOpts } = {}) {
   const ssMock = makeSpreadsheetMock();
   const state = { isAdmin: true, user: 'admin@test.com' };
   const lockCalls = { tryLock: 0, releaseLock: 0 };
@@ -98,6 +180,8 @@ function newSandbox({ masterLogRows, settingsRows, tryLockReturns = true } = {})
     settings.getRange(1, 1, 1, 5).setValues([['Store', 'Brand', 'Region', 'Unused', 'Category']]);
     settingsRows.forEach(r => settings.appendRow(r));
   }
+
+  const stub = makeReportEngineStub(ssMock, stubOpts);
 
   const sandbox = {
     SpreadsheetApp: { getActiveSpreadsheet: () => ssMock, flush: () => {} },
@@ -119,11 +203,18 @@ function newSandbox({ masterLogRows, settingsRows, tryLockReturns = true } = {})
     logError: () => {},
     Logger: { log: () => {} },
     console,
+    // Report-engine boundary — stubbed, not loaded from source. See the
+    // file header and makeReportEngineStub()'s own comment.
+    buildExecutiveSummaryLayout: stub.buildExecutiveSummaryLayout,
+    getExecutiveSummaryReport: stub.getExecutiveSummaryReport,
+    buildKPI2026: stub.buildKPI2026,
+    _kpiSheetName: stub._kpiSheetName,
+    getKPI2026Report: stub.getKPI2026Report,
   };
   vm.createContext(sandbox);
   [coreSrc, configSrc, ryearSrc, calSrc, cmpCfgSrc, riskCfgSrc, riskSrc, lookupSrc, snapSrc]
     .forEach(src => vm.runInContext(src, sandbox));
-  return { sandbox, ssMock, state, lockCalls };
+  return { sandbox, ssMock, state, lockCalls, stub };
 }
 
 function row(y, m, d, store, visitor, purpose) {
@@ -146,6 +237,14 @@ const LOG_2026 = [
 const EVAL_2026 = '2026-09-18';
 const OPTS = { backdateConfirmed: true };
 
+function assertComplete(snap, label) {
+  check(label + ': storeRisk populated', Array.isArray(snap.result.storeRisk) && snap.result.storeRisk.length > 0, JSON.stringify(snap.result.storeRisk));
+  check(label + ': complianceGaps populated (array, may be empty)', Array.isArray(snap.result.complianceGaps));
+  check(label + ': totals populated', !!snap.result.totals && typeof snap.result.totals.storeCount === 'number', JSON.stringify(snap.result.totals));
+  check(label + ': executiveSummary is non-null', snap.result.executiveSummary !== null, JSON.stringify(snap.result.executiveSummary));
+  check(label + ': kpi is non-null', snap.result.kpi !== null, JSON.stringify(snap.result.kpi));
+}
+
 // ═══════════════════════════════════════════════════════════════
 console.log('\n── Basic finalization: creates snapshot v1, FINALIZED, correct identity ──');
 {
@@ -165,6 +264,7 @@ console.log('\n── Basic finalization: creates snapshot v1, FINALIZED, correc
   check('createdBy/finalizedBy recorded', snap.createdBy === 'admin@test.com' && snap.finalizedBy === 'admin@test.com');
   check('reason recorded', snap.reason === 'first close of 2026');
   check('supersedesSnapshotId is null for v1', snap.supersedesSnapshotId === null);
+  assertComplete(snap, 'basic finalize');
 }
 
 console.log('\n── A second independent finalize for the same year is rejected (must use supersede) ──');
@@ -196,7 +296,7 @@ console.log('\n── 26. HISTORICAL FREEZE — a finalized snapshot never refle
   check('risk configuration change accepted', riskChange.success === true, JSON.stringify(riskChange));
 
   const after = sandbox.getReportSnapshot(fin.snapshotId);
-  eq('v1 result is byte-for-byte unchanged after the config change', after.result, before.result);
+  eq('v1 result is byte-for-byte unchanged after the config change (full result, incl. executiveSummary/kpi)', after.result, before.result);
   check('v1 frozen ALPHA risk score literally unchanged', after.result.storeRisk.find(s => s.store === 'ALPHA').riskScore === beforeAlphaScore);
   eq('v1 provenance is unchanged too', after.configurationProvenance, before.configurationProvenance);
 }
@@ -251,6 +351,7 @@ console.log('\n── 28. CORRECTION / SUPERSESSION ──');
   const v2Snap = sandbox.getReportSnapshot(v2.snapshotId);
   eq('v2 is FINALIZED', v2Snap.status, 'FINALIZED');
   check('v2 reflects the corrected weight', v2Snap.result.storeRisk.find(s => s.store === 'ALPHA').riskScore !== v1Before.result.storeRisk.find(s => s.store === 'ALPHA').riskScore);
+  assertComplete(v2Snap, 'v2 (superseding snapshot)');
 
   const latest = sandbox.getLatestFinalizedReportSnapshot(2026);
   eq('v2 is the latest finalized snapshot', latest.snapshotId, v2.snapshotId);
@@ -311,7 +412,7 @@ console.log('\n── 15. Latest finalized snapshot is never simply "highest ver
 
 console.log('\n── 29. PER-YEAR — same implementation, multiple years, no cross-year contamination ──');
 {
-  const { sandbox } = newSandbox({
+  const { sandbox, stub } = newSandbox({
     masterLogRows: [
       ...LOG_2026,
       row(2027, 2, 1, 'ALPHA', 'LEO', 'STORE VISIT'),
@@ -334,6 +435,9 @@ console.log('\n── 29. PER-YEAR — same implementation, multiple years, no c
   const s2027 = sandbox.getReportSnapshot(y2027.snapshotId);
   check('2026 snapshot reflects only 2026 visits (ALPHA totalYTD=3)', s2026.result.storeRisk.find(s => s.store === 'ALPHA').totalYTD === 3, JSON.stringify(s2026.result.storeRisk));
   check('2027 snapshot reflects only 2027 visits (ALPHA totalYTD=1)', s2027.result.storeRisk.find(s => s.store === 'ALPHA').totalYTD === 1, JSON.stringify(s2027.result.storeRisk));
+  eq('2026 executiveSummary year matches (no cross-year contamination)', s2026.result.executiveSummary.year, 2026);
+  eq('2027 executiveSummary year matches (no cross-year contamination)', s2027.result.executiveSummary.year, 2027);
+  eq('Executive Summary was rebuilt for each of the 3 years finalized', stub.calls.buildES, [2026, 2027, 2028]);
 
   const rs2026 = sandbox.regenerateReportSheet(2026);
   const rs2027 = sandbox.regenerateReportSheet(2027);
@@ -359,6 +463,126 @@ console.log('\n── 30. CONFIGURATION PROVENANCE ──');
   const v2 = sandbox.supersedeReportSnapshot(2026, v1.snapshotId, EVAL_2026, 'now record the new provenance');
   const v2Snap = sandbox.getReportSnapshot(v2.snapshotId);
   check('new snapshot records the NEW provenance', v2Snap.configurationProvenance.risk.source === 'CONFIG_RISK' && !!v2Snap.configurationProvenance.risk.versionId, JSON.stringify(v2Snap.configurationProvenance.risk));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// COMPLETENESS FIX — mandatory tests A-H
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── TEST A: no presentation sheets exist -> finalize builds both and captures both ──');
+{
+  const { sandbox, stub, ssMock } = newSandbox({ masterLogRows: LOG_2026, settingsRows: SETTINGS_FIXTURE });
+  check('neither presentation sheet exists yet', !ssMock.getSheetByName('EXECUTIVE SUMMARY') && !ssMock.getSheetByName('KPI 2026'));
+
+  const r = sandbox.finalizeReport(2026, EVAL_2026, 'no presentation sheets yet');
+  check('finalization succeeds', r.success === true, JSON.stringify(r));
+  eq('buildExecutiveSummaryLayout(2026) was called', stub.calls.buildES, [2026]);
+  eq('buildKPI2026(2026) was called', stub.calls.buildKPI, [2026]);
+
+  const snap = sandbox.getReportSnapshot(r.snapshotId);
+  assertComplete(snap, 'TEST A');
+}
+
+console.log('\n── TEST B: presentation sheets already exist ──');
+{
+  console.log('  (KPI 2026 already exists and is correct -> NOT rebuilt, captured as-is)');
+  const { sandbox, stub, ssMock } = newSandbox({ masterLogRows: LOG_2026, settingsRows: SETTINGS_FIXTURE });
+  const kpiSheet = ssMock.insertSheet('KPI 2026');
+  kpiSheet.getRange(1, 1, 1, 2).setValues([['YTD_TOTAL', 42]]); // sentinel, deliberately NOT what the stub would compute
+
+  const r = sandbox.finalizeReport(2026, EVAL_2026, 'kpi sheet pre-exists');
+  check('finalization succeeds', r.success === true, JSON.stringify(r));
+  eq('buildKPI2026 was NOT called — the year-scoped sheet already existed', stub.calls.buildKPI, []);
+  const snap = sandbox.getReportSnapshot(r.snapshotId);
+  eq('captured KPI reflects the PRE-EXISTING sheet content (sentinel), not a rebuild', snap.result.kpi.team.ytd, '42');
+}
+{
+  console.log('  (mandatory) Executive Summary already represents a DIFFERENT year (2027) -> finalize(2026) must rebuild it for 2026, never trust the stale year');
+  const { sandbox, stub, ssMock } = newSandbox({ masterLogRows: LOG_2026, settingsRows: SETTINGS_FIXTURE });
+  const esSheet = ssMock.insertSheet('EXECUTIVE SUMMARY');
+  esSheet.getRange(1, 1, 1, 2).setValues([['YEAR', 2027]]);
+  esSheet.getRange(2, 1, 1, 2).setValues([['TOTAL_VISITS', 999999]]); // clearly-wrong sentinel if left uncorrected
+
+  const r = sandbox.finalizeReport(2026, EVAL_2026, 'stale Executive Summary from a different year');
+  check('finalization succeeds', r.success === true, JSON.stringify(r));
+  eq('buildExecutiveSummaryLayout(2026) WAS called even though the sheet already existed', stub.calls.buildES, [2026]);
+
+  const snap = sandbox.getReportSnapshot(r.snapshotId);
+  eq('captured executiveSummary.year is 2026, NOT the stale 2027', snap.result.executiveSummary.year, 2026);
+  check('the stale 999999 sentinel from 2027 is gone — real 2026 data was captured instead', snap.result.executiveSummary.kpi[0].value !== '999999', snap.result.executiveSummary.kpi[0].value);
+}
+
+console.log('\n── TEST C: regeneration from a frozen snapshot — never a live recalculation ──');
+{
+  const { sandbox, stub, ssMock } = newSandbox({ masterLogRows: LOG_2026, settingsRows: SETTINGS_FIXTURE });
+  const fin = sandbox.finalizeReport(2026, EVAL_2026, 'to be regenerated later');
+  const frozen = sandbox.getReportSnapshot(fin.snapshotId);
+  const frozenTotalVisits = frozen.result.executiveSummary.kpi[0].value;
+  const frozenAlphaScore = frozen.result.storeRisk.find(s => s.store === 'ALPHA').riskScore;
+
+  // (B) delete REPORT_2026
+  delete ssMock._sheets['REPORT_2026'];
+  check('REPORT_2026 no longer exists', !ssMock.getSheetByName('REPORT_2026'));
+
+  // (C) alter live MASTER_LOG/configuration
+  const master = ssMock.getSheetByName('MASTER_LOG');
+  master.appendRow(row(2026, 9, 20, 'ALPHA', 'GIO', 'STORE VISIT'));
+  sandbox.risk_create({ lowThreshold: 0, mediumThreshold: 1, highThreshold: 2, weightFailedQaMs: 999, weightStoreVisit: -2, weightCuringSupport: -4, weightTltc: -1 }, EVAL_2026, 'change after finalize', OPTS);
+  const buildESCallsBeforeRegen = stub.calls.buildES.length;
+  const buildKPICallsBeforeRegen = stub.calls.buildKPI.length;
+
+  // (D) regenerate
+  const regen = sandbox.regenerateReportSheet(2026);
+  check('regeneration succeeds', regen.success === true, JSON.stringify(regen));
+
+  // (E)/(F) verify it came exclusively from the frozen snapshot, with NO
+  // new calculation/build calls triggered by regeneration itself.
+  eq('regenerateReportSheet() triggers NO new Executive Summary build', stub.calls.buildES.length, buildESCallsBeforeRegen);
+  eq('regenerateReportSheet() triggers NO new KPI build', stub.calls.buildKPI.length, buildKPICallsBeforeRegen);
+
+  const sheet = ssMock.getSheetByName('REPORT_2026');
+  check('REPORT_2026 was recreated', !!sheet);
+  const rows = sheet.getRange(1, 1, sheet.getLastRow(), 14).getValues();
+  const flat = rows.map(r => r.join('|')).join('\n');
+  check('regenerated sheet content includes the FROZEN total-visits value', flat.indexOf(frozenTotalVisits) !== -1, flat.slice(0, 300));
+  check('regenerated sheet content includes the FROZEN ALPHA risk score, not a recalculated one', flat.indexOf(String(frozenAlphaScore)) !== -1);
+
+  // Prove the "live" numbers really did change (so the above is a
+  // meaningful assertion, not a coincidence).
+  const freshDraft = sandbox.getDraftReport(2026, EVAL_2026);
+  check('a FRESH draft calculated now genuinely differs from what was frozen (proves live data really changed)',
+    freshDraft.result.storeRisk.find(s => s.store === 'ALPHA').riskScore !== frozenAlphaScore);
+}
+
+console.log('\n── TEST D: frozen completeness — every required section present ──');
+{
+  const { sandbox } = newSandbox({ masterLogRows: LOG_2026, settingsRows: SETTINGS_FIXTURE });
+  const r = sandbox.finalizeReport(2026, EVAL_2026, 'completeness check');
+  const snap = sandbox.getReportSnapshot(r.snapshotId);
+  assertComplete(snap, 'TEST D');
+}
+
+console.log('\n── TEST E: complete historical isolation — the ENTIRE frozen Result JSON + provenance, not just Risk/Compliance ──');
+{
+  const { sandbox, ssMock } = newSandbox({ masterLogRows: LOG_2026, settingsRows: SETTINGS_FIXTURE });
+  const fin = sandbox.finalizeReport(2026, EVAL_2026, 'full isolation test');
+  const snapshotBefore = sandbox.getReportSnapshot(fin.snapshotId);
+  const resultCopy = JSON.parse(JSON.stringify(snapshotBefore.result));
+  const provenanceCopy = JSON.parse(JSON.stringify(snapshotBefore.configurationProvenance));
+
+  // Change risk configuration.
+  sandbox.risk_create({ lowThreshold: 0, mediumThreshold: 1, highThreshold: 2, weightFailedQaMs: 777, weightStoreVisit: -9, weightCuringSupport: -9, weightTltc: -9 }, EVAL_2026, 'isolation: config change', OPTS);
+  // Change MASTER_LOG data.
+  ssMock.getSheetByName('MASTER_LOG').appendRow(row(2026, 9, 21, 'BETA', 'RICE', 'TLTC'));
+  // Rebuild the live Executive Summary/KPI sheets directly (simulating an
+  // admin clicking "Rebuild Dashboard"/"Rebuild KPI" after the report was
+  // already finalized) with now-different underlying data.
+  sandbox.buildExecutiveSummaryLayout(2026);
+  sandbox.buildKPI2026(2026);
+
+  const snapshotAfter = sandbox.getReportSnapshot(fin.snapshotId);
+  eq('the ENTIRE stored Result JSON is unchanged (storeRisk/complianceGaps/totals/executiveSummary/kpi)', snapshotAfter.result, resultCopy);
+  eq('provenance is unchanged too', snapshotAfter.configurationProvenance, provenanceCopy);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -406,21 +630,53 @@ console.log('\n── Security: a calculation failure creates no finalized snaps
   eq('no audit entry was written', sandbox.cfg_getAuditLog('REPORT', '2026').length, 0);
 }
 
+console.log('\n── TEST G: Executive Summary builder failure -> no finalized snapshot, no audit entry ──');
+{
+  const { sandbox, stub } = newSandbox({ masterLogRows: LOG_2026, settingsRows: SETTINGS_FIXTURE, stubOpts: { esBuildThrows: true } });
+  const r = sandbox.finalizeReport(2026, EVAL_2026, 'ES builder will fail');
+  check('finalize fails cleanly', r.success === false && /calculation failed/i.test(r.message), JSON.stringify(r));
+  check('the builder WAS attempted (proves it is not silently skipped)', stub.calls.buildES.length === 1);
+  eq('no snapshot was created', sandbox.listReportSnapshots(2026).length, 0);
+  eq('no audit entry was written', sandbox.cfg_getAuditLog('REPORT', '2026').length, 0);
+}
+
+console.log('\n── TEST G (KPI variant): KPI builder failure -> no finalized snapshot, no audit entry ──');
+{
+  const { sandbox, stub } = newSandbox({ masterLogRows: LOG_2026, settingsRows: SETTINGS_FIXTURE, stubOpts: { kpiBuildThrows: true } });
+  const r = sandbox.finalizeReport(2026, EVAL_2026, 'KPI builder will fail');
+  check('finalize fails cleanly', r.success === false && /calculation failed/i.test(r.message), JSON.stringify(r));
+  check('the KPI builder WAS attempted (sheet was missing, so a build was correctly tried)', stub.calls.buildKPI.length === 1);
+  eq('no snapshot was created', sandbox.listReportSnapshots(2026).length, 0);
+  eq('no audit entry was written', sandbox.cfg_getAuditLog('REPORT', '2026').length, 0);
+}
+
+console.log('\n── A genuinely different KPI failure (sheet exists) is never misreported as "missing", and never silently retried ──');
+{
+  const { sandbox, ssMock, stub } = newSandbox({ masterLogRows: LOG_2026, settingsRows: SETTINGS_FIXTURE, stubOpts: { kpiReadThrowsAlways: 'unrelated bug — not a missing-sheet condition' } });
+  ssMock.insertSheet('KPI 2026').getRange(1, 1, 1, 2).setValues([['YTD_TOTAL', 5]]); // sheet genuinely exists
+  const r = sandbox.finalizeReport(2026, EVAL_2026, 'kpi reader has a real bug');
+  check('finalize fails, surfacing the real error', r.success === false && /unrelated bug/i.test(r.message), JSON.stringify(r));
+  eq('buildKPI2026 was NEVER called — the sheet already existed, so this was correctly never treated as "missing"', stub.calls.buildKPI, []);
+  eq('no snapshot was created', sandbox.listReportSnapshots(2026).length, 0);
+}
+
 console.log('\n── Security: a persistence failure is never reported as success ──');
 {
-  const { sandbox, ssMock } = newSandbox({ masterLogRows: LOG_2026, settingsRows: SETTINGS_FIXTURE });
+  const { sandbox, ssMock, stub } = newSandbox({ masterLogRows: LOG_2026, settingsRows: SETTINGS_FIXTURE });
   // Force REPORT_SNAPSHOTS to already exist as a "poisoned" sheet whose
   // appendRow always throws, simulating a write failure after every
-  // validation/calculation step has already passed.
+  // validation/calculation step — including the (non-transactional)
+  // Executive Summary/KPI builds — has already completed.
   ssMock._sheets['REPORT_SNAPSHOTS'] = makePoisonSheet();
   const r = sandbox.finalizeReport(2026, EVAL_2026, 'should fail to persist');
   check('finalize does not report success', r.success === false, JSON.stringify(r));
   const audit = sandbox.cfg_getAuditLog('REPORT', '2026');
   eq('no audit entry was written for the failed persistence', audit.length, 0);
+  check('the (non-transactional) presentation builds DID already run — this phase does not roll them back', stub.calls.buildES.length === 1 && stub.calls.buildKPI.length === 1);
 }
 
 // ═══════════════════════════════════════════════════════════════
-console.log('\n── 32. CONCURRENCY ──');
+console.log('\n── 32. CONCURRENCY (TEST F) ──');
 {
   console.log('  (server-busy path)');
   const { sandbox, lockCalls } = newSandbox({ masterLogRows: LOG_2026, settingsRows: SETTINGS_FIXTURE, tryLockReturns: false });
@@ -430,13 +686,16 @@ console.log('\n── 32. CONCURRENCY ──');
   check('lock was released even though it was never acquired successfully', lockCalls.tryLock === 1 && lockCalls.releaseLock === 0);
 }
 {
-  console.log('  (two finalize calls racing for the same brand-new year -> exactly one wins)');
+  console.log('  (two finalize calls racing for the same brand-new year -> exactly one wins, exactly one FINALIZED, no duplicate audit)');
   const { sandbox } = newSandbox({ masterLogRows: LOG_2026, settingsRows: SETTINGS_FIXTURE });
   const first = sandbox.finalizeReport(2026, EVAL_2026, 'race A');
   const second = sandbox.finalizeReport(2026, EVAL_2026, 'race B');
   check('exactly one finalize succeeds', (first.success === true) !== (second.success === true), JSON.stringify([first, second]));
   const versions = sandbox.listReportSnapshots(2026).map(s => s.snapshotVersion);
   eq('no duplicate version numbers were allocated', versions, [1]);
+  const finalizeAudits = sandbox.cfg_getAuditLog('REPORT', '2026').filter(a => a.action === 'FINALIZE');
+  eq('exactly one FINALIZE audit entry, not two', finalizeAudits.length, 1);
+  assertComplete(sandbox.getReportSnapshot('REPORT-2026-v1'), 'winning racer');
 }
 {
   console.log('  (two supersede calls racing against the same previous snapshot -> exactly one wins)');
@@ -449,15 +708,18 @@ console.log('\n── 32. CONCURRENCY ──');
   eq('no lost/duplicate versions — exactly v1 and v2 exist', versions, [1, 2]);
   const finalizedCount = sandbox.listReportSnapshots(2026).filter(s => s.status === 'FINALIZED').length;
   eq('exactly one snapshot is FINALIZED after the race', finalizedCount, 1);
+  const supersedeAudits = sandbox.cfg_getAuditLog('REPORT', '2026').filter(a => a.action === 'SUPERSEDE');
+  eq('exactly one SUPERSEDE audit entry, not two', supersedeAudits.length, 1);
 }
 
 // ═══════════════════════════════════════════════════════════════
 console.log('\n── 34. EMPTY YEAR — never fabricate a finalized report for genuinely empty data ──');
 {
-  const { sandbox } = newSandbox({ masterLogRows: [], settingsRows: [] }); // truly nothing: no stores, no events
+  const { sandbox, stub } = newSandbox({ masterLogRows: [], settingsRows: [] }); // truly nothing: no stores, no events
   const r = sandbox.finalizeReport(2099, '2099-06-01', 'should reject');
   check('rejected cleanly — no stores, no history', r.success === false && /nothing to report/i.test(r.message), JSON.stringify(r));
   eq('no snapshot created', sandbox.listReportSnapshots(2099).length, 0);
+  eq('the presentation builders were never even attempted for a genuinely empty year', stub.calls.buildES.length + stub.calls.buildKPI.length, 0);
 }
 {
   // Positive control: real stores with ZERO visits in the year is still
@@ -469,6 +731,7 @@ console.log('\n── 34. EMPTY YEAR — never fabricate a finalized report for 
   const snap = sandbox.getReportSnapshot(r.snapshotId);
   eq('both stores show zero YTD (real data, not fabricated)', snap.result.storeRisk.map(s => s.totalYTD).sort(), [0, 0]);
   eq('both stores are compliance gaps', snap.result.complianceGaps.length, 2);
+  assertComplete(snap, 'zero-visit-but-real-stores year');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -504,8 +767,10 @@ console.log('\n── 33. SCALE — 5,000+ MASTER_LOG rows, multiple years/store
   const snap = sandbox.getReportSnapshot(r.snapshotId);
   eq('all 5 stores present — no row ceiling', snap.result.storeRisk.length, 5);
   check('ALPHA correctly shows real 2026 visit history (no row-number-identity bug)', snap.result.storeRisk.find(s => s.store === 'ALPHA').totalYTD > 0);
+  assertComplete(snap, 'scale test (with ES/KPI capture)');
 
-  console.log('  [perf] finalizeReport over 5,200+ rows took ' + elapsedMs + 'ms');
+  console.log('  [perf] finalizeReport over 5,200+ rows (now incl. Executive Summary rebuild + KPI build) took ' + elapsedMs + 'ms');
+  console.log('  [perf] existing 10-second LockService.tryLock() timeout convention — ' + elapsedMs + 'ms leaves ' + (10000 - elapsedMs) + 'ms of headroom in this test environment');
 }
 
 console.log('\n══════════════════════════════════');

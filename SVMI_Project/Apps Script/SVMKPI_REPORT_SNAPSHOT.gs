@@ -38,24 +38,33 @@
 //     equivalent — SVMKPI_LAYOUT.gs/SVMKPI_KPI_REBUILD.gs write native
 //     Sheets formulas into the ONE shared EXECUTIVE SUMMARY / "KPI <year>"
 //     sheet, and SVMKPI_REPORTS.gs's getExecutiveSummaryReport()/
-//     getKPI2026Report() read whatever those formulas currently show.
-//     This file does NOT rebuild those shared sheets as a side effect of
-//     finalizing a report (that would be a surprising mutation of a
-//     shared, cross-year presentation sheet smuggled into what is
-//     conceptually a read/freeze operation, and neither value is
-//     configuration-sensitive anyway — both are raw MASTER_LOG event
-//     counts, untouched by Phase 1D's Risk/Compliance/KPI configuration).
-//     Instead: IF that year's sheets already exist (built through the
-//     normal, pre-existing "Rebuild Dashboard" / "Rebuild KPI" workflow,
-//     same as today), their CURRENT calculated values are read read-only
-//     and frozen into the snapshot. If they don't exist yet, the
-//     snapshot's executiveSummary/kpi sections are recorded as null with
-//     an explanatory note rather than fabricated or silently skipped.
-//     This is the one documented, deliberate scope limitation of this
-//     phase (see DEPLOY.md's Phase 1E section) — capturing it would
-//     otherwise require rewriting SVMKPI_LAYOUT.gs/SVMKPI_KPI_REBUILD.gs
-//     into a non-mutating pure-calculation path, which is out of this
-//     phase's "do not modify the underlying algorithms" scope.
+//     getKPI2026Report() read whatever those formulas currently show. A
+//     finalized snapshot must be COMPLETE and self-contained (it must
+//     never depend on whether a presentation sheet happened to already
+//     exist), so _snap_captureCalculatedResult() ALWAYS calls
+//     buildExecutiveSummaryLayout(year) before reading it — "EXECUTIVE
+//     SUMMARY" is the ONE shared sheet across every year, and
+//     getExecutiveSummaryReport() has no way to verify which year it
+//     currently represents, so "build only if missing" could silently
+//     freeze a DIFFERENT year's numbers into the snapshot. "KPI <year>"
+//     IS already year-scoped by its own sheet name (Phase 1C), so it is
+//     only built when that exact sheet doesn't exist yet (checked via a
+//     direct sheet lookup, never inferred from a caught exception). This
+//     is a real, deliberate, documented side effect: finalizing or
+//     superseding a report mutates the live, shared "EXECUTIVE SUMMARY"
+//     tab every time, and may create a "KPI <year>" tab the first time —
+//     see DEPLOY.md's Phase 1E section. It is NOT transactionally atomic
+//     with the REPORT_SNAPSHOTS write that follows it: if either builder
+//     or reader throws, _snap_captureCalculatedResult() throws too, and
+//     finalizeReport()/supersedeReportSnapshot()'s existing "calculation
+//     failed" handling ensures NO snapshot and NO audit-success entry are
+//     ever created from a partial capture — but a builder call that
+//     partially wrote to the shared sheet before throwing is not rolled
+//     back (no new rollback mechanism for presentation-sheet mutations
+//     is introduced here). Neither builder gains evaluationDate-clipping
+//     — both remain full-calendar-year calculations for `year`, exactly
+//     as they already are; this is an inherited limitation of Executive
+//     Summary/KPI, not something this file changes or claims to fix.
 //
 // STORAGE MODEL: one dedicated REPORT_SNAPSHOTS sheet, independent of any
 // per-year presentation sheet — never treats REPORT_<year> as the
@@ -93,7 +102,9 @@
 //   SVMKPI_STORE_LOOKUP.gs:    sl_getComplianceGaps()
 //   SVMKPI_RISK_CONFIG.gs:     resolveRiskConfigurationAsOf() (optional/soft)
 //   SVMKPI_COMPLIANCE_CONFIG.gs: _cmp_resolveByCategory() (optional/soft)
-//   SVMKPI_REPORTS.gs:         getExecutiveSummaryReport(), getKPI2026Report() (optional/soft)
+//   SVMKPI_LAYOUT.gs:          buildExecutiveSummaryLayout() (hard — a completeness requirement)
+//   SVMKPI_KPI_REBUILD.gs:     buildKPI2026(), _kpiSheetName() (hard — a completeness requirement)
+//   SVMKPI_REPORTS.gs:         getExecutiveSummaryReport(), getKPI2026Report() (hard — a completeness requirement)
 //
 // Does NOT contain:
 //   - Any new risk/compliance/KPI business rule or scoring formula.
@@ -269,17 +280,57 @@ function _snap_setStatusInPlace(sheet, snapshotId, newStatus) {
 
 /**
  * _snap_captureCalculatedResult(year, evaluationDate)
- * Pure — no sheet writes. See the file header for exactly which existing
- * functions are reused for each section and why Executive Summary/KPI are
- * best-effort/optional.
+ * Captures a COMPLETE, self-contained report result — storeRisk,
+ * complianceGaps, totals, executiveSummary, and kpi are all required to
+ * be non-null for a snapshot to count as successfully captured (a
+ * finalized snapshot must never be a self-contained "mostly" frozen
+ * report — see DEPLOY.md's Phase 1E section). Any failure anywhere in
+ * this function throws and is caught by the caller
+ * (finalizeReport()/supersedeReportSnapshot()'s existing "Report
+ * calculation failed" handling) — it never returns a partial result
+ * dressed up as success.
+ *
+ * Executive Summary vs. KPI are handled asymmetrically on purpose:
+ *   - EXECUTIVE SUMMARY is the ONE shared sheet across every reporting
+ *     year, and getExecutiveSummaryReport() has no way to tell which
+ *     year it currently represents. So this function ALWAYS calls
+ *     buildExecutiveSummaryLayout(year) first, unconditionally, even if
+ *     the sheet already exists — "build only if missing" could silently
+ *     freeze a DIFFERENT year's numbers into this snapshot. This is a
+ *     real, documented side effect: finalizing/superseding a report
+ *     mutates the live, shared "EXECUTIVE SUMMARY" tab every time.
+ *   - "KPI <year>" IS already year-scoped by its own sheet name (Phase
+ *     1C's _kpiSheetName()), so there is no cross-year risk — it is only
+ *     built when that EXACT sheet doesn't exist yet (checked via a
+ *     direct sheet lookup, never inferred from a caught exception's
+ *     message, so a genuinely different failure from getKPI2026Report()
+ *     is never misreported as "just needed building" — it propagates).
+ *
+ * Neither builder is modified, and neither gains evaluationDate-clipping
+ * here: both remain full-calendar-year calculations for `year`, exactly
+ * as they already are — an inherited limitation, not something this
+ * function changes (see DEPLOY.md).
  * @param {number} year
  * @param {Date} evaluationDate
- * @returns {{storeRisk:object[], complianceGaps:object[], executiveSummary:(object|null), executiveSummaryNote:(string|null), kpi:(object|null), kpiNote:(string|null), totals:object}}
+ * @returns {{storeRisk:object[], complianceGaps:object[], executiveSummary:(object|null), kpi:(object|null), totals:object}}
  */
 function _snap_captureCalculatedResult(year, evaluationDate) {
   const masterLog = _getSheet(SHEET.MASTER_LOG);
   const data = _getData(masterLog);
   const storeRisk = _computeStoreRisk(data, evaluationDate, year);
+
+  // Empty-year short-circuit: the caller (finalizeReport()/
+  // supersedeReportSnapshot()) rejects an empty storeRisk result before
+  // ever persisting anything (item 34's safeguard) — so a genuinely
+  // empty year should never trigger the Executive Summary/KPI builders'
+  // side effects on shared sheets for a report that's about to be
+  // rejected anyway.
+  if (!storeRisk || storeRisk.length === 0) {
+    return {
+      storeRisk: storeRisk || [], complianceGaps: [], executiveSummary: null, kpi: null,
+      totals: { storeCount: 0, highRiskCount: 0, mediumRiskCount: 0, lowRiskCount: 0, complianceGapCount: 0 },
+    };
+  }
 
   const tz = (typeof Session !== 'undefined' && Session.getScriptTimeZone) ? Session.getScriptTimeZone() : 'UTC';
   const evalDateStr = Utilities.formatDate(evaluationDate, tz, 'yyyy-MM-dd');
@@ -287,19 +338,24 @@ function _snap_captureCalculatedResult(year, evaluationDate) {
     ? sl_getComplianceGaps(null, null, year, evalDateStr)
     : [];
 
-  let executiveSummary = null, executiveSummaryNote = null;
-  try {
-    if (typeof getExecutiveSummaryReport === 'function') executiveSummary = getExecutiveSummaryReport();
-  } catch (e) {
-    executiveSummaryNote = 'EXECUTIVE SUMMARY sheet not available at finalization time (run "Rebuild Executive Summary" first to include it in future snapshots): ' + e.message;
+  if (typeof buildExecutiveSummaryLayout !== 'function' || typeof getExecutiveSummaryReport !== 'function') {
+    throw new Error('Executive Summary engine (SVMKPI_LAYOUT.gs / SVMKPI_REPORTS.gs) is not loaded — cannot capture a complete report.');
   }
+  buildExecutiveSummaryLayout(year);
+  const executiveSummary = getExecutiveSummaryReport();
 
-  let kpi = null, kpiNote = null;
-  try {
-    if (typeof getKPI2026Report === 'function') kpi = getKPI2026Report(year);
-  } catch (e) {
-    kpiNote = '"KPI ' + year + '" sheet not available at finalization time (run "Rebuild KPI" for ' + year + ' first to include it in future snapshots): ' + e.message;
+  if (typeof getKPI2026Report !== 'function') {
+    throw new Error('KPI report engine (SVMKPI_KPI_REBUILD.gs / SVMKPI_REPORTS.gs) is not loaded — cannot capture a complete report.');
   }
+  const kpiSheetName = (typeof _kpiSheetName === 'function') ? _kpiSheetName(year) : ('KPI ' + year);
+  const kpiSheetExists = !!SpreadsheetApp.getActiveSpreadsheet().getSheetByName(kpiSheetName);
+  if (!kpiSheetExists) {
+    if (typeof buildKPI2026 !== 'function') {
+      throw new Error('KPI build engine (SVMKPI_KPI_REBUILD.gs) is not loaded — cannot create the missing "' + kpiSheetName + '" sheet.');
+    }
+    buildKPI2026(year);
+  }
+  const kpi = getKPI2026Report(year);
 
   const totals = {
     storeCount: storeRisk.length,
@@ -309,7 +365,7 @@ function _snap_captureCalculatedResult(year, evaluationDate) {
     complianceGapCount: complianceGaps.length,
   };
 
-  return { storeRisk, complianceGaps, executiveSummary, executiveSummaryNote, kpi, kpiNote, totals };
+  return { storeRisk, complianceGaps, executiveSummary, kpi, totals };
 }
 
 
