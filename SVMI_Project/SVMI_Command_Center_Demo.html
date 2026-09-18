@@ -1405,10 +1405,39 @@ textarea.fi{padding-right:28px}
       }
       if (!visitedByStr) return { success: false, message: 'Missing required field: visitedBy' };
 
+      // Mirrors _findExactDuplicateVisitor() (INPUT_PORTAL.gs): same Store
+      // + same Visitor + same calendar date is blocked, evaluated
+      // per-individual visitor (not per whole-combination) so a shared
+      // name on a multi-visitor submission is still caught. The demo has
+      // no real concurrency to guard (single browser tab, no
+      // LockService equivalent needed) — this exists purely so the demo
+      // demonstrates the same business rule as the live app, not a
+      // second independent implementation of it.
+      const storeNorm  = normUp(payload.store);
+      const visitDate  = parseYMD(payload.dateVisited);
+      const visitorSet = visitedByStr.split('|').map(v => v.trim()).filter(Boolean);
+      const dupVisitor = DB.log.find(row => {
+        if (row.store !== storeNorm) return false;
+        // Seeded sample rows may carry a time-of-day component — strip it
+        // before comparing calendar dates, same as checkDuplicateVisit() does.
+        const rowDate = new Date(row.date.getFullYear(), row.date.getMonth(), row.date.getDate());
+        if (rowDate.getTime() !== visitDate.getTime()) return false;
+        const rowVisitors = String(row.visitedBy || '').split('|').map(v => v.trim()).filter(Boolean);
+        return rowVisitors.some(v => visitorSet.includes(v));
+      });
+      if (dupVisitor) {
+        const matched = String(dupVisitor.visitedBy || '').split('|').map(v => v.trim()).find(v => visitorSet.includes(v));
+        return {
+          success: false,
+          duplicate: true,
+          message: '"' + matched + '" already has a logged visit to "' + storeNorm + '" on ' + fmtYMD(visitDate) + '. (Demo mode — sample data only)',
+        };
+      }
+
       DB.log.push({
         timestamp: new Date(),
-        date: parseYMD(payload.dateVisited),
-        store: normUp(payload.store), brand, region,
+        date: visitDate,
+        store: storeNorm, brand, region,
         visitedBy: visitedByStr,
         purpose: normUp(payload.purpose),
         remarks: String(payload.remarks || '').trim(),

@@ -37,6 +37,11 @@ function newSandbox({ tryLockReturns = true, appendRowThrows = false } = {}) {
   const appendedRows = [];
   const lockCalls = { tryLock: 0, releaseLock: 0 };
   const master = {
+    // Empty log (header row only) — the in-lock duplicate check
+    // (_findExactDuplicateVisitor) short-circuits on getLastRow() < 2, so
+    // these lock-mechanics tests never hit an actual duplicate.
+    getLastRow: () => 1,
+    getRange: () => ({ getValues: () => [] }),
     appendRow: (row) => {
       if (appendRowThrows) throw new Error('simulated write failure');
       appendedRows.push(row);

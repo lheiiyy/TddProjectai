@@ -214,6 +214,7 @@ function processSubmissionAsync(payload) {
       return { success: false, message: 'Invalid Date Visited: ' + payload.dateVisited };
     }
     var dateFormatted = Utilities.formatDate(visitedDate, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    var storeNorm     = String(payload.store).trim().toUpperCase();
 
     // Row array — must match MASTER_LOG column order exactly:
     // A Timestamp | B Date Visited | C Store | D Brand | E Region |
@@ -221,7 +222,7 @@ function processSubmissionAsync(payload) {
     var newRow = [
       timestamp,                                            // A
       dateFormatted,                                        // B
-      String(payload.store).trim().toUpperCase(),           // C
+      storeNorm,                                            // C
       brand,                                                // D
       region,                                               // E
       visitedByStr,                                         // F — pipe-delimited if multi
@@ -242,6 +243,16 @@ function processSubmissionAsync(payload) {
     // appendRow() alone doesn't guarantee that under concurrent script
     // executions the way a read-then-write elsewhere in this project
     // (manageVisitor(), portal_saveStore(), etc.) would need it even more.
+    //
+    // Exact-duplicate blocking now lives HERE, inside the lock, re-reading
+    // MASTER_LOG after acquiring it — not in checkDuplicateVisit(), which
+    // stays a separate, unlocked, advisory-only pre-submit warning (its own
+    // broader "any visit in the last 7 days" heads-up is intentionally not
+    // the same check). Only a lock-protected re-read guarantees the final
+    // accept/reject decision can't race a concurrent submission that commits
+    // between the browser's advisory check and this write.
+    var visitorNames = visitedByStr.split('|').map(function (v) { return v.trim(); }).filter(Boolean);
+
     var lock = LockService.getScriptLock();
     var gotLock = false;
     try {
@@ -249,6 +260,16 @@ function processSubmissionAsync(payload) {
       if (!gotLock) {
         return { success: false, message: 'Server is busy processing another submission — please try again in a moment.' };
       }
+
+      var dupVisitor = _findExactDuplicateVisitor(master, storeNorm, visitedDate, visitorNames);
+      if (dupVisitor) {
+        return {
+          success: false,
+          duplicate: true,
+          message: '"' + dupVisitor + '" already has a logged visit to "' + storeNorm + '" on ' + dateFormatted + '.',
+        };
+      }
+
       master.appendRow(newRow);
       SpreadsheetApp.flush();
     } finally {
@@ -261,6 +282,50 @@ function processSubmissionAsync(payload) {
     logError('processSubmissionAsync', e);
     return { success: false, message: e.message };
   }
+}
+
+// ============================================================
+//  _findExactDuplicateVisitor(master, storeNorm, visitDate, visitorNames)
+//  Called only from inside processSubmissionAsync()'s LockService section,
+//  so it always sees the latest committed MASTER_LOG state — no other
+//  concurrent submission can land between this read and the append that
+//  follows it.
+//
+//  Duplicate definition (business rule): same Store + same Visitor + same
+//  calendar date. Store is matched by normalized NAME as an interim
+//  identity key — Store ID doesn't exist yet (that's a later migration);
+//  this re-keys to Store ID once that lands, per the same tradeoff already
+//  used for the row itself. "Same Visitor" is evaluated per-individual: a
+//  multi-visitor submission ("LEO | YANA") is a duplicate the moment ANY
+//  one of its visitors already has a logged visit to this store on this
+//  date — not only when the whole visitor combination matches exactly —
+//  because the business risk this blocks is one person's visit being
+//  logged twice, which exists per-visitor, independent of who else is on
+//  the same submission.
+//
+//  @returns {string|null} the first duplicate visitor name found, or null
+// ============================================================
+function _findExactDuplicateVisitor(master, storeNorm, visitDate, visitorNames) {
+  var lastRow = master.getLastRow();
+  if (lastRow < 2) return null;
+
+  var raw = master.getRange(2, 1, lastRow - 1, 8).getValues();
+  for (var i = 0; i < raw.length; i++) {
+    var row = raw[i];
+    var rowStore = String(row[COL_STORE - 1] || '').trim().toUpperCase();
+    if (rowStore !== storeNorm) continue;
+
+    var rowDate = _parseDateCell(row[COL_DATE - 1]);
+    if (!rowDate || rowDate.getTime() !== visitDate.getTime()) continue;
+
+    var rowVisitors = String(row[COL_VISITED_BY - 1] || '').toUpperCase()
+      .split('|').map(function (v) { return v.trim(); }).filter(Boolean);
+
+    for (var j = 0; j < rowVisitors.length; j++) {
+      if (visitorNames.indexOf(rowVisitors[j]) !== -1) return rowVisitors[j];
+    }
+  }
+  return null;
 }
 
 

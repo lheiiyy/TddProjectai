@@ -444,6 +444,67 @@ covered by `canonical-risk-engine.test.js`, `submission-lock.test.js`, and
 
 ---
 
+## Phase 0.5 — the two gaps Phase 0's own verification found
+
+A read-only audit of Phase 0 (before starting the larger configuration-driven
+rearchitecture) found two things Phase 0 hadn't actually finished, despite
+being adjacent to what it did fix. Both are closed now:
+
+- **`SVMKPI_STORE_LOOKUP.gs` now uses `_parseDateCell()` everywhere too.**
+  Seven independent `dateRaw instanceof Date ? ... : null` checks — in
+  `sl_getStoreData()` (row sort, last-visit display, recent-visits list),
+  `sl_getVisitedThisMonth()`, `sl_getUnvisitedThisMonth()`, and
+  `sl_getComplianceGaps()` — silently dropped any MASTER_LOG row whose date
+  cell wasn't already a Sheets-coerced `Date` object, even though
+  `processSubmissionAsync()`/`_getData()`/`checkDuplicateVisit()` would have
+  parsed the exact same string-valued cell correctly. A visit could show up
+  correctly in Store Health/Executive Summary/KPI 2026 while silently
+  missing from Store Insights, Visited/Unvisited This Month, or Compliance
+  Gaps — same underlying row, different reports disagreeing. All seven now
+  call `_parseDateCell()`. Covered by
+  `tests/store-lookup-date-handling.test.js` (native Date, valid string,
+  invalid string, and blank date, across all four functions).
+- **Duplicate visits are now actually blocked, not just warned about.**
+  `checkDuplicateVisit()` remains exactly what it was — a separate,
+  unlocked, advisory pre-submit RPC with its own broader "any visit to this
+  store in the last 7 days" heads-up. It was never the mechanism that could
+  enforce a real duplicate rule, since it never blocked anything and wasn't
+  re-checked at write time. The actual enforcement now lives inside
+  `processSubmissionAsync()`'s `LockService`-protected section, via the new
+  `_findExactDuplicateVisitor()`: after acquiring the lock, it re-reads
+  MASTER_LOG fresh and rejects the submission if any existing row has the
+  same Store (normalized name — see note below) + the same calendar
+  Date Visited + at least one Visitor in common with the incoming
+  submission. A multi-visitor submission (`"LEO | YANA"`) is blocked the
+  moment *either* name collides with an existing same-store/date row, not
+  only when the whole visitor list matches — the risk this guards against
+  (one person's visit logged twice) exists per-visitor, independent of who
+  else is on the submission. Because the check and the write share one lock
+  acquisition, two submissions racing each other can never both succeed —
+  whichever one's lock is granted second is guaranteed to see the first
+  one's commit before it decides. Covered by
+  `tests/duplicate-prevention.test.js`: exact duplicate blocked; same store
+  + different visitor allowed; same store/visitor + different date allowed;
+  different store + same visitor/date allowed; multi-visitor partial-overlap
+  blocked; and a same-store/visitor/date pair submitted twice in a row
+  (the standard way to test lock-serialized atomicity without real OS
+  threads) resulting in exactly one row, never two.
+
+  **Interim identity note:** the duplicate check matches stores by
+  normalized *name*, not by an immutable Store ID — Store ID doesn't exist
+  yet (that's a future migration). This is a deliberate, disclosed choice:
+  identity is already name-based everywhere else in the app today, so
+  nothing regresses; it just doesn't yet carry the immutable-ID guarantee,
+  which doesn't exist anywhere yet either. Re-key this to Store ID once
+  that migration lands.
+
+The demo (`SVMI_Command_Center_Demo.html`) mirrors the duplicate-blocking
+rule in its own `processSubmissionAsync()` mock for behavioral parity — the
+demo has no real concurrency to guard (single browser tab), so this exists
+purely so the preview demonstrates the same business rule as the live app.
+
+---
+
 ## Checks before you push
 
 No linter, but three checks are worth running:
@@ -501,14 +562,29 @@ node SVMI_Project/tests/submission-lock.test.js
 # that replaced three independent implementations, plus
 # checkDuplicateVisit()'s integration with it
 node SVMI_Project/tests/date-parsing.test.js
+
+# Phase 0.5: covers the 7 SVMKPI_STORE_LOOKUP.gs date-handling call sites
+# (sl_getStoreData()'s sort/last-visit/recent-visits, sl_getVisitedThisMonth(),
+# sl_getUnvisitedThisMonth(), sl_getComplianceGaps()) now all going through
+# _parseDateCell() — native Date, valid string, invalid string, and blank
+# date, proving all four functions treat them identically
+node SVMI_Project/tests/store-lookup-date-handling.test.js
+
+# Phase 0.5: covers exact-duplicate blocking inside processSubmissionAsync()'s
+# lock — exact duplicate rejected; same store+different visitor allowed;
+# same store/visitor+different date allowed; different store+same
+# visitor/date allowed; multi-visitor partial overlap blocked; and two
+# submissions racing each other never both create the same visit
+node SVMI_Project/tests/duplicate-prevention.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a
 real spreadsheet — they catch UI/layout regressions, not data-correctness
 issues. `risk-scoring.test.js`, `kpi-roster-history.test.js`,
 `roster-auto-refresh.test.js`, `store-remove-history.test.js`,
-`canonical-risk-engine.test.js`, `submission-lock.test.js`, and
-`date-parsing.test.js` are the exception: they run actual `.gs`
+`canonical-risk-engine.test.js`, `submission-lock.test.js`,
+`date-parsing.test.js`, `store-lookup-date-handling.test.js`, and
+`duplicate-prevention.test.js` are the exception: they run actual `.gs`
 functions directly (against a mocked Sheet/Range, not a mock of the
 *business logic*), so they do catch data-correctness bugs (this is how the
 "never-visited stores silently

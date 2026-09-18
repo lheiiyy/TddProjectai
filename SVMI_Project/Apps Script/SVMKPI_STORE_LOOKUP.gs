@@ -160,10 +160,15 @@ function sl_getStoreData(storeName) {
   if (rows.length === 0) return _sl_emptyResult(target, log);
 
   // ── Step 3: Sort filtered rows by date desc (newest first) ─
+  // _parseDateCell() (SVMKPI_CORE.gs) — the same canonical parser
+  // processSubmissionAsync()/checkDuplicateVisit()/_getData() use —
+  // handles both a real Sheets Date object and a plain date string
+  // consistently; the previous inline `instanceof Date` check silently
+  // dropped any row whose cell wasn't already a Date object.
   rows.sort((a, b) => {
-    const da = a[SL_COL.DATE] instanceof Date ? a[SL_COL.DATE].getTime() : 0;
-    const db = b[SL_COL.DATE] instanceof Date ? b[SL_COL.DATE].getTime() : 0;
-    return db - da;
+    const da = _parseDateCell(a[SL_COL.DATE]);
+    const db = _parseDateCell(b[SL_COL.DATE]);
+    return (db ? db.getTime() : 0) - (da ? da.getTime() : 0);
   });
 
   // ── Step 4: Derive meta from SETTINGS ─────────────────────
@@ -172,10 +177,10 @@ function sl_getStoreData(storeName) {
   // ── Step 5: Summary ───────────────────────────────────────
   const totalVisits  = rows.length;
   const lastRow_     = rows[0];
-  const lastDate     = lastRow_[SL_COL.DATE];
+  const lastDate     = _parseDateCell(lastRow_[SL_COL.DATE]);
   const lastVisitor  = String(lastRow_[SL_COL.VISITOR] || '').trim().toUpperCase() || '—';
   const lastPurpose  = String(lastRow_[SL_COL.PURPOSE] || '').trim().toUpperCase() || '—';
-  const lastVisitStr = lastDate instanceof Date ? _sl_formatDate(lastDate) : '—';
+  const lastVisitStr = lastDate ? _sl_formatDate(lastDate) : '—';
 
   // ── Step 6: Purpose breakdown ─────────────────────────────
   const purposeCounts = {};
@@ -205,12 +210,15 @@ function sl_getStoreData(storeName) {
     .slice(0, SL_TOP_VISITOR_LIMIT);
 
   // ── Step 8: Recent 10 visits ──────────────────────────────
-  const recentVisits = rows.slice(0, SL_RECENT_LIMIT).map(row => ({
-    date:    row[SL_COL.DATE] instanceof Date ? _sl_formatDate(row[SL_COL.DATE]) : '—',
-    visitor: String(row[SL_COL.VISITOR] || '').trim().toUpperCase() || '—',
-    purpose: String(row[SL_COL.PURPOSE] || '').trim().toUpperCase() || '—',
-    remarks: String(row[SL_COL.REMARKS] || '').trim()               || '—',
-  }));
+  const recentVisits = rows.slice(0, SL_RECENT_LIMIT).map(row => {
+    const d = _parseDateCell(row[SL_COL.DATE]);
+    return {
+      date:    d ? _sl_formatDate(d) : '—',
+      visitor: String(row[SL_COL.VISITOR] || '').trim().toUpperCase() || '—',
+      purpose: String(row[SL_COL.PURPOSE] || '').trim().toUpperCase() || '—',
+      remarks: String(row[SL_COL.REMARKS] || '').trim()               || '—',
+    };
+  });
 
   // ── Step 9: Health score — canonical engine, shared with Store Health ─
   const health = _sl_computeCanonicalHealth(log, target);
@@ -534,8 +542,7 @@ function sl_getVisitedThisMonth(brandFilter) {
     const store = String(row[SL_COL.STORE] || '').trim().toUpperCase();
     if (!store || !allStores.has(store)) return;
 
-    const dateRaw = row[SL_COL.DATE];
-    const date = dateRaw instanceof Date && !isNaN(dateRaw) ? dateRaw : null;
+    const date = _parseDateCell(row[SL_COL.DATE]);
     if (!date || date < monthStart || date > monthEnd) return;
 
     let a = acc.get(store);
@@ -635,11 +642,10 @@ function sl_getUnvisitedThisMonth(brandFilter) {
   const lastVisitByStore = new Map(); // name → {date, daysSince}
 
   logData.forEach(row => {
-    const store   = String(row[SL_COL.STORE] || '').trim().toUpperCase();
-    const dateRaw = row[SL_COL.DATE];
+    const store = String(row[SL_COL.STORE] || '').trim().toUpperCase();
     if (!store) return;
 
-    const date = dateRaw instanceof Date && !isNaN(dateRaw) ? dateRaw : null;
+    const date = _parseDateCell(row[SL_COL.DATE]);
 
     if (date && date >= monthStart && date <= monthEnd) {
       visitedThisMonth.add(store);
@@ -761,11 +767,10 @@ function sl_getComplianceGaps(brandFilter, monthNumber) {
     const logData = log.getRange(2, 1, log.getLastRow() - 1, 8).getValues();
 
     logData.forEach(row => {
-      const store   = String(row[2] || '').trim().toUpperCase();
-      const dateRaw = row[1];
+      const store = String(row[2] || '').trim().toUpperCase();
       if (!store || !allStores.has(store)) return;
 
-      const date = dateRaw instanceof Date && !isNaN(dateRaw) ? dateRaw : null;
+      const date = _parseDateCell(row[1]);
       if (!date) return;
 
       // YTD: count all visits in DATA_YEAR
