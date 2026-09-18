@@ -40,8 +40,10 @@ This is what lets the **📦 Stock** tab and the Summary tab compute stock on ha
 
 If you already have MASTER_LOG data to migrate in, copy it under those headers — order doesn't matter, the script looks columns up by name.
 
-## 4. Set the access PIN
+## 4. Set the access PIN (and, optionally, a read-only viewer PIN)
 Run **🍕 TL Tracker → Set / Change Access PIN**, enter a 4+ character PIN. This is what actually gates the phone link — `doGet()` (`Code.gs`) checks the PIN *before* the form itself is ever sent to the browser, so anyone with just the URL reaches a PIN-only screen (`TL_LOCK.html`), not the working form. Change the PIN any time by running this again; nothing is cached client-side, so it takes effect on the very next visit. (A visit coming from the Training & Development Hub, if one is configured, can skip this screen via a short-lived Hub token instead of the PIN — see `Hub_Project/DEPLOY.md`.)
+
+Optionally, also run **🍕 TL Tracker → Set / Change Viewer PIN (read-only)** to give directors or other departments a *separate* PIN that opens the form in read-only mode — only 📊 Reports and 🔎 Monitoring are visible, New Entry/Certify/Uniform/Stock are hidden, and (more importantly) actually blocked server-side if someone tries to call them directly. A viewer-mode visitor can type the real access PIN into the "🔓 Full Access" button that replaces "🔒 Lock" in that mode to upgrade to full access in-page, without reloading. A Hub click-through (if configured) always opens in viewer mode for the same reason — the Hub can't tell who's Training & Dev staff for this project the way it can for SVMI, since TL Tracker's web app doesn't see each visitor's individual Google identity (it runs as "Execute as: Me" — see step 5). Staff should use "🔓 Full Access" or go straight to the link with the real PIN.
 
 ## 5. Deploy as a phone-friendly web app
 In the Apps Script editor: **Deploy → New deployment**.

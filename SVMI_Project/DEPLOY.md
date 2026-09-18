@@ -174,14 +174,31 @@ are fine to leave as a familiar label or reword at your discretion.
 
 ## Access control
 
-Four layers, each answering a different question:
+Five layers, each answering a different question:
 
 | Layer | Question it answers | Where it's configured |
 |---|---|---|
 | Google sign-in | Is this a real Google account? | `appsscript.json` |
 | Guest password | Should this account be using the app at all? | `SETTINGS!I2` |
 | Hub token (optional) | Did this visit just come from the Training & Development Hub? | Script Property `HUB_SHARED_SECRET` |
+| Staff list | Should this account get the working tabs (Input Portal, Store Insights, Unvisited This Month), or just read-only Reports? | `SETTINGS!K2:K` |
 | Admin list | Should this account see System Tools at all? | `SETTINGS!G2:G` |
+
+**Staff list** is the tier between "passed the guest password" and admin.
+Everyone who gets past the password gate — directors, other departments,
+Training & Dev alike — reaches the portal, but only accounts on
+`SETTINGS!K2:K` (or the admin list — every admin counts as staff
+automatically) see Input Portal, Store Insights, and Unvisited This
+Month; the nav drawer hides those tabs for anyone else and routes them
+straight to Reports instead, which stays read-only and open to everyone
+who's past the password gate. That client-side routing is a convenience
+only — `processSubmissionAsync()` and `manageVisitor()` (`INPUT_PORTAL.gs`),
+the only two functions that actually write data, check `sl_isStaff()`
+again themselves, since a hidden nav item can't stop a direct
+`google.script.run` call. Run **STORE VISIT KPI → 🔐 Set Up Access
+Control** to seed the `STAFF_EMAILS` header if it isn't there yet, then
+list every Training & Development email under it — same one-per-row
+shape as `ADMIN_EMAILS`.
 
 **Hub token** is an alternative to the guest password, not a replacement
 for it — a request carrying a valid, unexpired `?htok=` (minted by
@@ -247,10 +264,24 @@ Run **STORE VISIT KPI → 🔐 Set Up Access Control** from the Sheets menu once
 to turn this on — it's off (no password required) until then, so the app
 never locks everyone out before you've set it up. That same menu item
 generates a random password into `SETTINGS!I2` and shows it once in a dialog;
-change it any time by editing that cell directly. Rotating it signs out every
-browser that had the old one remembered (they'll see the lock screen again).
+change it any time by editing that cell directly. Nothing is remembered in
+the browser any more (see "Also worth knowing" above), so rotating it takes
+effect on every visitor's very next page load, not just new ones.
 
-### 3. Admin list (all of System Tools)
+### 3. Staff list (Input Portal, Store Insights, Unvisited This Month)
+
+`SETTINGS!K2:K` holds one Training & Development email per row.
+`sl_isStaff()` checks the signed-in email (from Google sign-in, above)
+against that list, or against the admin list below — an admin is
+automatically staff too, no need to list the same email twice. Anyone who passes the
+guest password but isn't staff still reaches the portal, but the nav
+drawer hides Input Portal, Store Insights, Unvisited This Month, *and*
+System Tools for them, routing straight to Reports instead — same
+convenience-only shape as the admin list: `processSubmissionAsync()` and
+`manageVisitor()` (`INPUT_PORTAL.gs`), the two functions that actually
+write data, call `sl_isStaff()` again themselves before doing anything.
+
+### 4. Admin list (all of System Tools)
 
 `SETTINGS!G2:G` holds one admin email per row. `sl_isAdmin()` checks the
 signed-in email (from layer 1) against that list. **Every** System Tool —
@@ -271,9 +302,9 @@ access — with any other admin emails removed. `sl_isAdmin()` reads that
 column fresh on every check, so this takes effect immediately, no
 redeploy needed.
 
-Everything else — Input Portal, Store Insights, Unvisited This Month, and
-the Reports tab — stays open to anyone who gets past the password; System
-Tools is the only tab gated by the admin list.
+The Reports tab is the only one open to anyone who gets past the guest
+password — Input Portal, Store Insights, and Unvisited This Month need
+staff (layer 3), and System Tools additionally needs admin (this layer).
 
 ---
 

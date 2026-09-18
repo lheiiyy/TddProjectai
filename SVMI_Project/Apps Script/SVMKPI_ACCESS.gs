@@ -30,10 +30,11 @@
 
 // SETTINGS column layout for access control (1-based). Columns A–F are
 // already used (Store/Brand/Region/validation formula/Category/Visitors,
-// see SVMKPI_STORE_LOOKUP.gs's SL_SETTINGS_COL) — G and I are free.
+// see SVMKPI_STORE_LOOKUP.gs's SL_SETTINGS_COL) — G, I, and K are free.
 const ACCESS_COL = {
   ADMIN_EMAILS:    7,  // G — one admin email per row, from G2 down
   GUEST_PASSWORD:  9,  // I — single value in I2
+  STAFF_EMAILS:    11, // K — one Training & Dev email per row, from K2 down
 };
 
 // Script Property holding the secret shared with the Training &
@@ -63,6 +64,21 @@ function _getGuestPassword() {
   const settings = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('SETTINGS');
   if (!settings) return '';
   return String(settings.getRange(2, ACCESS_COL.GUEST_PASSWORD).getValue() || '').trim();
+}
+
+/**
+ * _getStaffEmails_()
+ * @returns {string[]} lowercased, trimmed Training & Dev emails from
+ *   SETTINGS!K2:K — the tier between "passed the guest password" (anyone
+ *   with the link — directors, other departments) and admin.
+ */
+function _getStaffEmails_() {
+  const settings = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('SETTINGS');
+  if (!settings || settings.getLastRow() < 2) return [];
+  const values = settings.getRange(2, ACCESS_COL.STAFF_EMAILS, settings.getLastRow() - 1, 1).getValues();
+  return values
+    .map(row => String(row[0] || '').trim().toLowerCase())
+    .filter(Boolean);
 }
 
 
@@ -107,6 +123,29 @@ function sl_isAdmin() {
   const email = String(sl_getCurrentUser() || '').trim().toLowerCase();
   if (!email) return false;
   return _getAdminEmails().indexOf(email) !== -1;
+}
+
+/**
+ * sl_isStaff()
+ * Whether the current Google account is Training & Development staff —
+ * on the SETTINGS!K list, or an admin (every admin counts as staff too,
+ * so SETTINGS!G doesn't need to be duplicated into K). Passing the guest
+ * password alone (SECTION 3 below) is not staff — that's the wider
+ * "anyone with the link" tier (directors, other departments), who get a
+ * read-only Reports view; staff additionally get Input Portal, Store
+ * Insights, and Unvisited This Month. Called by the portal to hide/route
+ * around those tabs for non-staff — convenience only, same as
+ * sl_isAdmin(): processSubmissionAsync() and manageVisitor()
+ * (INPUT_PORTAL.gs), the only two functions that actually write data,
+ * call this again themselves before doing anything.
+ * Fails closed: no email visible ⇒ not staff, never the reverse.
+ * @returns {boolean}
+ */
+function sl_isStaff() {
+  const email = String(sl_getCurrentUser() || '').trim().toLowerCase();
+  if (!email) return false;
+  if (_getAdminEmails().indexOf(email) !== -1) return true;
+  return _getStaffEmails_().indexOf(email) !== -1;
 }
 
 
@@ -262,6 +301,15 @@ function menuSetupAccessControl() {
       notes.push('Generated a guest password: ' + generated + '  (SETTINGS!I2 — change it any time by editing that cell; this is the only place it is ever shown).');
     } else {
       notes.push('A guest password is already set — left it alone.');
+    }
+
+    // STAFF_EMAILS
+    const staffHeader = settings.getRange(1, ACCESS_COL.STAFF_EMAILS);
+    if (!String(staffHeader.getValue() || '').trim()) {
+      staffHeader.setValue('STAFF_EMAILS').setFontWeight('bold');
+      notes.push('Added the STAFF_EMAILS header (SETTINGS!K1) — list every Training & Development email under it, one per row from K2 down. Anyone who passes the guest password but isn\'t here (or on the admin list) gets a read-only Reports view only.');
+    } else {
+      notes.push('Staff list already has entries — left it alone.');
     }
 
     ui.alert('Access Control', notes.join('\n\n'), ui.ButtonSet.OK);

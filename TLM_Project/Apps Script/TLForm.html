@@ -280,14 +280,15 @@
             <small class="hint" id="modeIndicator" onclick="toggleModeMenu()">🆕 New Entry ▾</small>
           </div>
         </div>
-        <button type="button" class="linklike" onclick="lockApp()">🔒 Lock</button>
+        <button type="button" class="linklike" id="upgradeBtn" onclick="promptFullAccess()" hidden>🔓 Full Access</button>
+        <button type="button" class="linklike" id="lockBtn" onclick="lockApp()">🔒 Lock</button>
       </div>
 
       <div class="modeMenu" id="modeMenu">
-        <button type="button" class="modeItem active" data-mode="entry" onclick="selectMode('entry')">🆕 New Entry</button>
-        <button type="button" class="modeItem" data-mode="update" onclick="selectMode('update')">✅ Certify</button>
-        <button type="button" class="modeItem" data-mode="uniform" onclick="selectMode('uniform')">👕 Uniform</button>
-        <button type="button" class="modeItem" data-mode="stock" onclick="selectMode('stock')">📦 Stock</button>
+        <button type="button" class="modeItem active" data-mode="entry" data-full-only="true" onclick="selectMode('entry')">🆕 New Entry</button>
+        <button type="button" class="modeItem" data-mode="update" data-full-only="true" onclick="selectMode('update')">✅ Certify</button>
+        <button type="button" class="modeItem" data-mode="uniform" data-full-only="true" onclick="selectMode('uniform')">👕 Uniform</button>
+        <button type="button" class="modeItem" data-mode="stock" data-full-only="true" onclick="selectMode('stock')">📦 Stock</button>
         <button type="button" class="modeItem" data-mode="exec" onclick="selectMode('exec')">📊 Reports</button>
         <button type="button" class="modeItem" data-mode="monitor" onclick="selectMode('monitor')">🔎 Monitoring<span class="itemBadge" id="monitorItemBadge" style="display:none;"></span></button>
       </div>
@@ -594,6 +595,15 @@
     var openList = [];
     var UNLOCK_KEY = 'tlTrackerUnlocked';
 
+    // Hoisted above the PIN GATE section (moved out of MAIN APP below) —
+    // initGate() runs immediately and can call selectMode() (via
+    // applyRoleGating() for a viewer session) before the script would
+    // otherwise have reached the MAIN APP section, so these three need to
+    // already be assigned by then, not just declared.
+    var MODES = ['entry', 'update', 'uniform', 'stock', 'exec', 'monitor'];
+    var PANEL_ID = { entry: 'panelEntry', update: 'panelUpdate', uniform: 'panelUniform', stock: 'panelStock', exec: 'panelExec', monitor: 'panelMonitor' };
+    var MODE_LABEL = { entry: '🆕 New Entry', update: '✅ Certify', uniform: '👕 Uniform', stock: '📦 Stock', exec: '📊 Reports', monitor: '🔎 Monitoring' };
+
     // Set by Code.gs's _handleTLRequest_ (web app path) when the PIN or a
     // Hub token already checked out server-side, so this client gate can
     // skip itself instead of asking again. showTLForm() (the in-Sheet
@@ -601,6 +611,22 @@
     // that path is unaffected and keeps using its own localStorage
     // "remember" convenience below.
     var SERVER_AUTHED = <?!= (typeof serverAuthed !== 'undefined' && serverAuthed) ? 'true' : 'false' ?>;
+
+    // 'full' (the real PIN was used) or 'viewer' (the viewer PIN, or a Hub
+    // token, was used — read-only: Reports/Monitoring only, see
+    // applyRoleGating() below). Always 'full' outside the web app path
+    // (the in-Sheet dialog has its own, separate client-only PIN gate).
+    var TL_ROLE = <?!= JSON.stringify((typeof role !== 'undefined' && role) ? role : 'full') ?>;
+
+    // The PIN actually in effect right now — attached to every write RPC
+    // call (submitNewEntry etc.) and re-verified server-side there, since
+    // TL Tracker's web app runs as USER_DEPLOYING (no reliable per-visitor
+    // identity to check like SVMI does) — a hidden mode tab alone can't
+    // stop a direct google.script.run call, only a real per-call check can.
+    // Starts out holding whatever full PIN got this page loaded (from the
+    // URL, if that's how TL_ROLE became 'full'); stays '' for a 'viewer'
+    // session until promptFullAccess() below successfully upgrades it.
+    var SESSION_PIN = '';
 
     // ============================= PIN GATE =============================
     function showApp() {
@@ -620,7 +646,10 @@
         .withSuccessHandler(function(ok) {
           btn.disabled = false;
           if (ok) {
-            try { localStorage.setItem(UNLOCK_KEY, '1'); } catch (e) {}
+            try { localStorage.setItem(UNLOCK_KEY, pin); } catch (e) {}
+            SESSION_PIN = pin; // attached to every write call below — see submitNewEntry() etc.
+            TL_ROLE = 'full';
+            applyRoleGating(TL_ROLE);
             showApp();
           } else {
             msg.textContent = 'Incorrect PIN.';
@@ -643,10 +672,59 @@
 
     function lockApp() {
       try { localStorage.removeItem(UNLOCK_KEY); } catch (e) {}
+      SESSION_PIN = '';
       document.getElementById('app').style.display = 'none';
       document.getElementById('pinGate').style.display = 'flex';
       document.getElementById('pinInput').value = '';
       document.getElementById('pinInput').focus();
+    }
+
+    // Hides the four write-capable mode tabs (New Entry / Certify / Uniform
+    // / Stock — the ones marked data-full-only) for a 'viewer' session,
+    // leaving only Reports and Monitoring, and shows the "Full Access"
+    // upgrade button instead of "Lock". Convenience only, same caveat as
+    // SVMI's applyStaffGating(): the real enforcement is server-side, in
+    // each submit function checking the pin this call actually carried.
+    function applyRoleGating(role) {
+      var isViewer = role !== 'full';
+      document.querySelectorAll('.modeItem[data-full-only]').forEach(function(item) {
+        // .modeItem sets display:flex via a selector more specific than the
+        // [hidden] default, so toggle display directly instead of .hidden.
+        item.style.display = isViewer ? 'none' : '';
+      });
+      document.getElementById('upgradeBtn').hidden = !isViewer;
+      document.getElementById('lockBtn').hidden = isViewer;
+      if (isViewer && ['entry','update','uniform','stock'].indexOf(currentModeSafe()) !== -1) {
+        selectMode('exec');
+      }
+    }
+
+    function currentModeSafe() {
+      var active = document.querySelector('.modeItem.active');
+      return active ? active.getAttribute('data-mode') : 'entry';
+    }
+
+    // Lets a viewer-session visitor type the real PIN in-page to unlock
+    // the write-capable tabs, without leaving the page or losing anything
+    // already loaded (Reports/Monitoring data). Uses the same verifyPin()
+    // RPC the main PIN gate uses.
+    function promptFullAccess() {
+      var pin = prompt('Enter the full-access PIN:');
+      if (pin === null) return;
+      pin = pin.trim();
+      if (!pin) return;
+      google.script.run
+        .withSuccessHandler(function(ok) {
+          if (ok) {
+            SESSION_PIN = pin;
+            TL_ROLE = 'full';
+            applyRoleGating(TL_ROLE);
+          } else {
+            alert('Incorrect PIN.');
+          }
+        })
+        .withFailureHandler(function(err) { alert(err.message); })
+        .verifyPin(pin);
     }
 
     (function initGate() {
@@ -656,13 +734,23 @@
         // prompt, and deliberately not remembered here either (no
         // localStorage write), so a refresh or a re-opened tab always
         // goes back through the server gate instead of staying unlocked.
+        if (TL_ROLE === 'full') {
+          try {
+            var params = new URLSearchParams(location.search);
+            SESSION_PIN = params.get('pin') || '';
+          } catch (e) {}
+        }
+        applyRoleGating(TL_ROLE);
         showApp();
         startIdleAutoLock();
         return;
       }
-      var already = false;
-      try { already = localStorage.getItem(UNLOCK_KEY) === '1'; } catch (e) {}
-      if (already) {
+      var remembered = '';
+      try { remembered = localStorage.getItem(UNLOCK_KEY) || ''; } catch (e) {}
+      if (remembered) {
+        SESSION_PIN = remembered; // the dialog path stores the PIN itself, not just a flag — see tryUnlock()
+        TL_ROLE = 'full';
+        applyRoleGating(TL_ROLE);
         showApp();
       }
     })();
@@ -689,9 +777,6 @@
     }
 
     // ============================= MAIN APP =============================
-    var MODES = ['entry', 'update', 'uniform', 'stock', 'exec', 'monitor'];
-    var PANEL_ID = { entry: 'panelEntry', update: 'panelUpdate', uniform: 'panelUniform', stock: 'panelStock', exec: 'panelExec', monitor: 'panelMonitor' };
-    var MODE_LABEL = { entry: '🆕 New Entry', update: '✅ Certify', uniform: '👕 Uniform', stock: '📦 Stock', exec: '📊 Reports', monitor: '🔎 Monitoring' };
 
     // ---------- burger menu open/close ----------
     function toggleModeMenu() {
@@ -1163,6 +1248,7 @@
         uniformQty: val('uniformQty'),
         uniformDr: val('uniformDr')
       };
+      form.pin = SESSION_PIN; // re-verified server-side in submitNewEntry() — see TL_ROLE below
 
       btn.disabled = true;
       btn.textContent = 'Saving…';
@@ -1208,6 +1294,7 @@
         examGradeInput: val('examGradeInput'),
         finalStatus: val('finalStatus')
       };
+      form.pin = SESSION_PIN; // re-verified server-side in submitCertification()
 
       if (!form.key) { msg.textContent = 'Please pick a trainee.'; msg.className = 'err'; return; }
       if (!form.certBy && form.newStatus !== 'EXTENDED') {
@@ -1273,6 +1360,7 @@
         givenBy: val('uf_givenby'),
         notes: val('uf_notes')
       };
+      form.pin = SESSION_PIN; // re-verified server-side in submitUniformRelease()
 
       if (!form.key) { msg.textContent = 'Please pick a trainee.'; msg.className = 'err'; return; }
       if (!form.size) { msg.textContent = 'Please pick a size.'; msg.className = 'err'; return; }
@@ -1313,6 +1401,7 @@
         deliveryRef: val('dv_ref'),
         loggedBy: val('dv_by')
       };
+      form.pin = SESSION_PIN; // re-verified server-side in submitUniformDelivery()
 
       if (!form.size) { msg.textContent = 'Please pick a size.'; msg.className = 'err'; return; }
       if (!form.quantity) { msg.textContent = 'Please enter the quantity received.'; msg.className = 'err'; return; }

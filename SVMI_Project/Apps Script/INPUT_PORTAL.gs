@@ -164,6 +164,7 @@ function getStoreDetails(storeName) {
 //  Returns { success: true } or { success: false, message: string }
 // ============================================================
 function processSubmissionAsync(payload) {
+  if (!sl_isStaff()) return { success: false, message: 'Training & Development access required.' };
   try {
     // ── Validate required fields ──────────────────────────────
     var required = ['store', 'dateVisited', 'visitedBy', 'purpose'];
@@ -349,6 +350,7 @@ function checkDuplicateVisit(payload) {
 //       or { success: false, message: string }
 // ============================================================
 function manageVisitor(action, visitorName) {
+  if (!sl_isStaff()) return { success: false, message: 'Training & Development access required.' };
   try {
     var name = String(visitorName || '').trim().toUpperCase();
     if (!name) return { success: false, message: 'Visitor name cannot be blank.' };

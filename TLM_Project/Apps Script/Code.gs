@@ -100,6 +100,10 @@ const STATUS_VALUES = ['PROBATIONARY', 'EXTENDED', 'CERTIFIED', 'FAILED', 'QUIT'
 const OPEN_STATUSES = ['PROBATIONARY', 'EXTENDED']; // statuses eligible for the Update/Certify form
 const UNIFORM_SIZES = ['XSMALL', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE', 'XXLARGE'];
 const PIN_PROPERTY_KEY = 'TL_TRACKER_PIN';
+// Read-only tier: Reports/Monitoring only, no write access — for directors
+// and other departments who need visibility without editing. See
+// _handleTLRequest_ and TLForm.html's applyRoleGating()/promptFullAccess().
+const VIEWER_PIN_PROPERTY_KEY = 'TL_TRACKER_VIEWER_PIN';
 const LOCK_WAIT_MS = 10000; // how long a phone submit waits for another one to finish
 
 // Script Property holding the secret shared with the Training &
@@ -165,6 +169,7 @@ function onOpen() {
     .addItem('Refresh SVMI Store List Cache', 'refreshSvmiStoreListCache')
     .addSeparator()
     .addItem('Set / Change Access PIN', 'setAccessPin')
+    .addItem('Set / Change Viewer PIN (read-only)', 'setViewerPin')
     .addItem('Show Phone App Link', 'showWebAppUrl')
     .addToUi();
 }
@@ -206,18 +211,31 @@ function doPost(e) {
 }
 
 function _handleTLRequest_(e) {
-  const pin    = String((e && e.parameter && e.parameter.pin) || '');
-  const htok   = String((e && e.parameter && e.parameter.htok) || '');
-  const stored = PropertiesService.getScriptProperties().getProperty(PIN_PROPERTY_KEY);
+  const pin       = String((e && e.parameter && e.parameter.pin) || '');
+  const htok      = String((e && e.parameter && e.parameter.htok) || '');
+  const stored    = PropertiesService.getScriptProperties().getProperty(PIN_PROPERTY_KEY);
+  const viewerPin = PropertiesService.getScriptProperties().getProperty(VIEWER_PIN_PROPERTY_KEY);
 
   const hubToken = htok ? _verifyHubToken_(htok) : null;
-  const hubOk    = !!hubToken && hubToken.sub === 'tlm';
+  // A Hub click-through only ever grants the read-only tier here — the Hub
+  // has no way to vouch that a visitor is Training & Dev staff (unlike
+  // SVMI, this project can't check the signed-in Google account, since its
+  // Web App runs as USER_DEPLOYING). Staff wanting full access from a Hub
+  // link use the in-page "🔓 Full Access" prompt (TLForm.html) instead.
+  const hubOk = !!hubToken && hubToken.sub === 'tlm';
 
-  if (!stored || pin.trim() === stored || hubOk) {
+  const fullOk   = !!stored && pin.trim() === stored;
+  const viewerOk = (!!viewerPin && pin.trim() === viewerPin) || hubOk;
+
+  if (!stored || fullOk || viewerOk) {
     // serverAuthed=true tells TLForm.html's client PIN gate to skip
-    // itself — the server already checked, so no second prompt.
+    // itself — the server already checked, so no second prompt. role
+    // decides which mode tabs it opens with (see applyRoleGating() there);
+    // 'full' when no PIN is configured yet either (bootstrap, matches the
+    // existing "no PIN = no gate" fail-open — same as SVMI's guest password).
     const tmpl = HtmlService.createTemplateFromFile('TLForm');
     tmpl.serverAuthed = true;
+    tmpl.role = (!stored || fullOk) ? 'full' : 'viewer';
     return tmpl.evaluate()
       .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1')
       .setTitle('TL Tracker')
@@ -293,10 +311,57 @@ function setAccessPin() {
   ui.alert('PIN saved. Anyone opening the phone link will need this PIN to get in.');
 }
 
+/**
+ * setViewerPin()
+ * A second, read-only PIN — Reports and Monitoring only, no New Entry /
+ * Certify / Uniform / Stock (see _handleTLRequest_ and TLForm.html's
+ * applyRoleGating()). For directors and other departments who need
+ * visibility without write access, so they don't have to be handed the
+ * real access PIN. Optional: leave unset and only the full PIN (plus any
+ * Hub token) gets anyone in at all.
+ */
+function setViewerPin() {
+  const ui = SpreadsheetApp.getUi();
+  const resp = ui.prompt('Set Viewer PIN', 'Enter a separate, read-only PIN for directors/other departments (Reports & Monitoring only, 4+ digits/characters). Leave blank to remove it:', ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  const pin = resp.getResponseText().trim();
+  if (pin && pin.length < 4) {
+    ui.alert('PIN must be at least 4 characters (or blank to remove it). Nothing was saved — run this again.');
+    return;
+  }
+  const props = PropertiesService.getScriptProperties();
+  if (pin) {
+    props.setProperty(VIEWER_PIN_PROPERTY_KEY, pin);
+    ui.alert('Viewer PIN saved. It opens a read-only view (Reports & Monitoring only) — the full PIN still opens everything.');
+  } else {
+    props.deleteProperty(VIEWER_PIN_PROPERTY_KEY);
+    ui.alert('Viewer PIN removed.');
+  }
+}
+
 function verifyPin(pin) {
   const stored = PropertiesService.getScriptProperties().getProperty(PIN_PROPERTY_KEY);
   if (!stored) throw new Error('No PIN has been set up yet — ask the sheet owner to run "Set / Change Access PIN" from the desktop menu.');
   return (pin || '').trim() === stored;
+}
+
+/**
+ * _requireFullAccess_(pin)
+ * The real write gate for submitNewEntry()/submitCertification()/
+ * submitUniformRelease()/submitUniformDelivery() below — checked on every
+ * call, not just at page load, since this project's Web App runs as
+ * USER_DEPLOYING (no reliable per-visitor Google identity to check the
+ * way SVMI does), so a hidden mode tab in TLForm.html can't be the real
+ * boundary; only re-verifying the PIN on each write call can. Fails open
+ * only when no PIN has been configured yet at all (matches the existing
+ * "no PIN = no gate" bootstrap behavior elsewhere in this file).
+ * @param {string} pin
+ * @returns {boolean}
+ */
+function _requireFullAccess_(pin) {
+  const stored = PropertiesService.getScriptProperties().getProperty(PIN_PROPERTY_KEY);
+  if (!stored) return true;
+  return String(pin || '').trim() === stored;
 }
 
 function showWebAppUrl() {
@@ -1070,6 +1135,7 @@ function getTLDetails(key) {
 // NEW ENTRY (called from TLForm.html, "New Entry" mode)
 // =====================================================================
 function submitNewEntry(form) {
+  if (!_requireFullAccess_(form.pin)) throw new Error('Full access PIN required.');
   if (!form.entryDate) throw new Error('Date of Entry is required.');
   if (!form.fullName) throw new Error('Full Name is required.');
   if (!form.motherStore) throw new Error('Mother Store is required.');
@@ -1154,6 +1220,7 @@ function submitNewEntry(form) {
 // CERTIFICATION / STATUS UPDATE (called from TLForm.html, "Certify / Update" mode)
 // =====================================================================
 function submitCertification(form) {
+  if (!_requireFullAccess_(form.pin)) throw new Error('Full access PIN required.');
   if (!form.key) throw new Error('Please pick a trainee from the list.');
   if (STATUS_VALUES.indexOf(form.newStatus) === -1) throw new Error('Invalid status.');
   if (['CERTIFIED', 'FAILED', 'QUIT', 'DISQUALIFIED', 'PROMOTION'].indexOf(form.newStatus) !== -1 && !form.certBy) {
@@ -1243,6 +1310,7 @@ function submitCertification(form) {
 // UNIFORM RELEASE (called from TLForm.html, "👕 Uniform" mode)
 // =====================================================================
 function submitUniformRelease(form) {
+  if (!_requireFullAccess_(form.pin)) throw new Error('Full access PIN required.');
   if (!form.key) throw new Error('Please pick a trainee.');
   if (UNIFORM_SIZES.indexOf(form.size) === -1) throw new Error('Please pick a valid size.');
   if (!form.givenBy) throw new Error('Please record who gave the uniform (Given By).');
@@ -1291,6 +1359,7 @@ function submitUniformRelease(form) {
 // to trainees), so on-hand can be computed instead of guessed.
 // =====================================================================
 function submitUniformDelivery(form) {
+  if (!_requireFullAccess_(form.pin)) throw new Error('Full access PIN required.');
   if (UNIFORM_SIZES.indexOf(form.size) === -1) throw new Error('Please pick a valid size.');
   const qty = form.quantity ? Number(form.quantity) : 0;
   if (!qty || qty < 1) throw new Error('Quantity received must be at least 1.');

@@ -870,6 +870,7 @@ window.onload = function() {
   loadSIStores();
   loadCurrentUser();
   loadAdminStatus();
+  loadStaffStatus();
   document.getElementById('topSubYear').textContent = dataYear;
   loadDataYear();
   syncFieldClears();
@@ -911,6 +912,29 @@ function loadAdminStatus() {
     .withSuccessHandler(applyAdminGating)
     .withFailureHandler(function(){ applyAdminGating(false); })   // fail closed
     .sl_isAdmin();
+}
+
+// Whoever passed the guest password gets in (directors, other departments,
+// Training & Dev alike — see DEPLOY.md's access-control tiers), but only
+// Training & Dev staff (SETTINGS!K, or an admin) get the working tabs.
+// Everyone else is routed to, and locked onto, the read-only Reports tab —
+// convenience only: processSubmissionAsync() and manageVisitor()
+// (INPUT_PORTAL.gs) check sl_isStaff() again themselves, since hiding a
+// nav item here can't stop a direct call to those two write functions.
+function applyStaffGating(isStaff) {
+  if (isStaff) return;
+  ['Insights', 'Visits', 'Input', 'Tools'].forEach(function(name) {
+    var item = document.getElementById('tab-' + name);
+    if (item) item.hidden = true;
+  });
+  switchTab('Reports');
+}
+
+function loadStaffStatus() {
+  google.script.run
+    .withSuccessHandler(applyStaffGating)
+    .withFailureHandler(function(){ applyStaffGating(false); })   // fail closed
+    .sl_isStaff();
 }
 
 // Shows who's actually signed in — confirms the Web App is running as the
