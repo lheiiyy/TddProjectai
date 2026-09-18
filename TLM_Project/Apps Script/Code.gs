@@ -156,6 +156,7 @@ function onOpen() {
     .addItem('Set Up Sheets (first-time only)', 'setupSheets')
     .addItem('Migrate Legacy Logs into MASTER_LOG (one-time)', 'migrateLegacyLogs')
     .addItem('Audit & Fix MASTER_LOG (one-time)', 'auditAndFixMasterLog')
+    .addItem('Allow Typing in Status/Size Dropdowns (one-time)', 'loosenDropdownValidation')
     .addSeparator()
     .addItem('Link SVMI Store List (Settings)…', 'setSvmiLink')
     .addItem('Refresh SVMI Store List Cache', 'refreshSvmiStoreListCache')
@@ -225,6 +226,41 @@ function setupSheets() {
   SpreadsheetApp.getUi().alert('MASTER_LOG, UNIFORM_LOG, and UNIFORM_INVENTORY are set up. You can now use the TL Tracker menu.');
 }
 
+// Repairs dropdown validation already sitting on an existing MASTER_LOG/
+// UNIFORM_LOG/UNIFORM_INVENTORY from before setAllowInvalid(true) was the
+// default — setup only ever touches a brand-new sheet, so a sheet that
+// already existed keeps whatever validation it was given at the time,
+// including the old click-only-chip (setAllowInvalid(false)) behavior.
+// Safe to run more than once; only rewrites the validation rule itself,
+// never touches any data.
+function loosenDropdownValidation() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const statusSheet = ss.getSheetByName(SHEET_NAME);
+  if (statusSheet) {
+    const rule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(STATUS_VALUES, true)
+      .setAllowInvalid(true)
+      .build();
+    statusSheet.getRange(2, COL.STATUS, Math.max(statusSheet.getMaxRows() - 1, 1), 1).setDataValidation(rule);
+  }
+
+  [UNIFORM_SHEET_NAME, UNIFORM_INVENTORY_SHEET_NAME].forEach(name => {
+    const sheet = ss.getSheetByName(name);
+    if (!sheet) return;
+    const headerMap = getHeaderMap(sheet);
+    if (headerMap['Size'] == null) return;
+    const sizeCol = headerMap['Size'] + 1;
+    const rule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(UNIFORM_SIZES, true)
+      .setAllowInvalid(true)
+      .build();
+    sheet.getRange(2, sizeCol, Math.max(sheet.getMaxRows() - 1, 1), 1).setDataValidation(rule);
+  });
+
+  SpreadsheetApp.getUi().alert('Done. Status and Size columns still show a dropdown, but typing a value directly into the cell is allowed again.');
+}
+
 function setupMasterLogHeaders_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(SHEET_NAME);
@@ -248,14 +284,18 @@ function setupMasterLogHeaders_() {
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.setFrozenRows(1);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
-  }
 
-  // Status column dropdown validation
-  const rule = SpreadsheetApp.newDataValidation()
-    .requireValueInList(STATUS_VALUES, true)
-    .setAllowInvalid(false)
-    .build();
-  sheet.getRange(2, COL.STATUS, Math.max(sheet.getMaxRows() - 1, 1), 1).setDataValidation(rule);
+    // Status column dropdown validation — only set up alongside the headers
+    // above, on a brand-new sheet. setAllowInvalid(true) keeps the dropdown/
+    // suggestions but still lets you type directly into the cell —
+    // setAllowInvalid(false) renders as a click-only chip with no typing
+    // at all, which is too restrictive for a column edited by hand this often.
+    const rule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(STATUS_VALUES, true)
+      .setAllowInvalid(true)
+      .build();
+    sheet.getRange(2, COL.STATUS, Math.max(sheet.getMaxRows() - 1, 1), 1).setDataValidation(rule);
+  }
 }
 
 // A separate event log — one row per uniform piece handed out — instead of
@@ -277,16 +317,19 @@ function setupUniformLogHeaders_() {
     sheet.setFrozenRows(1);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
     sheet.hideColumns(2); // TL Key is bookkeeping only, not for humans to edit
-  }
 
-  const headerMap = getHeaderMap(sheet);
-  if (headerMap['Size'] != null) {
-    const sizeCol = headerMap['Size'] + 1;
-    const rule = SpreadsheetApp.newDataValidation()
-      .requireValueInList(UNIFORM_SIZES, true)
-      .setAllowInvalid(false)
-      .build();
-    sheet.getRange(2, sizeCol, Math.max(sheet.getMaxRows() - 1, 1), 1).setDataValidation(rule);
+    // Size column dropdown validation — only set up alongside the headers
+    // above, on a brand-new sheet. setAllowInvalid(true) keeps the dropdown/
+    // suggestions but still lets you type directly into the cell.
+    const headerMap = getHeaderMap(sheet);
+    if (headerMap['Size'] != null) {
+      const sizeCol = headerMap['Size'] + 1;
+      const rule = SpreadsheetApp.newDataValidation()
+        .requireValueInList(UNIFORM_SIZES, true)
+        .setAllowInvalid(true)
+        .build();
+      sheet.getRange(2, sizeCol, Math.max(sheet.getMaxRows() - 1, 1), 1).setDataValidation(rule);
+    }
   }
 }
 
@@ -310,16 +353,19 @@ function setupUniformInventoryHeaders_() {
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.setFrozenRows(1);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
-  }
 
-  const headerMap = getHeaderMap(sheet);
-  if (headerMap['Size'] != null) {
-    const sizeCol = headerMap['Size'] + 1;
-    const rule = SpreadsheetApp.newDataValidation()
-      .requireValueInList(UNIFORM_SIZES, true)
-      .setAllowInvalid(false)
-      .build();
-    sheet.getRange(2, sizeCol, Math.max(sheet.getMaxRows() - 1, 1), 1).setDataValidation(rule);
+    // Size column dropdown validation — only set up alongside the headers
+    // above, on a brand-new sheet. setAllowInvalid(true) keeps the dropdown/
+    // suggestions but still lets you type directly into the cell.
+    const headerMap = getHeaderMap(sheet);
+    if (headerMap['Size'] != null) {
+      const sizeCol = headerMap['Size'] + 1;
+      const rule = SpreadsheetApp.newDataValidation()
+        .requireValueInList(UNIFORM_SIZES, true)
+        .setAllowInvalid(true)
+        .build();
+      sheet.getRange(2, sizeCol, Math.max(sheet.getMaxRows() - 1, 1), 1).setDataValidation(rule);
+    }
   }
 }
 
@@ -442,9 +488,10 @@ function getStoreList() {
   return stores.sort();
 }
 
-// Returns trainees currently PROBATIONARY or EXTENDED, for the Update form's
-// name picker. Each entry carries the composite key so submitCertification
-// can find the exact row even if two people share a name.
+// Returns trainees currently PROBATIONARY or EXTENDED, for the New Entry
+// form's duplicate-record guard — deliberately narrower than
+// getCertifyEligibleList() below, since a CERTIFIED record isn't an "open"
+// duplicate to block on.
 function getOpenTLList() {
   const sheet = getSheet_();
   const lastRow = sheet.getLastRow();
@@ -456,6 +503,35 @@ function getOpenTLList() {
   data.forEach(row => {
     const status = toUpperSafe(row[COL.STATUS - 1]);
     if (OPEN_STATUSES.indexOf(status) === -1) return;
+    const name = row[COL.FULL_NAME - 1];
+    const store = row[COL.MOTHER_STORE - 1];
+    const entryDate = row[COL.ENTRY_DATE - 1];
+    result.push({
+      key: makeKey_(name, store, entryDate),
+      label: name + ' — ' + normalizeStore(store) + ' (' + status + ')',
+      status: status
+    });
+  });
+  return result;
+}
+
+// Returns trainees currently PROBATIONARY, EXTENDED, or CERTIFIED, for the
+// Certify/Update form's name picker. CERTIFIED is included on top of
+// OPEN_STATUSES so a certified TL can still be picked here later and moved
+// to PROMOTION — without this, a CERTIFIED record has no way back into
+// this picker at all, since getOpenTLList() above only sees open records.
+function getCertifyEligibleList() {
+  const sheet = getSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+
+  const eligible = OPEN_STATUSES.concat(['CERTIFIED']);
+  const data = sheet.getRange(2, 1, lastRow - 1, MASTER_LOG_LAST_COL).getValues();
+
+  const result = [];
+  data.forEach(row => {
+    const status = toUpperSafe(row[COL.STATUS - 1]);
+    if (eligible.indexOf(status) === -1) return;
     const name = row[COL.FULL_NAME - 1];
     const store = row[COL.MOTHER_STORE - 1];
     const entryDate = row[COL.ENTRY_DATE - 1];
@@ -557,7 +633,7 @@ function getFormBootstrapData() {
     stations: getStationList(),
     batches: getBatchList(),
     trainers: getTrainerList(),
-    openList: getOpenTLList(),
+    openList: getCertifyEligibleList(),
     allList: getAllTLList(),
     uniformSizes: UNIFORM_SIZES,
     inventorySummary: getInventorySummary(),
