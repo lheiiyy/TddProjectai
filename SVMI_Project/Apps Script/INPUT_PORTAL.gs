@@ -572,6 +572,77 @@ function portal_saveStore(store, brand, region, category) {
 
 
 // ============================================================
+//  portal_removeStore(storeName)
+//  Removes a store from the active SETTINGS list — clears only that
+//  row's own columns (A store, B brand, C region, D validation formula,
+//  E category). Cols F (Visitor Roster) and H (Purpose List) are
+//  independent parallel lists that happen to share this sheet, not this
+//  row's data, and must never be touched here.
+//
+//  Every historical MASTER_LOG visit for the store is untouched — Store
+//  Health's _computeStoreRisk() seeds itself from SETTINGS first, then
+//  falls back to MASTER_LOG rows for any store no longer in SETTINGS, so
+//  the store keeps showing up with its full visit history. Its brand/
+//  region fall back to whatever MASTER_LOG recorded on each visit;
+//  category has no MASTER_LOG fallback and degrades to "—"/UNKNOWN
+//  (cadence expectations become "no target" rather than wrong ones).
+//  Admin-only: exposed solely through the System Tools
+//  "Store & Roster Manager" card.
+//
+//  Returns { success: true, message: string }
+//       or { success: false, message: string }
+// ============================================================
+function portal_removeStore(storeName) {
+  try {
+    if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
+
+    var name = String(storeName || '').trim().toUpperCase();
+    if (!name) return { success: false, message: 'Store name cannot be blank.' };
+
+    var ss       = SpreadsheetApp.getActiveSpreadsheet();
+    var settings = ss.getSheetByName(SHEET_SETTINGS);
+    if (!settings) return { success: false, message: 'SETTINGS sheet not found.' };
+
+    var lastRow   = settings.getLastRow();
+    var targetRow = -1;
+    if (lastRow >= 2) {
+      var colA = settings.getRange(2, COL_S_STORE, lastRow - 1, 1).getValues();
+      for (var i = 0; i < colA.length; i++) {
+        if (String(colA[i][0] || '').trim().toUpperCase() === name) { targetRow = i + 2; break; }
+      }
+    }
+
+    if (targetRow === -1) {
+      return { success: false, message: '"' + name + '" was not found in the store list.' };
+    }
+
+    settings.getRange(targetRow, COL_S_STORE).clearContent();
+    settings.getRange(targetRow, COL_S_BRAND).clearContent();
+    settings.getRange(targetRow, COL_S_REGION).clearContent();
+    settings.getRange(targetRow, 4).clearContent(); // col D — validation formula
+    settings.getRange(targetRow, COL_S_CATEGORY).clearContent();
+    SpreadsheetApp.flush();
+
+    // Reflect the removal in Store Health immediately, same as add/edit —
+    // its numbers are plain computed values with nothing to recalculate
+    // on their own.
+    try {
+      if (ss.getSheetByName(RISK_SHEET_NAME)) refreshRiskEngine();
+    } catch (e) { logError('portal_removeStore (Store Health auto-refresh)', e); }
+
+    return {
+      success: true,
+      message: '"' + name + '" removed from the active store list. All historical visits remain in Store Health.',
+    };
+
+  } catch (e) {
+    logError('portal_removeStore', e);
+    return { success: false, message: e.message };
+  }
+}
+
+
+// ============================================================
 //  logError(context, error)
 //  Writes errors to the script log for debugging.
 // ============================================================

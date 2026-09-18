@@ -294,7 +294,13 @@ hand:
   Category, and Save. `portal_saveStore()` (`INPUT_PORTAL.gs`) updates the
   matching row's B/C/E columns, or appends a new row and writes its column D
   validation formula — an edit to an existing row leaves column D alone
-  since it's a live formula that recalculates on its own.
+  since it's a live formula that recalculates on its own. **Remove Store**
+  (with a confirm prompt) clears only that row's own A/B/C/D/E cells via
+  `portal_removeStore()` — cols F (Visitor Roster) and H (Purpose List) sit
+  in the same sheet but are unrelated parallel lists, so removal never
+  touches them even when they happen to share the removed store's row.
+  This only hides the store from future selection; it never touches
+  `MASTER_LOG`, so every past visit stays fully intact (see below).
 - **Visitor Roster** — the same add/remove backed by `manageVisitor()` that
   Input Portal's "⚙ Manage Roster" panel already uses (`SETTINGS` col F);
   this card is just a second place to reach it.
@@ -350,6 +356,17 @@ Less manual than it looks, but not everything is truly live:
   field users do most often. Run "Rebuild Store Health" by hand after a
   batch of new visits, or ask if you'd like that traded off instead —
   it's a real option, just not the default.
+- **Store removal** is handled safely regardless: `_computeStoreRisk()`
+  (`SVMKPI_RISK.gs`) seeds itself from `SETTINGS` first, then falls back to
+  `MASTER_LOG` rows for any store no longer in `SETTINGS` — so a removed
+  store keeps showing up in Store Health with every historical visit, its
+  brand/region falling back to whatever `MASTER_LOG` recorded, and only its
+  Category degrading to `—`/`UNKNOWN` (no cadence target) since `MASTER_LOG`
+  never records category. Nothing is ever dropped, only relabeled generic.
+  `tests/store-remove-history.test.js` covers both halves of this: that
+  `portal_removeStore()` only clears its own row's columns (never a
+  same-row visitor/purpose entry) and that `_computeStoreRisk()` keeps the
+  removed store's history with a degraded category.
 - **Visitor Roster removal** is handled safely regardless: `buildKPI2026()`
   appends anyone with real `MASTER_LOG` history who's since been removed
   from the roster as an extra row (their name written as a plain literal
@@ -405,12 +422,19 @@ node SVMI_Project/tests/kpi-roster-history.test.js
 # guarantee (INPUT_PORTAL.gs's manageVisitor(), against a writable
 # Sheet/Range mock shared with SVMKPI_KPI_REBUILD.gs/SVMKPI_REPORTS.gs)
 node SVMI_Project/tests/roster-auto-refresh.test.js
+
+# covers "Remove Store": portal_removeStore() only clears its own row's
+# columns (never a same-row visitor/purpose entry), is admin-gated, and
+# _computeStoreRisk() keeps a removed store's full history with its
+# category degraded to "—" instead of dropping the store entirely
+node SVMI_Project/tests/store-remove-history.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a
 real spreadsheet — they catch UI/layout regressions, not data-correctness
-issues. `risk-scoring.test.js`, `kpi-roster-history.test.js`, and
-`roster-auto-refresh.test.js` are the exception: they run actual `.gs`
+issues. `risk-scoring.test.js`, `kpi-roster-history.test.js`,
+`roster-auto-refresh.test.js`, and `store-remove-history.test.js` are the
+exception: they run actual `.gs`
 functions directly (against a mocked Sheet/Range, not a mock of the
 *business logic*), so they do catch data-correctness bugs (this is how the
 "never-visited stores silently

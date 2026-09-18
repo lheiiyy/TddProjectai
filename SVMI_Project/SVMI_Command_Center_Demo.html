@@ -816,6 +816,7 @@ textarea.fi{padding-right:28px}
             <div class="fg"><label>Region</label><select class="fi" id="srmRegion"></select></div>
             <div class="fg"><label>Category</label><select class="fi" id="srmCategory"></select></div>
             <button class="btn-gold" onclick="srmSaveStore()">💾 Save Store</button>
+            <button class="vm-btn vm-rem" onclick="srmRemoveStore()">🗑️ Remove Store</button>
             <div class="tool-stat idle" id="srmStoreStat">Ready</div>
           </div>
 
@@ -1249,6 +1250,19 @@ textarea.fi{padding-right:28px}
       return { success: true, isNew, message: (isNew ? 'Added "' : 'Updated "') + name + '". (Demo mode — sample data only)' };
     },
 
+    // Mirrors portal_removeStore() in INPUT_PORTAL.gs — hides a store from
+    // the active directory (DB.stores) only. DB.log (the sample MASTER_LOG)
+    // is never touched, so getStoreHealthReport()'s log-only fallback above
+    // keeps showing its full history with an Unknown/"—" category.
+    portal_removeStore(store) {
+      const name = normUp(store);
+      if (!name) return { success: false, message: 'Store name cannot be blank.' };
+      const idx = DB.stores.findIndex(s => s.name === name);
+      if (idx === -1) return { success: false, message: '"' + name + '" was not found in the store list.' };
+      DB.stores.splice(idx, 1);
+      return { success: true, message: '"' + name + '" removed from the active store list. All historical visits remain in Store Health. (Demo mode — sample data only)' };
+    },
+
     // Mirrors managePurpose() in INPUT_PORTAL.gs.
     managePurpose(action, purposeName) {
       const name = normUp(purposeName);
@@ -1658,7 +1672,21 @@ textarea.fi{padding-right:28px}
         return { days: 0, label: 'Unknown' };
       }
 
-      const rows = DB.stores.map(s => {
+      // Mirrors _computeStoreRisk()'s two-pass seeding in SVMKPI_RISK.gs —
+      // a store removed from the active SETTINGS list (DB.stores here) but
+      // still present in MASTER_LOG (DB.log here) must keep showing up with
+      // its full visit history. Its category has no MASTER_LOG fallback and
+      // degrades to "—"/Unknown cadence, same as the live sheet.
+      const activeNames = new Set(DB.stores.map(s => s.name));
+      const logOnlyEntries = [];
+      const seenLogOnly = new Set();
+      DB.log.forEach(r => {
+        if (activeNames.has(r.store) || seenLogOnly.has(r.store)) return;
+        seenLogOnly.add(r.store);
+        logOnlyEntries.push({ name: r.store, brand: r.brand, region: r.region, category: '' });
+      });
+
+      const rows = DB.stores.concat(logOnlyEntries).map(s => {
         const storeLog = DB.log.filter(r => r.store === s.name);
         const cadence = cadenceInfo(s.category);
 
@@ -1739,7 +1767,7 @@ textarea.fi{padding-right:28px}
       rows.forEach(r => { delete r.complianceStatus; });
 
       const kpis = [
-        { label: 'TOTAL STORES', value: String(DB.stores.length) },
+        { label: 'TOTAL STORES', value: String(rows.length) },
         { label: 'HIGH RISK', value: String(high) },
         { label: 'MEDIUM RISK', value: String(medium) },
         { label: 'LOW RISK', value: String(low) },
@@ -3535,6 +3563,42 @@ function srmSaveStore() {
       stat.textContent = '❌ ' + msg; stat.className = 'tool-stat error';
     })
     .portal_saveStore(store, brand, region, category);
+}
+
+// Removing a store only hides it from the active Store dropdowns/type-to-
+// search going forward — every historical visit stays in Store Health
+// (portal_removeStore() clears just the SETTINGS row, MASTER_LOG is never
+// touched). Confirms first since, unlike add/edit, this can't be undone
+// from the UI (re-adding the store is possible, but its old brand/region/
+// category have to be re-entered by hand).
+function srmRemoveStore() {
+  var store = document.getElementById('srmStoreSearch').value.trim();
+  var stat  = document.getElementById('srmStoreStat');
+  if (!store) { stat.textContent = 'Enter a store name.'; stat.className = 'tool-stat error'; return; }
+  if (!confirm('Remove "' + store.toUpperCase() + '" from the active store list?\n\nIts historical visits stay in Store Health — this only hides it from future selection.')) {
+    return;
+  }
+
+  stat.textContent = '⏳ Removing…'; stat.className = 'tool-stat running';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r.success) {
+        stat.textContent = '✅ ' + r.message; stat.className = 'tool-stat success';
+        addLog('ok', '✅ Store & Roster Manager: ' + r.message);
+        document.getElementById('srmStoreSearch').value = '';
+        document.getElementById('srmBrand').value = '';
+        document.getElementById('srmRegion').value = '';
+        document.getElementById('srmCategory').value = '';
+        loadPortalData();   // refresh allStores/storeData so it drops out of the dropdown
+      } else {
+        stat.textContent = '❌ ' + r.message; stat.className = 'tool-stat error';
+      }
+    })
+    .withFailureHandler(function(err) {
+      var msg = err.message || String(err);
+      stat.textContent = '❌ ' + msg; stat.className = 'tool-stat error';
+    })
+    .portal_removeStore(store);
 }
 
 function srmManageVisitor(action) {

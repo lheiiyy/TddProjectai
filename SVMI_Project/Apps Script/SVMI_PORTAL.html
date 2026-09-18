@@ -816,6 +816,7 @@ textarea.fi{padding-right:28px}
             <div class="fg"><label>Region</label><select class="fi" id="srmRegion"></select></div>
             <div class="fg"><label>Category</label><select class="fi" id="srmCategory"></select></div>
             <button class="btn-gold" onclick="srmSaveStore()">💾 Save Store</button>
+            <button class="vm-btn vm-rem" onclick="srmRemoveStore()">🗑️ Remove Store</button>
             <div class="tool-stat idle" id="srmStoreStat">Ready</div>
           </div>
 
@@ -2582,6 +2583,42 @@ function srmSaveStore() {
       stat.textContent = '❌ ' + msg; stat.className = 'tool-stat error';
     })
     .portal_saveStore(store, brand, region, category);
+}
+
+// Removing a store only hides it from the active Store dropdowns/type-to-
+// search going forward — every historical visit stays in Store Health
+// (portal_removeStore() clears just the SETTINGS row, MASTER_LOG is never
+// touched). Confirms first since, unlike add/edit, this can't be undone
+// from the UI (re-adding the store is possible, but its old brand/region/
+// category have to be re-entered by hand).
+function srmRemoveStore() {
+  var store = document.getElementById('srmStoreSearch').value.trim();
+  var stat  = document.getElementById('srmStoreStat');
+  if (!store) { stat.textContent = 'Enter a store name.'; stat.className = 'tool-stat error'; return; }
+  if (!confirm('Remove "' + store.toUpperCase() + '" from the active store list?\n\nIts historical visits stay in Store Health — this only hides it from future selection.')) {
+    return;
+  }
+
+  stat.textContent = '⏳ Removing…'; stat.className = 'tool-stat running';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r.success) {
+        stat.textContent = '✅ ' + r.message; stat.className = 'tool-stat success';
+        addLog('ok', '✅ Store & Roster Manager: ' + r.message);
+        document.getElementById('srmStoreSearch').value = '';
+        document.getElementById('srmBrand').value = '';
+        document.getElementById('srmRegion').value = '';
+        document.getElementById('srmCategory').value = '';
+        loadPortalData();   // refresh allStores/storeData so it drops out of the dropdown
+      } else {
+        stat.textContent = '❌ ' + r.message; stat.className = 'tool-stat error';
+      }
+    })
+    .withFailureHandler(function(err) {
+      var msg = err.message || String(err);
+      stat.textContent = '❌ ' + msg; stat.className = 'tool-stat error';
+    })
+    .portal_removeStore(store);
 }
 
 function srmManageVisitor(action) {

@@ -565,6 +565,36 @@ async function goToTab(p, name) {
   const editStat = await page.textContent('#srmStoreStat');
   check('editing an existing store succeeds', /updated/i.test(editStat), editStat);
 
+  // Remove the store added above — srmRemoveStore() confirms via the
+  // browser's native confirm(), so accept it via the dialog event.
+  page.once('dialog', d => d.accept());
+  await page.fill('#srmStoreSearch', 'DAGUPAN CITY');
+  await page.click('button[onclick="srmRemoveStore()"]');
+  await page.waitForTimeout(900);
+  const removeStat = await page.textContent('#srmStoreStat');
+  check('removing a store succeeds', /removed/i.test(removeStat), removeStat);
+
+  // The removed store drops out of Input Portal's own list (portal_removeStore()
+  // also triggered loadPortalData()), same as a newly added one appearing above.
+  await goToTab(page, 'Input');
+  await page.fill('#storeSearch', 'DAGUPAN');
+  await page.waitForTimeout(200);
+  const removedStoreGone = !(await page.innerHTML('#storeDrop')).includes('DAGUPAN CITY');
+  check('removed store no longer appears in Input Portal store list', removedStoreGone);
+  await page.fill('#storeSearch', '');
+  await goToTab(page, 'Tools');
+  await page.waitForTimeout(200);
+
+  // Dismissing the confirm makes no server call at all
+  const beforeCancelStat = await page.textContent('#srmStoreStat');
+  await page.fill('#srmStoreSearch', 'BAGUIO');
+  page.once('dialog', d => d.dismiss());
+  await page.click('button[onclick="srmRemoveStore()"]');
+  await page.waitForTimeout(300);
+  const afterCancelStat = await page.textContent('#srmStoreStat');
+  check('cancelling the confirm leaves the tool status untouched (no removal attempted)',
+    afterCancelStat === beforeCancelStat, afterCancelStat);
+
   // Purpose list: add then remove
   await page.fill('#srmPurposeInput', 'REGIONAL AUDIT');
   await page.click(`button[onclick*="srmManagePurpose('add')"]`);
