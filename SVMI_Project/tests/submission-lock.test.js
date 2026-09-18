@@ -12,8 +12,10 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const inputSrc = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'INPUT_PORTAL.gs'), 'utf8');
-const coreSrc  = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'SVMKPI_CORE.gs'), 'utf8');
+const inputSrc       = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'INPUT_PORTAL.gs'), 'utf8');
+const coreSrc         = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'SVMKPI_CORE.gs'), 'utf8');
+const configSrc       = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'SVMKPI_CONFIG.gs'), 'utf8');
+const storeConfigSrc  = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'SVMKPI_STORE_CONFIG.gs'), 'utf8');
 
 let pass = 0, fail = 0;
 function check(name, cond, extra) {
@@ -63,12 +65,18 @@ function newSandbox({ tryLockReturns = true, appendRowThrows = false } = {}) {
         const y = date.getFullYear(), m = String(date.getMonth() + 1).padStart(2, '0'), d = String(date.getDate()).padStart(2, '0');
         return fmt.indexOf('HH') !== -1 ? `${y}-${m}-${d} 00:00:00` : `${y}-${m}-${d}`;
       },
+      getUuid: (() => { let n = 0; return () => 'test-uuid-' + (++n); })(),
     },
     Session: { getScriptTimeZone: () => 'UTC' },
+    sl_isAdmin: () => true,
+    sl_getCurrentUser: () => 'admin@test.com',
+    Logger: { log: () => {} },
     console,
   };
   vm.createContext(sandbox);
   vm.runInContext(coreSrc, sandbox);  // declares _parseDateCell(), used by processSubmissionAsync()
+  vm.runInContext(configSrc, sandbox);       // declares cfg_* config engine (Phase 1A)
+  vm.runInContext(storeConfigSrc, sandbox);  // declares store_resolveIdByCurrentName() etc. (Phase 1B)
   vm.runInContext(inputSrc, sandbox);
   return { sandbox, appendedRows, lockCalls };
 }

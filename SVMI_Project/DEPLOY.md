@@ -650,6 +650,184 @@ Version ID/Entity ID, never by array or row position).
 
 ---
 
+## Phase 1B — immutable Store identity + historical store attributes
+
+Phase 1A built a generic, area-agnostic configuration engine. Phase 1B is
+the first real consumer of it for an *identity*-bearing entity: it makes
+**Store ID** — not Store Name — the authoritative, immutable key for a
+store, and makes every store attribute (name, brand, region, category,
+operational status) reproducible as of any historical date.
+
+### Store ID design
+
+`SVMKPI_STORE_CONFIG.gs`'s `_store_generateId()` mints `'STR-' +
+Utilities.getUuid()`. A UUID was chosen deliberately over a sequential
+counter: minting one needs no shared/locked state (a "next number" scheme
+would race under concurrent creates), it's independent of row position and
+name by construction, and it's a standard choice for a future PostgreSQL
+primary key. Once minted, a Store ID is never reassigned:
+`store_update()` explicitly rejects any call whose `fields.storeId`
+disagrees with the ID being updated — retargeting is defined as creating a
+*different* store, never an operation this API performs. There is no
+"rename this ID" or "merge two IDs" function; none should ever be added
+without a new, deliberate design step (that's out of this phase's scope).
+
+### CONFIG_STORES: Store ID as the Entity ID
+
+`CFG_AREA_SCHEMAS.STORES` (Phase 1A) is reused as-is — no schema rewrite —
+with Store ID now passed as the versioning envelope's Entity ID (previously
+this was an interim, disclosed gap using Store Name). A new non-required
+domain field, `status` ("Store Status" — `ACTIVE`/`INACTIVE`), was added to
+the schema; it is effective-dated exactly like Category, Brand, Region, or
+Name. **This `status` field is a different concept from the versioning
+envelope's own `Status` column**: the envelope's Status says whether a
+given *version row* counts during resolution at all (its ACTIVE/INACTIVE
+lifecycle); this new field is the *store's own* operational business
+state. Both happen to use the same two string values, which is exactly why
+the code comments call this out explicitly wherever it could be confused.
+
+### Store-specific API (`SVMKPI_STORE_CONFIG.gs`)
+
+Built on top of — never duplicating — `SVMKPI_CONFIG.gs`:
+
+- `store_create(fields, effectiveFromStr, reason, options, explicitStoreId?)` —
+  mints (or, only from the migration path below, accepts) a Store ID;
+  rejects if that ID already has any version.
+- `store_update(storeId, fields, effectiveFromStr, reason, options)` — adds
+  a new version. Takes the **full field set** for the new version (same
+  contract as `store_create`), not a partial patch — a caller that wants to
+  change one field must merge it onto the currently-resolved fields first,
+  exactly as `_store_setOperationalStatus()` does internally.
+- `store_activate(storeId, reason, effectiveFromStr, options)` /
+  `store_deactivate(...)` — thin wrappers that flip `status` via a new
+  version.
+- `resolveStoreAsOf(storeId, dateStr)` — **the** authoritative historical
+  resolver; every future consumer that needs "what were this store's
+  attributes on this date" calls this, never re-derives it from
+  `CONFIG_STORES` rows directly.
+- `store_getById(storeId)` — `resolveStoreAsOf` as of today.
+- `store_isOperational(storeId, dateStr)` / `store_getOperationalList(dateStr)` —
+  the operational-screen view: **active-only**, sorted by name. This is
+  the one place inactive stores are filtered out — they are never globally
+  hidden from the underlying data, only from this specific "what should an
+  operator pick from today" view. A historical query must use
+  `resolveStoreAsOf`/`store_getById` directly, which always resolves an
+  inactive store's attributes regardless of its current status.
+- `store_resolveIdByCurrentName(storeName)` — exact-match-only lookup from
+  a name (as known *today*) to a Store ID; used by the Input Portal
+  submission path (still name-based on the client) and by the duplicate-
+  detection fallback below.
+
+All mutating functions check `sl_isAdmin()` as their first statement,
+server-side — the same double-gate pattern as Phase 1A (`store_*` and the
+underlying `cfg_*` call it independently), never trusting a client-supplied
+role/admin field (there is no such field read anywhere in this path).
+
+### MASTER_LOG: additive Store ID column, no schema rewrite
+
+`INPUT_PORTAL.gs` gained one new column, `I = Store ID` (`COL_STORE_ID`),
+written alongside the existing `C = Store` name column — the name column is
+kept exactly as-is for backward compatibility and legacy rows. At
+submission time, `processSubmissionAsync()` resolves
+`store_resolveIdByCurrentName(payload.store)` **inside** the lock; if
+`CONFIG_STORES` has no matching entry yet (i.e. migration hasn't run in
+this environment), the resolution returns `null`, the Store ID column is
+written blank, and the system behaves exactly as Phase 0.5 did — this
+means Phase 1B ships with **zero behavior change** for any environment
+where `store_migrateFromSettings()`/`store_create()` has never been run.
+
+### Duplicate-visitor handling: partial-accept (supersedes Phase 0.5)
+
+Phase 0.5 blocked a whole submission if *any* visitor on it was already
+recorded. Phase 1B changes this to **partial acceptance**: duplicate
+identity is (Store ID, falling back to Store Name if no ID resolves) +
+Visitor + calendar date, evaluated **per individual visitor**. Already-
+recorded visitors are silently excluded from the row written; genuinely
+new visitors on the same submission are still recorded. If literally every
+submitted visitor was already recorded, the submission still returns
+`success:true, allDuplicates:true` with no row written — this was never
+treated as an error condition, just a no-op.
+
+The lookup (`_findRecordedVisitors()`) still runs inside the same
+LockService critical section Phase 0.5 established, with the same
+validate → lock → re-read MASTER_LOG → decide → write → release ordering
+— only the *decision* logic changed (from "any match blocks everything" to
+"match per visitor, split new vs. already-recorded"). It reads the whole
+log via `getLastRow()`/`getRange()` on every call — there is no fixed
+row-range constant in this path, verified at up to 10,000 fixture rows (see
+Store ID + scale tests below) with the target duplicate row deliberately
+placed last, the position a reintroduced ceiling would most likely miss.
+
+### Migration + UNMAPPED tracking
+
+`store_migrateFromSettings(settingsStores, masterLogRows)` is a one-time,
+admin-gated, per-environment operation (not something designed to be run
+repeatedly against the same data): it mints a Store ID for every current
+`SETTINGS` store, effective from the *earliest* MASTER_LOG visit date found
+for that name (or today, if none) — never an invented date — and maps
+historical MASTER_LOG Store-Name references to those IDs **only on an
+exact normalized-name match**. Anything that doesn't match exactly (a
+typo, a since-renamed store not in current `SETTINGS`, anything even
+subtly different) is never guessed: it's recorded via
+`store_recordUnmapped()` into a new `CONFIG_UNMAPPED_STORES` sheet — one
+row per *distinct* unmapped name (not per MASTER_LOG row, since a name is
+very likely to repeat at real data scale), tracking occurrence count and
+first/last-seen dates, with the original name text preserved unaltered.
+`store_reconcileUnmapped(unmappedId, resolvedStoreId, notes)` is the one
+safe mutation this data model supports today — marking an entry
+`RECONCILED` with who decided what and why. It deliberately does **not**
+retroactively rewrite any MASTER_LOG row or create a backfill; that is a
+separate, later, deliberate operation, not an automatic side effect. A
+full reconciliation UI is out of this phase's scope.
+
+### Reporting Year vs. Configuration Version vs. Report Snapshot Version
+
+Three distinct concepts, not yet all built — worth keeping straight before
+any future phase touches reporting:
+
+- **Reporting Year** — which calendar year of MASTER_LOG data a report
+  covers. Still hardcoded in several places (`DATA_YEAR`, `KPI_YEAR`, etc.
+  — a pre-existing Phase 0 finding, unchanged by Phase 1B) and out of this
+  phase's scope to fix.
+- **Configuration Version** — what Phase 1A/1B actually versions: a
+  specific effective-dated set of field values for one configuration
+  entity (a store, a risk rule, etc.), identified by Version ID.
+- **Report Snapshot Version** — NOT built in this phase. A future concept
+  for freezing which configuration versions and which data were used to
+  produce a specific historical report run, so that report can be
+  regenerated identically later even after configuration has since
+  changed. Phase 1B's resolvers (`resolveStoreAsOf`, etc.) are the
+  building block this would need, but no snapshot mechanism exists yet.
+
+### Tests
+
+`tests/store-identity.test.js` (51 checks) — Store ID uniqueness/
+row-independence/survives-rename/immutability-enforced/duplicate-ID-
+rejected; historical attribute resolution (initial/future/before-on-after
+a boundary/name+brand+region changes/inactive-store-still-resolvable);
+operational visibility (active listed/inactive excluded/inactive still
+historically resolvable); migration (unambiguous match/near-miss typo
+never fuzzy-matched/no-SETTINGS-entry still tracked/reconciliation);
+security (non-admin rejected on every mutation/spoofed payload field
+ignored/Store-ID-retarget rejected even for an admin).
+
+`tests/duplicate-prevention.test.js` (rewritten, 33 checks) — the four
+worked examples from the partial-accept spec, different-Store-ID is never
+a duplicate, different-date is never a duplicate, backward compatibility
+with no `CONFIG_STORES` data at all, and both single- and multi-visitor
+concurrency races.
+
+`tests/store-scale.test.js` (20 checks, new) — 4,999 / 5,000 / 5,001 /
+10,000 MASTER_LOG data rows, duplicate target row placed last, proving the
+Store-ID-aware lookup still finds it (and still correctly records a
+genuinely new visitor) at every size — no scan-range ceiling reintroduced.
+
+`tests/submission-lock.test.js` (updated) — re-verified against the
+rewritten `processSubmissionAsync()`, now loading `SVMKPI_CONFIG.gs`/
+`SVMKPI_STORE_CONFIG.gs` into its sandbox alongside `INPUT_PORTAL.gs`.
+
+---
+
 ## Checks before you push
 
 No linter, but three checks are worth running:
@@ -726,6 +904,15 @@ node SVMI_Project/tests/duplicate-prevention.test.js
 # effective-dating/resolution, versioning, audit, admin security,
 # backdating, rollback, activate/deactivate, and portability (71 checks)
 node SVMI_Project/tests/config-service.test.js
+
+# Phase 1B: Store ID identity/immutability, historical attribute resolution,
+# operational-vs-historical visibility, SETTINGS->Store ID migration +
+# UNMAPPED tracking, and admin security on every store mutation (51 checks)
+node SVMI_Project/tests/store-identity.test.js
+
+# Phase 1B: 4,999/5,000/5,001/10,000-row MASTER_LOG fixtures proving the
+# Store-ID-aware duplicate lookup never reintroduces a scan-range ceiling
+node SVMI_Project/tests/store-scale.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a
@@ -734,7 +921,8 @@ issues. `risk-scoring.test.js`, `kpi-roster-history.test.js`,
 `roster-auto-refresh.test.js`, `store-remove-history.test.js`,
 `canonical-risk-engine.test.js`, `submission-lock.test.js`,
 `date-parsing.test.js`, `store-lookup-date-handling.test.js`,
-`duplicate-prevention.test.js`, and `config-service.test.js` are the
+`duplicate-prevention.test.js`, `config-service.test.js`,
+`store-identity.test.js`, and `store-scale.test.js` are the
 exception: they run actual `.gs`
 functions directly (against a mocked Sheet/Range, not a mock of the
 *business logic*), so they do catch data-correctness bugs (this is how the

@@ -19,12 +19,19 @@ var SHEET_SETTINGS = 'SETTINGS';
 // MASTER_LOG columns (1-indexed)
 //  A=1  Timestamp
 //  B=2  Date Visited
-//  C=3  Store
+//  C=3  Store           (display name — NOT the authoritative identity
+//                         as of Phase 1B; kept for legacy/backward compat)
 //  D=4  Brand
 //  E=5  Region
 //  F=6  Visited By
 //  G=7  Purpose
 //  H=8  Remarks
+//  I=9  Store ID        (Phase 1B — authoritative identity going forward;
+//                         blank on any row written before this column
+//                         existed, or when the submitted store name
+//                         doesn't yet resolve to a Store ID — see
+//                         SVMKPI_STORE_CONFIG.gs. Never required to be
+//                         populated for the row to remain valid.)
 var COL_TIMESTAMP   = 1;
 var COL_DATE        = 2;
 var COL_STORE       = 3;
@@ -33,6 +40,7 @@ var COL_REGION      = 5;
 var COL_VISITED_BY  = 6;
 var COL_PURPOSE     = 7;
 var COL_REMARKS     = 8;
+var COL_STORE_ID    = 9;
 
 // SETTINGS columns (1-indexed)
 //  A=1  Store
@@ -215,20 +223,8 @@ function processSubmissionAsync(payload) {
     }
     var dateFormatted = Utilities.formatDate(visitedDate, Session.getScriptTimeZone(), 'yyyy-MM-dd');
     var storeNorm     = String(payload.store).trim().toUpperCase();
-
-    // Row array — must match MASTER_LOG column order exactly:
-    // A Timestamp | B Date Visited | C Store | D Brand | E Region |
-    // F Visited By | G Purpose | H Remarks
-    var newRow = [
-      timestamp,                                            // A
-      dateFormatted,                                        // B
-      storeNorm,                                            // C
-      brand,                                                // D
-      region,                                               // E
-      visitedByStr,                                         // F — pipe-delimited if multi
-      String(payload.purpose).trim().toUpperCase(),         // G
-      String(payload.remarks || '').trim()                  // H — free text, no case change
-    ];
+    var purposeNorm   = String(payload.purpose).trim().toUpperCase();
+    var remarksVal    = String(payload.remarks || '').trim();
 
     // ── Write to MASTER_LOG ───────────────────────────────────
     var ss     = SpreadsheetApp.getActiveSpreadsheet();
@@ -244,39 +240,80 @@ function processSubmissionAsync(payload) {
     // executions the way a read-then-write elsewhere in this project
     // (manageVisitor(), portal_saveStore(), etc.) would need it even more.
     //
-    // Exact-duplicate blocking now lives HERE, inside the lock, re-reading
-    // MASTER_LOG after acquiring it — not in checkDuplicateVisit(), which
-    // stays a separate, unlocked, advisory-only pre-submit warning (its own
-    // broader "any visit in the last 7 days" heads-up is intentionally not
-    // the same check). Only a lock-protected re-read guarantees the final
-    // accept/reject decision can't race a concurrent submission that commits
-    // between the browser's advisory check and this write.
+    // Duplicate handling lives HERE, inside the lock, re-reading MASTER_LOG
+    // after acquiring it — not in checkDuplicateVisit(), which stays a
+    // separate, unlocked, advisory-only pre-submit warning (its own broader
+    // "any visit in the last 7 days" heads-up is intentionally not the same
+    // check). Only a lock-protected re-read guarantees the final decision
+    // can't race a concurrent submission that commits between the
+    // browser's advisory check and this write.
+    //
+    // Phase 1B: duplicates are now PARTIALLY accepted, not rejected
+    // wholesale. If some (not all) submitted visitors already have a
+    // logged visit to this store on this date, those are skipped — with a
+    // warning — while any genuinely new visitor on the same submission is
+    // still recorded. Store identity for this check now prefers the
+    // immutable Store ID (resolved fresh, inside the lock, from the
+    // submitted store name) with a name-based fallback for any legacy row
+    // that predates Store ID — see _findRecordedVisitors().
     var visitorNames = visitedByStr.split('|').map(function (v) { return v.trim(); }).filter(Boolean);
 
     var lock = LockService.getScriptLock();
     var gotLock = false;
+    var result;
     try {
       gotLock = lock.tryLock(10000);
       if (!gotLock) {
         return { success: false, message: 'Server is busy processing another submission — please try again in a moment.' };
       }
 
-      var dupVisitor = _findExactDuplicateVisitor(master, storeNorm, visitedDate, visitorNames);
-      if (dupVisitor) {
-        return {
-          success: false,
-          duplicate: true,
-          message: '"' + dupVisitor + '" already has a logged visit to "' + storeNorm + '" on ' + dateFormatted + '.',
-        };
-      }
+      var storeId = store_resolveIdByCurrentName(payload.store); // null if not yet migrated/created — falls back to name matching below
 
-      master.appendRow(newRow);
-      SpreadsheetApp.flush();
+      var alreadyRecorded = _findRecordedVisitors(master, storeId, storeNorm, visitedDate, visitorNames);
+      var newVisitors = visitorNames.filter(function (v) { return alreadyRecorded.indexOf(v) === -1; });
+
+      if (newVisitors.length === 0) {
+        // Every submitted visitor was already recorded — nothing to
+        // write, but this is not an error; say so plainly.
+        result = {
+          success: true,
+          allDuplicates: true,
+          skippedVisitors: alreadyRecorded,
+          message: (alreadyRecorded.length === 1 ? alreadyRecorded[0] + ' was' : alreadyRecorded.join(', ') + ' were')
+            + ' already recorded for "' + storeNorm + '" on ' + dateFormatted + '. Nothing new to record.',
+        };
+      } else {
+        // Row array — must match MASTER_LOG column order exactly:
+        // A Timestamp | B Date Visited | C Store | D Brand | E Region |
+        // F Visited By | G Purpose | H Remarks | I Store ID
+        var newRow = [
+          timestamp, dateFormatted, storeNorm, brand, region,
+          newVisitors.join(' | '), // only the NOT-already-recorded visitors
+          purposeNorm, remarksVal,
+          storeId || '',
+        ];
+        master.appendRow(newRow);
+        SpreadsheetApp.flush();
+
+        if (alreadyRecorded.length > 0) {
+          result = {
+            success: true,
+            warning: true,
+            skippedVisitors: alreadyRecorded,
+            recordedVisitors: newVisitors,
+            message: (alreadyRecorded.length === 1 ? alreadyRecorded[0] + ' was' : alreadyRecorded.join(', ') + ' were')
+              + ' already recorded for this store/date and ' + (alreadyRecorded.length === 1 ? 'was' : 'were') + ' skipped. '
+              + (newVisitors.length === 1 ? newVisitors[0] + ' was' : newVisitors.join(', ') + ' were') + ' recorded.',
+          };
+        } else {
+          result = { success: true };
+        }
+      }
     } finally {
       if (gotLock) lock.releaseLock();
     }
 
-    return { success: true };
+    return result;
 
   } catch (e) {
     logError('processSubmissionAsync', e);
@@ -285,35 +322,46 @@ function processSubmissionAsync(payload) {
 }
 
 // ============================================================
-//  _findExactDuplicateVisitor(master, storeNorm, visitDate, visitorNames)
+//  _findRecordedVisitors(master, storeId, storeNorm, visitDate, visitorNames)
 //  Called only from inside processSubmissionAsync()'s LockService section,
 //  so it always sees the latest committed MASTER_LOG state — no other
 //  concurrent submission can land between this read and the append that
 //  follows it.
 //
 //  Duplicate definition (business rule): same Store + same Visitor + same
-//  calendar date. Store is matched by normalized NAME as an interim
-//  identity key — Store ID doesn't exist yet (that's a later migration);
-//  this re-keys to Store ID once that lands, per the same tradeoff already
-//  used for the row itself. "Same Visitor" is evaluated per-individual: a
-//  multi-visitor submission ("LEO | YANA") is a duplicate the moment ANY
-//  one of its visitors already has a logged visit to this store on this
-//  date — not only when the whole visitor combination matches exactly —
-//  because the business risk this blocks is one person's visit being
-//  logged twice, which exists per-visitor, independent of who else is on
-//  the same submission.
+//  calendar date. Store is matched by Store ID (col I) when a candidate
+//  row has one; for a legacy row written before that column existed (or
+//  when the submitted store name doesn't currently resolve to any Store
+//  ID at all — e.g. migration hasn't run yet), falls back to normalized
+//  Store Name (col C). Both paths agree for any row where they'd both
+//  apply, so this never double-counts or silently misses a legacy row
+//  purely because it predates Store ID — full backward compatibility
+//  until migration actually runs.
 //
-//  @returns {string|null} the first duplicate visitor name found, or null
+//  "Same Visitor" is evaluated per-individual: each name in
+//  visitorNames is checked independently against every matching row's
+//  Visited By list, because the business risk this guards against (one
+//  person's visit logged twice) exists per-visitor, independent of who
+//  else is on the same submission.
+//
+//  @returns {string[]} the subset of visitorNames already recorded for
+//    this store + date (possibly empty)
 // ============================================================
-function _findExactDuplicateVisitor(master, storeNorm, visitDate, visitorNames) {
+function _findRecordedVisitors(master, storeId, storeNorm, visitDate, visitorNames) {
   var lastRow = master.getLastRow();
-  if (lastRow < 2) return null;
+  if (lastRow < 2 || !visitorNames.length) return [];
 
-  var raw = master.getRange(2, 1, lastRow - 1, 8).getValues();
+  var raw = master.getRange(2, 1, lastRow - 1, 9).getValues();
+  var found = {};
   for (var i = 0; i < raw.length; i++) {
     var row = raw[i];
-    var rowStore = String(row[COL_STORE - 1] || '').trim().toUpperCase();
-    if (rowStore !== storeNorm) continue;
+    var rowStoreId = String(row[COL_STORE_ID - 1] || '').trim().toUpperCase();
+    var rowStoreName = String(row[COL_STORE - 1] || '').trim().toUpperCase();
+
+    var sameStore = rowStoreId
+      ? (!!storeId && rowStoreId === storeId)
+      : (rowStoreName === storeNorm);
+    if (!sameStore) continue;
 
     var rowDate = _parseDateCell(row[COL_DATE - 1]);
     if (!rowDate || rowDate.getTime() !== visitDate.getTime()) continue;
@@ -321,11 +369,11 @@ function _findExactDuplicateVisitor(master, storeNorm, visitDate, visitorNames) 
     var rowVisitors = String(row[COL_VISITED_BY - 1] || '').toUpperCase()
       .split('|').map(function (v) { return v.trim(); }).filter(Boolean);
 
-    for (var j = 0; j < rowVisitors.length; j++) {
-      if (visitorNames.indexOf(rowVisitors[j]) !== -1) return rowVisitors[j];
-    }
+    rowVisitors.forEach(function (v) {
+      if (visitorNames.indexOf(v) !== -1) found[v] = true;
+    });
   }
-  return null;
+  return Object.keys(found);
 }
 
 

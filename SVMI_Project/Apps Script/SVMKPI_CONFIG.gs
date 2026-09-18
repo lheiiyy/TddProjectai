@@ -54,13 +54,14 @@
 // pattern real relational audit-log tables use (a diff snapshot in the
 // log, typed columns in the live table).
 //
-// INTERIM IDENTITY: CONFIG_STORES/CONFIG_VISITORS/CONFIG_PURPOSES key
-// their Entity ID by normalized NAME for now — immutable Store/Visitor/
-// Purpose IDs don't exist yet (that's a later migration, explicitly out
-// of scope for this phase). This mirrors the same interim-identity
+// IDENTITY: as of Phase 1B, CONFIG_STORES' Entity ID is the immutable
+// Store ID (minted and enforced by SVMKPI_STORE_CONFIG.gs) — no longer
+// name-based. CONFIG_VISITORS/CONFIG_PURPOSES still key their Entity ID
+// by normalized NAME (interim — immutable Visitor/Purpose IDs are a
+// later migration, out of scope here), the same interim-identity
 // decision already made and disclosed for Phase 0.5's duplicate-visit
-// check (see DEPLOY.md) — nothing regresses, since identity is already
-// name-based everywhere else in the app today.
+// check (see DEPLOY.md) — nothing regresses there, identity is already
+// name-based everywhere else those still touch.
 // ============================================================
 
 
@@ -117,13 +118,29 @@ const CFG_SINGLETON_ENTITY = 'DEFAULT';
 const CFG_AREA_SCHEMAS = {
   STORES: {
     sheetName: 'CONFIG_STORES',
-    // Entity ID = normalized Store Name (interim — see file header).
+    // Phase 1B: Entity ID is now the immutable Store ID (SVMKPI_STORE_CONFIG.gs
+    // mints and enforces it) — no longer the interim normalized-name
+    // placeholder Phase 1A used. Store Name is a plain attribute below,
+    // free to change without affecting identity.
+    //
+    // `status` here is a DOMAIN field — the store's own operational
+    // ACTIVE/INACTIVE state, effective-dated like Category — and is a
+    // completely different thing from this row's ENVELOPE Status column
+    // (CFG_ENV_COL.STATUS, whether this *version* counts during
+    // resolution at all). A store can have an envelope Status of ACTIVE
+    // (this version is real and in force) while its domain `status` field
+    // says INACTIVE (the store itself is operationally closed as of this
+    // version). Not required — defaults to ACTIVE via
+    // SVMKPI_STORE_CONFIG.gs's store_create()/store_update() when omitted,
+    // so this stays backward-compatible with Phase 1A's existing tests
+    // and fixtures, which never set it.
     fields: [
       { key: 'storeName', header: 'Store Name' },
       { key: 'brand',     header: 'Brand' },
       { key: 'region',    header: 'Region' },
       { key: 'category',  header: 'Category' }, // effective-dated — a
         // Category change is a normal new version, same as any other field
+      { key: 'status',    header: 'Store Status' }, // operational ACTIVE|INACTIVE — see note above
     ],
     required: ['storeName', 'brand', 'region', 'category'],
   },
