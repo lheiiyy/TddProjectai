@@ -11,6 +11,31 @@ Columns NOT listed here are explicitly not treated as authoritative for
 migration (e.g. `SETTINGS!D`'s validation-formula helper column — display
 only, never a data source).
 
+## Canonical Store identity (confirmed business rule, Phase 2A.2)
+
+**SVMI Store identity is the combination of physical location and
+brand.** Multiple brands operating at the same physical location are
+represented as separate SVMI Stores and receive separate immutable Store
+IDs — e.g. a town with both a FIGARO and an ANGEL'S PIZZA location is two
+Stores, never one. **Physical co-location does not imply Store identity
+equivalence.**
+
+The canonical key is `NORMALIZED_LOCATION_NAME + '|' + NORMALIZED_BRAND`
+(see `database/dryrun/store_canonical_identity.js`). MASTER_LOG's "Store"
+column (C) and SETTINGS' "Store" column (A) are, in substance, physical
+**location** names, not store-chain-style unique codes — that is exactly
+why the same value can legitimately repeat under two different brands
+(`D Brand` in MASTER_LOG, `B Brand` in SETTINGS). Location Name alone,
+Brand alone, and fuzzy/similarity matching are never sufficient to decide
+Store identity.
+
+A future database model MAY introduce a separate `location_id` to
+represent "this physical site" independent of which brand operates
+there — that is explicitly **out of scope** for this phase. Today, and
+for the purposes of this migration, the Store ID remains attached
+directly to the (Location, Brand) operational identity, with no separate
+location table.
+
 ## MASTER_LOG
 
 | Source col | Destination | Transformation | Nullability | Identity/key | Historical preservation | Notes/limitations |

@@ -14,7 +14,7 @@ const { reconcilePurposes } = require('./reconcile_purposes');
 const { checkConfigOverlaps } = require('./config_overlap_check');
 const { validateSnapshots } = require('./snapshot_validation');
 const { extractYearsFromMasterLog, compareReportingYears } = require('./reporting_year_check');
-const { buildStoreIdentityReconciliation, compositeKey } = require('./store_canonical_identity');
+const { buildStoreIdentityReconciliation, compositeKey, STATUS: STORE_STATUS } = require('./store_canonical_identity');
 const { deriveProposedStoreId, buildProposedStoreIdMap, uuidV5, SVMI_STORE_NAMESPACE_UUID } = require('./store_id_generator');
 const { classifyVisitorTokens } = require('./visitor_identity_classification');
 
@@ -192,7 +192,10 @@ check('parseDateCell: decimal-like garbage rejected', parseDateCell('2026-01') =
   check('reconcile_stores: genuine same-name+same-brand duplicate is still reported', dupReport.duplicateIdentities.length === 1 && dupReport.duplicateIdentities[0].storeBrand === 'APEX');
 }
 
-// ── store_canonical_identity: pre-mint identity derivation (Phase 2A) ──
+// ── store_canonical_identity: pre-mint identity derivation (Phase 2A/2A.2) ──
+// Fictional location/brand names throughout — this mirrors real findings
+// from the Phase 2A dry run (documented locally, never committed) without
+// reproducing real production location names in git.
 {
   const settingsRows = [
     { rowRef: 'S1', store: 'RIVERBEND', brand: "ANGEL'S PIZZA", region: 'FRANCHISE', category: 'FAR PROVINCIAL' },
@@ -208,31 +211,72 @@ check('parseDateCell: decimal-like garbage rejected', parseDateCell('2026-01') =
   ];
   const result = buildStoreIdentityReconciliation({ settingsRows, masterLogRows });
 
-  check('store_canonical_identity: same-name/different-brand stores never collapse (regression)', (() => {
-    const albayIdentities = result.identities.filter((i) => i.normalizedStoreName === 'RIVERBEND');
-    return albayIdentities.length === 2 && new Set(albayIdentities.map((i) => i.normalizedBrand)).size === 2;
+  check('store_canonical_identity: same-location/different-brand stores never collapse (regression)', (() => {
+    const riverbendIdentities = result.identities.filter((i) => i.normalizedLocation === 'RIVERBEND');
+    return riverbendIdentities.length === 2 && new Set(riverbendIdentities.map((i) => i.normalizedBrand)).size === 2;
   })());
 
-  check('store_canonical_identity: identical duplicate SETTINGS rows -> CONFIRMED_DUPLICATE_ONE_LOGICAL_STORE',
-    result.duplicateSettingsRows.find((d) => d.compositeKey === 'DUPTOWN|APEX').decision === 'CONFIRMED_DUPLICATE_ONE_LOGICAL_STORE');
+  check('store_canonical_identity: identical duplicate SETTINGS rows -> DUPLICATE_SOURCE_ROWS, one canonical identity',
+    result.duplicateSettingsRows.find((d) => d.compositeKey === 'DUPTOWN|APEX').status === STORE_STATUS.DUPLICATE_SOURCE_ROWS);
 
-  check('store_canonical_identity: conflicting duplicate SETTINGS rows -> NEEDS_REVIEW, never silently picked',
-    result.duplicateSettingsRows.find((d) => d.compositeKey === 'CONFLICTTOWN|APEX').decision === 'NEEDS_REVIEW');
+  check('store_canonical_identity: duplicate source rows retain provenance of both original rows', (() => {
+    const dup = result.duplicateSettingsRows.find((d) => d.compositeKey === 'DUPTOWN|APEX');
+    return dup.rows.map((r) => r.rowRef).sort().join(',') === 'S3,S4';
+  })());
 
-  check('store_canonical_identity: MASTER_LOG-only identity classified CANDIDATE_FOR_HUMAN_REVIEW, never auto-mapped',
-    result.identities.find((i) => i.compositeKey === 'GHOSTTOWN|APEX').status === 'CANDIDATE_FOR_HUMAN_REVIEW');
+  check('store_canonical_identity: DUPTOWN/APEX collapses to exactly ONE identity in the identity list (not two)',
+    result.identities.filter((i) => i.compositeKey === 'DUPTOWN|APEX').length === 1);
 
-  check('store_canonical_identity: matched identity ready for assignment',
-    result.identities.find((i) => i.compositeKey === "RIVERBEND|ANGEL'S PIZZA").status === 'READY_FOR_STORE_ID_ASSIGNMENT');
+  check('store_canonical_identity: conflicting duplicate SETTINGS rows -> HUMAN_REVIEW, never silently picked',
+    result.duplicateSettingsRows.find((d) => d.compositeKey === 'CONFLICTTOWN|APEX').status === STORE_STATUS.HUMAN_REVIEW);
+
+  check('store_canonical_identity: MASTER_LOG-only identity classified MASTER_LOG_ONLY_UNRESOLVED, never auto-mapped',
+    result.identities.find((i) => i.compositeKey === 'GHOSTTOWN|APEX').status === STORE_STATUS.MASTER_LOG_ONLY_UNRESOLVED);
+
+  check('store_canonical_identity: matched identity with history classified EXACT_MATCH and ready',
+    (() => {
+      const i = result.identities.find((i2) => i2.compositeKey === "RIVERBEND|ANGEL'S PIZZA");
+      return i.status === STORE_STATUS.EXACT_MATCH && i.readyForStoreIdAssignment === true;
+    })());
+
+  check('store_canonical_identity: matched identity with no history classified SETTINGS_ONLY and still ready',
+    (() => {
+      const i = result.identities.find((i2) => i2.compositeKey === 'RIVERBEND|FIGARO');
+      return i.status === STORE_STATUS.SETTINGS_ONLY && i.readyForStoreIdAssignment === true;
+    })());
+
+  check('store_canonical_identity: DUPLICATE_SOURCE_ROWS identity is ready for assignment',
+    result.identities.find((i) => i.compositeKey === 'DUPTOWN|APEX').readyForStoreIdAssignment === true);
+
+  check('store_canonical_identity: HUMAN_REVIEW and MASTER_LOG_ONLY_UNRESOLVED are never ready', (() => {
+    const conflict = result.identities.find((i) => i.compositeKey === 'CONFLICTTOWN|APEX');
+    const ghost = result.identities.find((i) => i.compositeKey === 'GHOSTTOWN|APEX');
+    return conflict.readyForStoreIdAssignment === false && ghost.readyForStoreIdAssignment === false;
+  })());
 
   check('store_canonical_identity: source values preserved verbatim alongside normalized values', (() => {
-    const albayFigaro = result.identities.find((i) => i.compositeKey === 'RIVERBEND|FIGARO');
-    return albayFigaro.sourceStoreName === 'RIVERBEND' && albayFigaro.sourceBrand === 'FIGARO'
-      && albayFigaro.normalizedStoreName === 'RIVERBEND' && albayFigaro.normalizedBrand === 'FIGARO';
+    const riverbendFigaro = result.identities.find((i) => i.compositeKey === 'RIVERBEND|FIGARO');
+    return riverbendFigaro.canonicalLocation === 'RIVERBEND' && riverbendFigaro.canonicalBrand === 'FIGARO'
+      && riverbendFigaro.normalizedLocation === 'RIVERBEND' && riverbendFigaro.normalizedBrand === 'FIGARO';
+  })());
+
+  check('store_canonical_identity: readyCount/duplicateSourceRowsCount/masterLogOnlyUnresolvedCount roll-ups are consistent', (() => {
+    // 6 identities total: RIVERBEND/ANGEL'S PIZZA (EXACT_MATCH), RIVERBEND/FIGARO
+    // (SETTINGS_ONLY), DUPTOWN/APEX (DUPLICATE_SOURCE_ROWS), CONFLICTTOWN/APEX
+    // (HUMAN_REVIEW), GHOSTTOWN/APEX (MASTER_LOG_ONLY_UNRESOLVED) = 5 distinct
+    // identities (DUPTOWN's two source rows collapse to one).
+    return result.distinctIdentityCount === 5
+      && result.exactMatchCount === 1
+      && result.settingsOnlyCount === 1
+      && result.duplicateSourceRowsCount === 1
+      && result.humanReviewCount === 1
+      && result.masterLogOnlyUnresolvedCount === 1
+      && result.readyCount === 2 // EXACT_MATCH + SETTINGS_ONLY only (unambiguous single-row matches)
+      && result.storeIdEligibleCount === 3; // + DUPLICATE_SOURCE_ROWS, once its collapse is approved
   })());
 }
 
-// ── store_id_generator: deterministic proposal, never random (Phase 2A) ──
+// ── store_id_generator: deterministic proposal, never random (Phase 2A/2A.2) ──
 {
   const keyA = compositeKey('RIVERBEND', "ANGEL'S PIZZA");
   const keyB = compositeKey('RIVERBEND', 'FIGARO');
@@ -240,8 +284,8 @@ check('parseDateCell: decimal-like garbage rejected', parseDateCell('2026-01') =
   check('store_id_generator: same key always produces same ID (same process)',
     deriveProposedStoreId(keyA) === deriveProposedStoreId(keyA));
 
-  check('store_id_generator: distinct keys never produce the same ID',
-    deriveProposedStoreId(keyA) !== deriveProposedStoreId(keyB));
+  check('store_id_generator: changing ONLY the brand changes the canonical identity and the Store ID (same-location/different-brand)',
+    keyA !== keyB && deriveProposedStoreId(keyA) !== deriveProposedStoreId(keyB));
 
   check('store_id_generator: format matches STR-<uuid> convention',
     /^STR-[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(deriveProposedStoreId(keyA)));
@@ -255,6 +299,77 @@ check('parseDateCell: decimal-like garbage rejected', parseDateCell('2026-01') =
 
   check('store_id_generator: uuidV5 is a pure function of (name, namespace)',
     uuidV5('X', SVMI_STORE_NAMESPACE_UUID) === uuidV5('X', SVMI_STORE_NAMESPACE_UUID));
+}
+
+// ── Identity stability: order-independence (Phase 2A.2 rule #10) ────────
+// Run A: original SETTINGS row order. Run B: shuffled row order. Run C: an
+// independently-built equivalent row set (simulating a separate
+// extraction). All three must yield identical canonical identities and
+// identical proposed Store IDs for every identity.
+{
+  const baseSettingsRows = [
+    { rowRef: 'S1', store: 'PORTVILLE', brand: 'APEX', region: 'NCR', category: 'NCR' },
+    { rowRef: 'S2', store: 'PORTVILLE', brand: 'FIGARO', region: 'NCR', category: 'NCR' },
+    { rowRef: 'S3', store: 'HILLCREST', brand: 'APEX', region: 'PROVINCIAL', category: 'FAR PROVINCIAL' },
+    { rowRef: 'S4', store: 'LAKEVIEW', brand: "ANGEL'S PIZZA", region: 'FRANCHISE', category: 'NEAR PROVINCIAL' },
+    { rowRef: 'S5', store: 'LAKEVIEW', brand: "ANGEL'S PIZZA", region: 'FRANCHISE', category: 'NEAR PROVINCIAL' }, // duplicate
+  ];
+  const masterLogRows = [
+    { rowRef: 'M1', store: 'PORTVILLE', brand: 'APEX', dateVisited: '2026-01-01' },
+    { rowRef: 'M2', store: 'NEWTOWN', brand: 'APEX', dateVisited: '2026-02-01' }, // unresolved
+  ];
+
+  // Run A: original order.
+  const runA = buildStoreIdentityReconciliation({ settingsRows: baseSettingsRows, masterLogRows });
+  // Run B: same rows, reversed/shuffled order.
+  const shuffled = [baseSettingsRows[3], baseSettingsRows[1], baseSettingsRows[4], baseSettingsRows[0], baseSettingsRows[2]];
+  const runB = buildStoreIdentityReconciliation({ settingsRows: shuffled, masterLogRows: [masterLogRows[1], masterLogRows[0]] });
+  // Run C: an independently-constructed but data-equivalent row set (new
+  // object instances, different row-ref labels — simulating a fresh,
+  // independent extraction of the same real-world facts).
+  const runC = buildStoreIdentityReconciliation({
+    settingsRows: [
+      { rowRef: 'X1', store: 'HILLCREST', brand: 'APEX', region: 'PROVINCIAL', category: 'FAR PROVINCIAL' },
+      { rowRef: 'X2', store: 'LAKEVIEW', brand: "ANGEL'S PIZZA", region: 'FRANCHISE', category: 'NEAR PROVINCIAL' },
+      { rowRef: 'X3', store: 'LAKEVIEW', brand: "ANGEL'S PIZZA", region: 'FRANCHISE', category: 'NEAR PROVINCIAL' },
+      { rowRef: 'X4', store: 'PORTVILLE', brand: 'FIGARO', region: 'NCR', category: 'NCR' },
+      { rowRef: 'X5', store: 'PORTVILLE', brand: 'APEX', region: 'NCR', category: 'NCR' },
+    ],
+    masterLogRows: [
+      { rowRef: 'Y1', store: 'NEWTOWN', brand: 'APEX', dateVisited: '2026-02-01' },
+      { rowRef: 'Y2', store: 'PORTVILLE', brand: 'APEX', dateVisited: '2026-01-01' },
+    ],
+  });
+
+  check('identity stability: same canonical identities regardless of SETTINGS/MASTER_LOG row order', (() => {
+    const keysA = runA.identities.map((i) => i.compositeKey).sort();
+    const keysB = runB.identities.map((i) => i.compositeKey).sort();
+    const keysC = runC.identities.map((i) => i.compositeKey).sort();
+    return JSON.stringify(keysA) === JSON.stringify(keysB) && JSON.stringify(keysA) === JSON.stringify(keysC);
+  })());
+
+  check('identity stability: same status per identity regardless of row order/source', (() => {
+    const statusMap = (result) => Object.fromEntries(result.identities.map((i) => [i.compositeKey, i.status]));
+    const a = statusMap(runA); const b = statusMap(runB); const c = statusMap(runC);
+    return JSON.stringify(a) === JSON.stringify(b) && JSON.stringify(a) === JSON.stringify(c);
+  })());
+
+  check('identity stability: identical proposed Store IDs across all three runs, for every identity', (() => {
+    const idsFor = (result) => {
+      const keys = result.identities.map((i) => i.compositeKey);
+      const map = buildProposedStoreIdMap(keys);
+      return keys.sort().map((k) => `${k}=${map.get(k)}`).join(';');
+    };
+    return idsFor(runA) === idsFor(runB) && idsFor(runA) === idsFor(runC);
+  })());
+
+  check('identity stability: total counts (distinct identities, ready, duplicate, unresolved) match across all three runs', (() => {
+    const summarize = (r) => JSON.stringify({
+      distinct: r.distinctIdentityCount, ready: r.readyCount,
+      dup: r.duplicateSourceRowsCount, unresolved: r.masterLogOnlyUnresolvedCount,
+    });
+    return summarize(runA) === summarize(runB) && summarize(runA) === summarize(runC);
+  })());
 }
 
 // ── visitor_identity_classification: case variants never silently merge ──

@@ -1,12 +1,12 @@
 // database/dryrun/store_id_generator.js
 //
-// Phase 2A rule #7 — deterministic Store ID proposal.
+// Phase 2A/2A.2 rule #7 — deterministic Store ID proposal.
 //
 // PROPOSED ONLY — NOT WRITTEN TO PRODUCTION. This module never touches
 // the live spreadsheet or any database; it only computes what a Store ID
-// WOULD be, deterministically, from a canonical identity key, so the same
-// (Store Name, Brand) identity always proposes the same ID no matter how
-// many times this is run, in this dry run or a future one.
+// WOULD be, deterministically, from a canonical (Location, Brand)
+// identity key, so the same identity always proposes the same ID no
+// matter how many times this is run, in this dry run or a future one.
 //
 // Mechanism: RFC 4122 UUID v5 (name-based, SHA-1), keyed off a single
 // fixed namespace UUID that must never change once adopted. This
@@ -14,6 +14,21 @@
 // generate a fresh random UUID on every dry run") — v5 is a pure
 // function of (namespace, name): identical input always produces the
 // identical UUID, and different input is collision-resistant.
+//
+// Guarantees, by construction:
+//   - deterministic and repeatable: same canonical key -> same ID, in
+//     this run, a re-run, or a fresh process.
+//   - no random component (no Math.random/crypto.randomUUID).
+//   - no timestamp component — the key is the (Location,Brand) string
+//     only, nothing time-derived ever enters the hash.
+//   - no row-number/row-reference component — a SETTINGS or MASTER_LOG
+//     row number never participates in the key or the hash.
+//   - no dependence on input ordering — deriveProposedStoreId(key) and
+//     buildProposedStoreIdMap(keys) both operate per-key; the order keys
+//     appear in an array never affects the ID any one key maps to
+//     (verified by the "identity stability" regression test in
+//     dryrun.test.js, which shuffles SETTINGS row order and asserts an
+//     identical proposed-ID map results).
 //
 // Format matches the existing application convention: `STR-<uuid>`.
 
@@ -57,9 +72,10 @@ function uuidV5(name, namespaceUuid) {
 
 /**
  * Derives the proposed Store ID for a canonical identity key (as produced
- * by store_canonical_identity.js's compositeKey — normalized "NAME|BRAND").
- * Deterministic: calling this twice with the same key, in the same
- * process or a fresh one, always returns the same STR-<uuid>.
+ * by store_canonical_identity.js's compositeKey — normalized
+ * "NORMALIZED_LOCATION|NORMALIZED_BRAND"). Deterministic: calling this
+ * twice with the same key, in the same process or a fresh one, always
+ * returns the same STR-<uuid>.
  */
 function deriveProposedStoreId(canonicalKey) {
   return `STR-${uuidV5(canonicalKey, SVMI_STORE_NAMESPACE_UUID)}`;

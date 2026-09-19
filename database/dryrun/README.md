@@ -46,22 +46,73 @@ no database — so it was fully testable BEFORE any real data existed, and
 needs no changes once real data arrives; only a reader that turns the real
 export into the same input shape is still needed (see below).
 
-## Phase 2A — Store Identity & Historical Data Reconciliation
+## Phase 2A / 2A.2 — Store Identity & Historical Data Reconciliation
 
 The real-data dry run (Phase 2) found production has never minted a Store
-ID for any store, and confirmed real cross-brand name collisions (the
-same town/location name used by two different brands). Phase 2A adds the
-canonical-identity groundwork needed before any Store ID is ever minted:
+ID for any store, and confirmed real cross-brand location collisions (the
+same physical location used by two different brands).
+
+### Canonical identity rule (confirmed business rule, Phase 2A.2)
+
+```
+Store Identity = Location + Brand
+canonical key   = NORMALIZED_LOCATION_NAME + '|' + NORMALIZED_BRAND
+```
+
+A physical location may host multiple brands. Each (Location, Brand) pair
+is a **separate SVMI Store** with its own immutable Store ID — e.g. a town
+with both a FIGARO and an ANGEL'S PIZZA location is two Stores, never one.
+**Physical co-location does not imply Store identity equivalence.** Never
+use Location alone, never Brand alone, and never a fuzzy/similarity match
+to decide identity — same location + different brand always yields two
+different canonical identities and two different proposed Store IDs.
+
+The real spreadsheet's "Store" column is, in substance, a physical
+**location** name (a town/site), not a store-chain-style unique code —
+which is exactly why the same value can legitimately repeat under two
+different brands. The dry-run model represents, per canonical identity:
+physical location name, brand, canonical Store identity, and (once
+approved) an immutable Store ID. A future database model MAY introduce a
+separate `location_id` to represent "this physical site" independent of
+which brand operates there — **that is explicitly out of scope for this
+phase**; today the Store ID stays attached directly to the (Location,
+Brand) operational identity, with no separate location table.
 
 | Module | Purpose |
 |---|---|
-| `store_canonical_identity.js` | Derives canonical (Store Name, Brand) identities directly from raw SETTINGS + MASTER_LOG, before any Store ID exists — classifies each as ready/duplicate/candidate-for-review. Never fuzzy-matches. |
-| `store_id_generator.js` | Deterministic (RFC 4122 UUID v5) Store ID proposal — same canonical key always produces the same `STR-<uuid>`, across repeated runs and process restarts. Proposal only; never writes anywhere. |
+| `store_canonical_identity.js` | Derives canonical (Location, Brand) identities directly from raw SETTINGS + MASTER_LOG, before any Store ID exists. Classifies each identity as one of `EXACT_MATCH`, `SETTINGS_ONLY`, `DUPLICATE_SOURCE_ROWS`, `HUMAN_REVIEW`, or `MASTER_LOG_ONLY_UNRESOLVED` (see below). Never fuzzy-matches. |
+| `store_id_generator.js` | Deterministic (RFC 4122 UUID v5) Store ID proposal — same canonical key always produces the same `STR-<uuid>`, across repeated runs, process restarts, and regardless of input row order. Proposal only; never writes anywhere. |
 | `visitor_identity_classification.js` | Classifies each historical visitor token as an exact roster match, a case-only variant of a roster entry, a likely-new visitor, or unresolved — never silently merges case variants. |
 
-`reconcile_stores.js` was also fixed in this phase: its store-identity
+`reconcile_stores.js` was also fixed in Phase 2A: its store-identity
 grouping previously used Name alone, which real data proved wrong (see
-above) — it now uses the same composite (Name, Brand) key.
+above) — it now uses the same composite (Location, Brand) key.
+
+### Classification enum (`STATUS`, exported by `store_canonical_identity.js`)
+
+| Status | Meaning |
+|---|---|
+| `EXACT_MATCH` | Single SETTINGS row for this (Location,Brand) key, plus ≥1 historical MASTER_LOG visit under the same key. Strongest confidence. |
+| `SETTINGS_ONLY` | Single SETTINGS row for this key, zero historical visits yet. A configured-but-unvisited store. |
+| `DUPLICATE_SOURCE_ROWS` | More than one SETTINGS row shares this exact key AND all identity-relevant fields (Region, Category) agree — the same logical store entered twice. Collapses to **one** canonical identity; source-row provenance is retained, neither original row is touched. |
+| `HUMAN_REVIEW` | More than one SETTINGS row shares the key but Region/Category disagree — a genuine conflict, never auto-resolved. |
+| `MASTER_LOG_ONLY_UNRESOLVED` | The key appears only in MASTER_LOG history, with no SETTINGS row at all. No Store ID is proposed. |
+
+`READY` is a roll-up label (`readyForStoreIdAssignment: true`), not a
+sixth persisted status — it covers `EXACT_MATCH`, `SETTINGS_ONLY`, and
+`DUPLICATE_SOURCE_ROWS`. `HUMAN_REVIEW` and `MASTER_LOG_ONLY_UNRESOLVED`
+are never ready; a Store ID is never proposed for them.
+
+### Determinism / order-independence
+
+`store_id_generator.js` derives every proposed ID as a pure function of
+the canonical key string alone (RFC 4122 UUID v5, SHA-1, fixed namespace)
+— no randomness, no timestamp, no row number, and no dependence on the
+order SETTINGS/MASTER_LOG rows were supplied in. `dryrun.test.js`'s
+"identity stability" tests prove this directly: the same canonical
+identities, statuses, and proposed Store IDs result whether SETTINGS rows
+are supplied in their original order, a shuffled order, or as an
+independently-constructed but data-equivalent row set.
 
 ## What's still needed once real data is available
 
