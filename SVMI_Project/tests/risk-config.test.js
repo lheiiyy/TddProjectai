@@ -107,7 +107,21 @@ function newSandbox(settingsRows) {
   return { sandbox, state };
 }
 
-const TODAY = '2026-09-18';
+// Computed dynamically (never a fixed literal) so this suite never again
+// silently starts treating its own "today" fixture as backdated the
+// moment the real calendar date advances past whatever day this file
+// was authored on — discovered when 2026-09-18 -> 2026-09-19 broke every
+// TODAY-effective (non-backdate-testing) call in this file.
+const TODAY = new Date().toISOString().slice(0, 10);
+// Same "today", but as a sandbox-realm Date object built from Y/M/D
+// components (never an ISO-string reparse, to sidestep any UTC/local
+// timezone ambiguity) — for call sites needing a real Date rather than a
+// 'YYYY-MM-DD' string. Also never a fixed literal, for the same reason
+// TODAY above isn't one.
+function todayInSandbox(SDate) {
+  const d = new Date();
+  return new SDate(d.getFullYear(), d.getMonth(), d.getDate());
+}
 
 function bucket(failed, sv, curing, tltc) { return { failedCount: failed, storeVisitCount: sv, curingCount: curing, tltcCount: tltc }; }
 
@@ -141,9 +155,9 @@ console.log('\n── A configured threshold change affects _sl_riskTier() as of
   const created = sandbox.risk_create({ lowThreshold: 0, mediumThreshold: 20, highThreshold: 30 }, TODAY, 'raise the bar', {});
   check('risk_create succeeds', created.success, JSON.stringify(created));
 
-  eq('score 9 is now LOW (below the new mediumThreshold=20)', sandbox._sl_riskTier(9, new SDate(2026, 8, 18)), 'LOW');
-  eq('score 25 is now MEDIUM (between 20 and 30)', sandbox._sl_riskTier(25, new SDate(2026, 8, 18)), 'MEDIUM');
-  eq('score 35 is now HIGH (>= 30)', sandbox._sl_riskTier(35, new SDate(2026, 8, 18)), 'HIGH');
+  eq('score 9 is now LOW (below the new mediumThreshold=20)', sandbox._sl_riskTier(9, todayInSandbox(SDate)), 'LOW');
+  eq('score 25 is now MEDIUM (between 20 and 30)', sandbox._sl_riskTier(25, todayInSandbox(SDate)), 'MEDIUM');
+  eq('score 35 is now HIGH (>= 30)', sandbox._sl_riskTier(35, todayInSandbox(SDate)), 'HIGH');
 }
 
 console.log('\n── A configured purpose-weight change affects the monthly-purpose score ──');
@@ -158,7 +172,7 @@ console.log('\n── A configured purpose-weight change affects the monthly-pur
 
   const buckets = Array.from({ length: 12 }, () => bucket(0, 0, 0, 0));
   buckets[0].storeVisitCount = 1;
-  const r = sandbox._sl_computeMonthlyPurposeScores(buckets, 0, new SDate(2026, 8, 18));
+  const r = sandbox._sl_computeMonthlyPurposeScores(buckets, 0, todayInSandbox(SDate));
   eq('1 store visit now scores -10 (the configured weight), not the old -2', r.basePurposeScore, -10);
 }
 
@@ -184,7 +198,7 @@ console.log('\n── Future configuration does not affect an earlier date ─�
   const SDate = vm.runInContext('Date', sandbox);
   sandbox.risk_create({ lowThreshold: 0, mediumThreshold: 5, highThreshold: 10 }, TODAY, 'current', {});
   sandbox.risk_create({ lowThreshold: 0, mediumThreshold: 100, highThreshold: 200 }, '2030-01-01', 'far future', { backdateConfirmed: true });
-  eq('today (score 9) still resolves the CURRENT threshold, not the 2030 one', sandbox._sl_riskTier(9, new SDate(2026, 8, 18)), 'MEDIUM');
+  eq('today (score 9) still resolves the CURRENT threshold, not the 2030 one', sandbox._sl_riskTier(9, todayInSandbox(SDate)), 'MEDIUM');
 }
 
 
@@ -262,7 +276,7 @@ console.log('\n── The canonical _computeStoreRisk() is still the only risk-s
     brands: ['FIGARO'],
     regions: ['NCR'],
   };
-  const rows = sandbox._computeStoreRisk(data, new SDate(2026, 8, 18));
+  const rows = sandbox._computeStoreRisk(data, todayInSandbox(SDate));
   const alpha = rows.find(r => r.store === 'ALPHA');
   check('_computeStoreRisk() itself reflects the configured thresholds end-to-end', !!alpha && (alpha.riskTier === 'LOW' || alpha.riskTier === 'MEDIUM' || alpha.riskTier === 'HIGH'), JSON.stringify(alpha));
   // _sl_computeHealth()/SL_RISK were the OLD, independent "Bible §6" risk

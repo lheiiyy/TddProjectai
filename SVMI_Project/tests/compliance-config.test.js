@@ -120,7 +120,16 @@ function row(y, m, d, store, visitor, purpose) {
   return [ds + ' 08:00:00', ds, store, 'FIGARO', 'NCR', visitor, purpose || 'STORE VISIT', ''];
 }
 
-const TODAY = '2026-09-18';
+// Computed dynamically (never a fixed literal) so this suite never again
+// silently starts treating its own "today" fixture as backdated the
+// moment the real calendar date advances past whatever day this file
+// was authored on — discovered when 2026-09-18 -> 2026-09-19 broke every
+// TODAY-effective (non-backdate-testing) call in this file. The
+// evaluationDateStr literals passed to sl_getComplianceGaps() elsewhere
+// in this file are unaffected — those are period-to-date read queries,
+// not configuration-creation calls, and are never subject to backdate
+// confirmation.
+const TODAY = new Date().toISOString().slice(0, 10);
 
 // ═══════════════════════════════════════════════════════════════
 // 1. PERIOD-TO-DATE COMPLIANCE — compliant / insufficient / excludes

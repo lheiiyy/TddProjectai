@@ -99,7 +99,17 @@ function newSandbox() {
   return { sandbox, ssMock, state };
 }
 
-const TODAY = '2026-09-18';
+// Computed dynamically (never a fixed literal) so this suite never again
+// silently starts treating its own "today" fixture as backdated the
+// moment the real calendar date advances past whatever day this file
+// was authored on — discovered when 2026-09-18 -> 2026-09-19 broke every
+// TODAY-effective (non-backdate-testing) call in this file.
+const TODAY = new Date().toISOString().slice(0, 10);
+// One day after TODAY — also computed dynamically, for the handful of
+// tests that need a second, later, distinct Effective From date (the
+// config engine rejects two versions sharing the exact same Effective
+// From). A fixed "day after" literal broke the same way TODAY did.
+const NEXT_DAY = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
 
 // ═══════════════════════════════════════════════════════════════
 // 1. STORE IDENTITY
@@ -135,9 +145,9 @@ console.log('\n── Identity: Store ID survives a store-name change ──');
   // first, exactly as _store_setOperationalStatus() does internally.
   const { sandbox } = newSandbox();
   const created = sandbox.store_create({ storeName: 'Old Name', brand: 'FIGARO', region: 'NCR', category: 'A' }, TODAY, 'setup');
-  const renamed = sandbox.store_update(created.storeId, { storeName: 'New Name', brand: 'FIGARO', region: 'NCR', category: 'A' }, '2026-09-19', 'rename');
+  const renamed = sandbox.store_update(created.storeId, { storeName: 'New Name', brand: 'FIGARO', region: 'NCR', category: 'A' }, NEXT_DAY, 'rename');
   check('rename succeeds as a new version of the SAME Store ID', renamed.success, JSON.stringify(renamed));
-  const after = sandbox.resolveStoreAsOf(created.storeId, '2026-09-19');
+  const after = sandbox.resolveStoreAsOf(created.storeId, NEXT_DAY);
   check('the Store ID now resolves to the new name', after && after.fields.storeName === 'New Name', JSON.stringify(after));
   check('the Store ID itself is unchanged', after && after.storeId === created.storeId);
 }
@@ -146,9 +156,9 @@ console.log('\n── Identity: an attempt to change Store ID via store_update()
 {
   const { sandbox } = newSandbox();
   const created = sandbox.store_create({ storeName: 'Immutable Co', brand: 'FIGARO', region: 'NCR', category: 'A' }, TODAY, 'setup');
-  const attempt = sandbox.store_update(created.storeId, { storeId: 'STR-some-other-id', storeName: 'Renamed' }, '2026-09-19', 'malicious rename attempt');
+  const attempt = sandbox.store_update(created.storeId, { storeId: 'STR-some-other-id', storeName: 'Renamed' }, NEXT_DAY, 'malicious rename attempt');
   check('the mismatched-ID update is explicitly rejected (not silently ignored)', attempt.success === false, JSON.stringify(attempt));
-  const stillOriginal = sandbox.resolveStoreAsOf(created.storeId, '2026-09-19');
+  const stillOriginal = sandbox.resolveStoreAsOf(created.storeId, NEXT_DAY);
   check('the original store is unaffected by the rejected attempt', stillOriginal && stillOriginal.fields.storeName === 'Immutable Co', JSON.stringify(stillOriginal));
 }
 
@@ -246,9 +256,9 @@ console.log('\n── Operational visibility: inactive store does NOT appear in 
   // Deactivate effective the NEXT day — the same Effective From date as the
   // creation itself is correctly rejected ("a version with this exact
   // Effective From date already exists"), so this must be a distinct date.
-  const deactivated = sandbox.store_deactivate(created.storeId, 'closed', '2026-09-19');
+  const deactivated = sandbox.store_deactivate(created.storeId, 'closed', NEXT_DAY);
   check('deactivation itself succeeds', deactivated.success === true, JSON.stringify(deactivated));
-  const list = sandbox.store_getOperationalList('2026-09-19');
+  const list = sandbox.store_getOperationalList(NEXT_DAY);
   check('inactive store is absent from the operational list', !list.some(s => s.storeId === created.storeId), JSON.stringify(list));
 }
 

@@ -1615,6 +1615,187 @@ actual spreadsheet before relying on this margin in production.
 
 ---
 
+## Phase 1F — Snapshot and Configuration Administration UI
+
+**Purpose:** expose the already-existing Phase 1A/1B/1D configuration-
+versioning services and Phase 1E report-snapshot services through a
+secure, practical Admin area in the real portal (`Apps Script/
+SVMI_PORTAL.html`) — this phase invents no new business rule, no new
+calculation, no new permission system, and no new storage. Everything
+the Admin UI does was already possible via direct Apps Script calls;
+this phase only gives it a UI.
+
+**Files:** new `Apps Script/SVMKPI_ADMIN_API.gs` (the only new backend
+code this phase adds — small, read-only list/aggregate helpers); new
+`tests/admin-api.test.js` (84 checks); `Apps Script/SVMI_PORTAL.html`
+extended with a new "🛡 Admin" tab (HTML/CSS/JS only — no other file's
+markup touched); `tests/risk-config.test.js`, `tests/compliance-
+config.test.js`, `tests/kpi-purpose-config.test.js`, and `tests/store-
+identity.test.js` each received a one-line fix, described below.
+
+**Why a new backend file was needed (disclosed per this phase's own
+"stop and report" instruction):** every actual configuration/snapshot
+*mutation* the Admin UI performs calls an existing, already admin-gated
+function directly — `cfg_createConfiguration()`/`cfg_activateConfiguration()`/
+`cfg_deactivateConfiguration()`/`cfg_rollbackConfiguration()`,
+`store_create()`/`store_update()`/`store_activate()`/`store_deactivate()`/
+`store_reconcileUnmapped()`, `purpose_create()`/`...rollback()`,
+`risk_create()`/`...rollback()`, `cmp_create()`/`...rollback()`,
+`kpi_create()`/`...rollback()`, `finalizeReport()`/
+`supersedeReportSnapshot()`/`regenerateReportSheet()`. None of those was
+modified. But the UI also needs to *enumerate* "what exists" before
+drilling into one of those — e.g. "every known Purpose" (including the 4
+legacy ones that have never needed a `CONFIG_PURPOSES` row),
+"every known Compliance category" (including the pre-Phase-1D hardcoded
+ones), "every Store ID that has ever existed, including inactive ones" —
+and no existing function returns exactly that. `SVMKPI_ADMIN_API.gs`
+adds only that: `admin_getAreaSchema()`, `admin_listConfigEntityIds()`,
+`admin_getConfigEntityDetail()`, `admin_getRiskDetail()`,
+`admin_listPurposes()`, `admin_listComplianceCategories()`,
+`admin_listAllStores()`, `admin_getSystemAreaInfo()`. None of these is
+admin-gated on its own — each only aggregates already-public read data
+(the same trust level `getStoreHealthReport()`/`getKPI2026Report()`
+already have), and none of them mutates anything.
+
+**Admin UI capabilities** (Configuration / Audit / Report Snapshots
+sub-tabs, reusing the existing `.p-card`/`.pill`/`.sel-dark`/`.btn-gold`/
+`.btn-navy`/confirmation-modal/`.state-msg` visual language — no second
+design system):
+
+- **Configuration** — an area selector (Stores, Visitors, Purposes,
+  Risk, Compliance, KPI, System) drives a generic, schema-driven entity
+  list + detail/history panel + "new version" form. The form's fields
+  come from `admin_getAreaSchema(area)` — never hardcoded in client JS —
+  so no area's business fields are duplicated or guessed client-side.
+  Every "new version" submission goes through the correct existing
+  create wrapper for that area (`store_create`/`store_update` for
+  Stores, `purpose_create`/`risk_create`/`cmp_create`/`kpi_create` for
+  their areas, and the raw `cfg_createConfiguration()` for Visitors,
+  which has no dedicated wrapper of its own — Phase 1A/1D never built
+  one). A backdated Effective From triggers an explicit confirmation
+  dialog before submission, and the server's own
+  `requiresBackdateConfirmation` response is still respected
+  defensively even if the client's own date check somehow missed it —
+  the UI never silently converts a backdated date or bypasses the
+  server-side gate. Version history never shows an "edit" action —
+  only "Activate"/"Deactivate" (the envelope's own
+  `cfg_activateConfiguration()`/`cfg_deactivateConfiguration()`) and
+  "Rollback to this version" (the area's dedicated `_rollback()`
+  wrapper where one exists, else the generic
+  `cfg_rollbackConfiguration()` for Stores/Visitors) — both always
+  create a new row, never touch history. Stores additionally expose a
+  domain-level "Deactivate/Reactivate Store" action
+  (`store_activate()`/`store_deactivate()`), distinct from the generic
+  envelope activate/deactivate, since Store Status is a Phase 1B
+  business field, not an envelope concept. Store ID is always shown as
+  the immutable identity and is never an editable field anywhere in the
+  UI — only Store Name (and every other attribute) can change, always as
+  a new version under the same ID.
+- **Audit** — a filterable viewer over `cfg_getAuditLog()` (area, entity,
+  action, and a date range applied client-side after fetching, since the
+  backend's own filter signature is area/entity only) — read-only,
+  append-only, no edit action exists anywhere in this view.
+- **Report Snapshots** — a Reporting-Year selector populated from
+  `getAvailableReportingYears()` (never a hardcoded list of years) drives
+  a snapshot-history list (`listReportSnapshots(year)`) with clearly
+  distinguished `DRAFT`/`FINALIZED`/`SUPERSEDED` badges, a read-only
+  detail view rendering the frozen `Result` object into readable
+  sections (Executive Summary, KPI, Store Health/Risk table, Compliance
+  Gaps table, totals, and Configuration Provenance) — never a raw JSON
+  dump — plus `Finalize Report`, `Correct (Supersede)`, and `Regenerate
+  Report Sheet` actions, and a separate `View Draft` action
+  (`getDraftReport()`) clearly labeled "DRAFT — calculated from current
+  data/configuration" wherever it's shown, so it is never confused with
+  a frozen historical snapshot merely because the year is old.
+
+**Finalize Report UI:** requires Reporting Year + Evaluation Date +
+Reason (each individually validated before the confirmation dialog
+appears), then shows a confirmation naming the exact year/date and all
+four required warnings verbatim (freezes the result; later changes won't
+alter it; will rebuild the shared Executive Summary sheet; may create the
+`KPI <year>` sheet) before calling the existing `finalizeReport()` — no
+second finalization mechanism. A rejection (e.g. "already has a finalized
+snapshot") is shown to the Admin verbatim, not replaced with a generic
+error.
+
+**Supersession UI:** requires a correction reason, shows the exact
+"creates a new snapshot version; the previous snapshot will be preserved
+and marked SUPERSEDED" confirmation, and calls the existing
+`supersedeReportSnapshot()` — no delete/edit/overwrite action exists
+anywhere in this UI for a finalized snapshot's `Result JSON`.
+
+**Regeneration UI:** states plainly that it rebuilds `REPORT_<year>`
+*from the stored, frozen snapshot* and does **not** recalculate from
+current data — calls the existing `regenerateReportSheet()` only.
+
+**Security model:** unchanged — every mutating call above goes straight
+to a function that already independently calls `sl_isAdmin()` server-
+side. The Admin nav item itself is hidden for non-admins via the same
+`applyAdminGating()` convenience pattern System Tools already uses (a
+UI-visibility nicety, not a security boundary — explicitly documented
+in-code at both the original System Tools gating and this phase's
+addition to it). No hidden field, client-side `isAdmin`/`role` value, or
+query parameter is trusted anywhere; the read-only `admin_*` list
+functions are intentionally not gated at all, since they expose nothing
+a non-admin visitor's own browser session couldn't already compute from
+other already-public reads.
+
+**A pre-existing test fragility found and fixed while re-running the
+baseline (not a Phase 1F regression):** `risk-config.test.js`,
+`compliance-config.test.js`, `kpi-purpose-config.test.js`, and
+`store-identity.test.js` each declared `const TODAY = '2026-09-18';` — a
+fixed literal that happened to equal the real calendar date at the time
+those files were authored (Phase 1D/1B). Mid-way through this session
+the real date advanced to 2026-09-19, which made every one of those
+files' own "effective today, not backdated" configuration calls look
+backdated by one day, cascading into null-dereference crashes later in
+the same files. This is unrelated to any Phase 1F code change (confirmed
+by the exact error messages naming the stale literal) but would recur
+every single day going forward if left as-is, so it was fixed as a
+test-only, one-line change per file: `TODAY` (and, in
+`store-identity.test.js`, a `NEXT_DAY` constant used for a handful of
+tests needing a second, later Effective From) is now computed from the
+real `Date` at test-run time instead of a fixed string. No production
+code was touched for this fix.
+
+**Known limitations:**
+- The new Admin tab is added only to `Apps Script/SVMI_PORTAL.html` (the
+  real, deployed portal) — `SVMI_Command_Center_Demo.html` is
+  deliberately left untouched, and neither `portal-ui.test.js` nor
+  `responsive-check.js` covers the real portal (both have only ever
+  driven the separate Demo file). This phase's UI code is therefore
+  verified via JS syntax-checking (`new Function()` on the extracted
+  `<script>` block), HTML tag-balance checking, full server-side
+  contract testing, and manual review — not via automated in-browser
+  rendering, consistent with this repository's existing test
+  architecture never having built that harness for the real portal.
+- Several secondary Admin actions (version activate/deactivate reason,
+  rollback reason, store status-change reason, and the Finalize/
+  Supersede dialogs' Year/Evaluation Date/Reason inputs) use the
+  browser's native `prompt()`/`confirm()`-style flow rather than a
+  dedicated multi-field modal form. Every required input is still
+  individually validated and every required confirmation/warning is
+  still shown in full before the actual mutating call — this is a UX
+  simplification, not a reduction in what's validated or confirmed.
+- The Audit viewer's date-range filter is applied client-side after
+  fetching `cfg_getAuditLog(area, entity)`'s full result — practical at
+  this project's current audit-log scale, but would need a server-side
+  date-range parameter if that log grows very large.
+- `SVMKPI_ADMIN_API.gs`'s `admin_listAllStores()` calls
+  `_store_listEntityIds()` (SVMKPI_STORE_CONFIG.gs) directly — an
+  underscore-prefixed, by-convention-internal helper — rather than
+  duplicating its 6-line body. This mirrors an existing, deliberate
+  precedent in this codebase (`SVMKPI_RISK.gs` reusing
+  `_sl_formatDate()` from `SVMKPI_STORE_LOOKUP.gs` for the same reason:
+  one shared implementation beats a second copy that can drift).
+
+Full suite after Phase 1F: **914/914** unit checks (20 files) + **66/66**
+responsive-layout checks, zero regressions (the four files' date-
+fragility fixes above are test-only corrections, not behavior changes —
+every assertion they contain is unchanged from Phase 1D/1B).
+
+---
+
 ## Checks before you push
 
 No linter, but three checks are worth running:
@@ -1735,6 +1916,18 @@ node SVMI_Project/tests/kpi-purpose-config.test.js
 # KPI built only when its year-scoped sheet is missing, builder-failure
 # handling, and full-result historical isolation) (163 checks)
 node SVMI_Project/tests/report-snapshot.test.js
+
+# Phase 1F: the new SVMKPI_ADMIN_API.gs read-only aggregators (schema
+# exposure, entity/history listing, Purpose/Compliance/Store enumeration
+# incl. legacy/hardcoded entries and inactive stores) plus UI-facing
+# contract checks for the existing services the new Admin tab calls —
+# security (every mutation still admin-gated, spoofed options rejected),
+# configuration (create/rollback/audit/backdating for Visitors, the one
+# area with no dedicated wrapper), Store ID immutability, Purpose
+# no-inheritance, snapshot finalize/frozen/duplicate-rejected/supersede/
+# regeneration, 2026/2027/2028 isolation, and representative error paths
+# (84 checks)
+node SVMI_Project/tests/admin-api.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a
@@ -1747,7 +1940,8 @@ issues. `risk-scoring.test.js`, `kpi-roster-history.test.js`,
 `store-identity.test.js`, `store-scale.test.js`,
 `reporting-year.test.js`, `calendar-period.test.js`,
 `compliance-config.test.js`, `risk-config.test.js`,
-`kpi-purpose-config.test.js`, and `report-snapshot.test.js` are the
+`kpi-purpose-config.test.js`, `report-snapshot.test.js`, and
+`admin-api.test.js` are the
 exception: they run actual `.gs`
 functions directly (against a mocked Sheet/Range, not a mock of the
 *business logic*), so they do catch data-correctness bugs (this is how the

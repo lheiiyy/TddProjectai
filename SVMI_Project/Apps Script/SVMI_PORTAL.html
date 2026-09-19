@@ -461,6 +461,49 @@ textarea.fi{padding-right:28px}
   .token-input{font-size:16px}
   .field-x{font-size:19px;padding:4px 7px}
 }
+
+/* ── Admin tab (Phase 1F) — reuses existing vars/.p-card/.pill/.sel-dark/
+   .btn-gold/.btn-navy/.dup-* modal/.state-msg conventions; only new
+   layout/badge primitives are added here. ── */
+.admin-sub{display:none}
+.admin-sub.active{display:block}
+.admin-area-bar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.admin-area-btn{padding:6px 12px;border-radius:6px;border:1px solid var(--border-d);
+  background:var(--card);color:var(--text);font-size:11px;font-weight:700;cursor:pointer}
+.admin-area-btn.active{background:var(--navy);color:var(--gold);border-color:var(--navy)}
+.admin-config-layout{display:flex;gap:14px;align-items:flex-start}
+.admin-entity-col{width:250px;flex-shrink:0;background:var(--card);border:1px solid var(--border);
+  border-radius:8px;padding:10px;box-sizing:border-box}
+.admin-entity-hdr{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:8px}
+.admin-entity-list{max-height:440px;overflow-y:auto}
+.admin-entity-row{padding:8px;border-radius:6px;cursor:pointer;font-size:12px;margin-bottom:3px;
+  border:1px solid transparent;word-break:break-word}
+.admin-entity-row:hover{background:var(--bg)}
+.admin-entity-row.active{background:var(--green-l);border-color:var(--green);font-weight:700}
+.admin-detail-col{flex:1;min-width:0;background:var(--card);border:1px solid var(--border);
+  border-radius:8px;padding:16px;box-sizing:border-box}
+.admin-badge{display:inline-block;font-size:9px;font-weight:700;padding:2px 7px;border-radius:9px;margin-right:4px}
+.admin-badge.ok{background:var(--green-l);color:#1A5E3A}
+.admin-badge.warn{background:var(--orange-l);color:#8A4A0F}
+.admin-badge.no{background:var(--bg);color:var(--muted)}
+.admin-badge.draft{background:#EEF0F5;color:#40465A}
+.admin-badge.finalized{background:var(--green-l);color:#1A5E3A}
+.admin-badge.superseded{background:var(--bg);color:var(--muted)}
+.admin-form-row{margin-bottom:10px}
+.admin-form-row label{display:block;font-size:10px;font-weight:700;color:var(--muted);
+  margin-bottom:3px;text-transform:uppercase}
+.admin-hist-table{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px;min-width:640px}
+.admin-hist-table th{background:var(--navy);color:var(--gold);text-align:left;padding:6px 8px;
+  font-size:9px;text-transform:uppercase;white-space:nowrap}
+.admin-hist-table td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+.admin-note{font-size:11px;color:var(--muted);background:var(--bg);border-radius:6px;
+  padding:10px;margin-bottom:10px;line-height:1.5}
+.admin-filter-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+@media (max-width:820px){
+  .admin-config-layout{flex-direction:column}
+  .admin-entity-col{width:100%}
+  .admin-entity-list{max-height:220px}
+}
 </style>
 </head>
 <body>
@@ -510,6 +553,7 @@ textarea.fi{padding-right:28px}
     <div class="nav-item"        id="tab-Visits"   onclick="switchTab('Visits')">📅 Unvisited This Month</div>
     <div class="nav-item"        id="tab-Input"   onclick="switchTab('Input')">📋 Input Portal</div>
     <div class="nav-item"        id="tab-Tools"    onclick="switchTab('Tools')">⚙ System Tools</div>
+    <div class="nav-item"        id="tab-Admin"    data-admin-only="true" hidden onclick="switchTab('Admin')">🛡 Admin</div>
   </div>
 </div>
 
@@ -848,6 +892,89 @@ textarea.fi{padding-right:28px}
   </div>
 </div>
 
+<!-- TAB: ADMIN (Phase 1F) — exposes Phase 1A/1B/1D configuration
+     versioning + Phase 1E report snapshots through the existing portal
+     shell. Admin-only: hidden via applyAdminGating() for convenience,
+     but every mutation below is independently re-checked server-side by
+     the existing sl_isAdmin()-gated function it calls — this tab invents
+     no new permission system and no new configuration/snapshot storage,
+     it only calls the already-existing typed services. -->
+<div class="tab-content" id="content-Admin">
+  <div class="toolbar">
+    <div class="toolbar-title">Admin —</div>
+    <button class="rep-btn active" id="adminSub-config" onclick="switchAdminSub('config')">Configuration</button>
+    <button class="rep-btn"        id="adminSub-audit"  onclick="switchAdminSub('audit')">Audit</button>
+    <button class="rep-btn"        id="adminSub-snap"   onclick="switchAdminSub('snap')">Report Snapshots</button>
+  </div>
+
+  <!-- CONFIGURATION -->
+  <div class="admin-sub active" id="adminPane-config">
+    <div class="admin-area-bar" id="adminAreaBar"></div>
+    <div class="admin-config-layout">
+      <div class="admin-entity-col">
+        <div class="admin-entity-hdr" id="adminEntityHdr">Stores</div>
+        <div class="admin-entity-list" id="adminEntityList"></div>
+        <button class="btn-gold" id="adminNewEntityBtn" onclick="adminOpenCreateForm()" style="margin-top:8px">+ New</button>
+      </div>
+      <div class="admin-detail-col" id="adminDetailCol">
+        <div class="state-msg"><span class="icon">🗂</span><div class="title">Select an item</div>
+          <div>Choose an entity on the left to view its current configuration, effective-dated history, and available actions.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AUDIT -->
+  <div class="admin-sub" id="adminPane-audit">
+    <div class="admin-filter-row">
+      <select class="sel-dark" id="auditAreaSel">
+        <option value="">All Areas</option>
+        <option value="STORES">Stores</option><option value="VISITORS">Visitors</option>
+        <option value="PURPOSES">Purposes</option><option value="RISK">Risk</option>
+        <option value="COMPLIANCE">Compliance</option><option value="KPI">KPI</option>
+        <option value="SYSTEM">System</option><option value="REPORT">Report Snapshots</option>
+      </select>
+      <input type="text" class="fi" id="auditEntityInput" placeholder="Entity (optional)" style="max-width:160px;min-height:32px">
+      <select class="sel-dark" id="auditActionSel">
+        <option value="">All Actions</option>
+        <option value="CREATE">CREATE</option><option value="ACTIVATE">ACTIVATE</option>
+        <option value="DEACTIVATE">DEACTIVATE</option><option value="ROLLBACK">ROLLBACK</option>
+        <option value="FINALIZE">FINALIZE</option><option value="SUPERSEDE">SUPERSEDE</option>
+      </select>
+      <input type="date" class="fi" id="auditFromDate" style="max-width:150px;min-height:32px">
+      <span style="font-size:11px;color:var(--light)">to</span>
+      <input type="date" class="fi" id="auditToDate" style="max-width:150px;min-height:32px">
+      <button class="btn-gold" onclick="loadAuditLog()" style="width:auto;margin-top:0;padding:5px 12px">↻ Load</button>
+    </div>
+    <div class="scroll-panel" id="auditPanel">
+      <div class="state-msg"><div class="title">No filters applied yet</div><div>Choose filters (all optional) and click Load. Audit is append-only — nothing here can be edited.</div></div>
+    </div>
+  </div>
+
+  <!-- REPORT SNAPSHOTS -->
+  <div class="admin-sub" id="adminPane-snap">
+    <div class="admin-filter-row">
+      <label style="font-size:11px;color:var(--light)">Reporting Year</label>
+      <select class="sel-dark" id="snapYearSel" onchange="loadSnapshotList()" style="min-width:110px"></select>
+      <button class="btn-navy" onclick="loadSnapshotList()" style="width:auto;margin-top:0;padding:5px 12px">↻ Refresh</button>
+      <button class="btn-gold" onclick="adminOpenFinalizeDialog()" style="width:auto;margin-top:0;padding:5px 12px;margin-left:auto">🧊 Finalize Report</button>
+    </div>
+    <div class="admin-config-layout">
+      <div class="admin-entity-col">
+        <div class="admin-entity-hdr">Snapshot History</div>
+        <div class="admin-entity-list" id="snapList"></div>
+        <hr class="divider">
+        <div class="admin-entity-hdr" style="margin-top:4px">Draft (Live, Never Frozen)</div>
+        <input type="date" class="fi" id="draftEvalDate" style="margin-bottom:6px;min-height:32px">
+        <button class="btn-navy" onclick="adminViewDraft()">👁 View Draft</button>
+      </div>
+      <div class="admin-detail-col" id="snapDetailCol">
+        <div class="state-msg"><span class="icon">🧊</span><div class="title">Select a snapshot</div>
+          <div>Choose a version on the left for a read-only, frozen historical view, or view the live Draft — a fresh calculation from current data/configuration that is never persisted.</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Duplicate overlay -->
 <div class="dup-ov" id="dupOv">
   <div class="dup-card">
@@ -951,6 +1078,15 @@ function applyAdminGating(isAdmin) {
     if (btn)  btn.hidden  = !isAdmin;
     if (lock) lock.hidden = isAdmin;
   });
+  // Convenience only, same disclosure as above: the Admin tab's own
+  // mutations (config create/rollback/activate/deactivate, finalize,
+  // supersede, regenerate) each independently re-check sl_isAdmin()
+  // server-side — hiding the tab here can't stop a direct call.
+  var adminTab = document.getElementById('tab-Admin');
+  if (adminTab) {
+    adminTab.hidden = !isAdmin;
+    if (isAdmin) initAdminTabOnce();
+  }
 }
 
 function loadAdminStatus() {
@@ -2386,12 +2522,16 @@ function runTool(key, statId) {
 function closeConfirm() {
   document.getElementById('confirmOv').classList.remove('show');
   pendingTool = null;
+  pendingAdminConfirm = null;
 }
 
 function confirmProceed() {
   var t = pendingTool;
+  var adminFn = pendingAdminConfirm;
   document.getElementById('confirmOv').classList.remove('show');
   pendingTool = null;
+  pendingAdminConfirm = null;
+  if (adminFn) { adminFn(); return; }
   if (t) execTool(t.key, t.statId);
 }
 
@@ -2669,6 +2809,678 @@ function esc(s) {
   return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ═══════════════════════════════════════
+// TAB: ADMIN (Phase 1F)
+// Every mutating call below goes straight to an EXISTING, already
+// admin-gated backend function (SVMKPI_CONFIG.gs / SVMKPI_STORE_CONFIG.gs /
+// SVMKPI_RISK_CONFIG.gs / SVMKPI_COMPLIANCE_CONFIG.gs / SVMKPI_KPI_CONFIG.gs /
+// SVMKPI_PURPOSE_CONFIG.gs / SVMKPI_REPORT_SNAPSHOT.gs) via google.script.run
+// — this file adds no new mutation, no new permission system, and no new
+// configuration/snapshot storage. The only new server-side code is
+// SVMKPI_ADMIN_API.gs's small set of READ-ONLY list/aggregate helpers
+// (admin_listAllStores/admin_listPurposes/admin_listComplianceCategories/
+// admin_listConfigEntityIds/admin_getConfigEntityDetail/admin_getRiskDetail/
+// admin_getSystemAreaInfo/admin_getAreaSchema), none of which are
+// admin-gated themselves since they only ever aggregate already-public
+// read data — the exact same trust level as getStoreHealthReport().
+// ═══════════════════════════════════════
+
+var pendingAdminConfirm = null;
+var adminInitialized    = false;
+var adminArea           = 'STORES';
+var adminEntities       = [];   // current area's list (shape varies by area)
+var adminSelectedEntity = null; // entity id, or null when the create-new form is showing
+var adminSchema         = null; // CFG_AREA_SCHEMAS[adminArea], cached per area
+var reportingYearsAdmin = [];
+var snapshotsForYear    = [];
+var selectedSnapshotId  = null;
+
+var ADMIN_AREAS = [
+  { key: 'STORES',     label: 'Stores' },
+  { key: 'VISITORS',   label: 'Visitors' },
+  { key: 'PURPOSES',   label: 'Purposes' },
+  { key: 'RISK',       label: 'Risk' },
+  { key: 'COMPLIANCE', label: 'Compliance' },
+  { key: 'KPI',        label: 'KPI' },
+  { key: 'SYSTEM',     label: 'System' }
+];
+
+// ── Generic helpers ─────────────────────────────────────────────────
+function callServer(fnName, args, onSuccess, onError) {
+  var runner = google.script.run
+    .withSuccessHandler(onSuccess)
+    .withFailureHandler(function(err) { onError(err && err.message ? err.message : String(err)); });
+  runner[fnName].apply(runner, args);
+}
+function todayDateStr() {
+  var d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function fmtDate(v) {
+  if (!v) return '—';
+  var d = (v instanceof Date) ? v : new Date(v);
+  if (isNaN(d.getTime())) return esc(String(v));
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function truncate(s, n) {
+  s = String(s == null ? '' : s);
+  return s.length > n ? s.slice(0, n) + '…' : s;
+}
+function adminToast(msg) {
+  // Reuses the System Tools Activity Log as a shared, already-visible
+  // place for admin action feedback rather than inventing a second
+  // toast/notification mechanism.
+  addLog('ok', msg);
+}
+function adminShowError(elId, msg) {
+  document.getElementById(elId).innerHTML = '<div class="state-msg"><span class="icon">⚠️</span><div class="title">Error</div><div>' + esc(msg) + '</div></div>';
+}
+function withButtonLoading(btn, runningLabel, fn) {
+  if (!btn || btn.disabled) return;
+  var orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = runningLabel;
+  fn(function restore() { btn.disabled = false; btn.textContent = orig; });
+}
+function showAdminConfirm(opts, onConfirm) {
+  document.getElementById('confirmIcon').textContent  = opts.icon || '⚠️';
+  document.getElementById('confirmTitle').textContent = opts.title || 'Confirm';
+  document.getElementById('confirmBody').textContent  = opts.body || '';
+  document.getElementById('confirmDetail').innerHTML  = opts.detailHtml || esc(opts.detail || '');
+  document.getElementById('confirmDetail').className  = 'dup-list' + (opts.soft ? ' info' : '');
+  document.getElementById('confirmGo').textContent    = opts.confirmLabel || 'Proceed';
+  document.getElementById('confirmGo').className      = 'dup-submit' + (opts.soft ? ' update' : '');
+  pendingAdminConfirm = onConfirm;
+  document.getElementById('confirmOv').classList.add('show');
+}
+
+// ── Init / sub-tab switching ────────────────────────────────────────
+function initAdminTabOnce() {
+  if (adminInitialized) return;
+  adminInitialized = true;
+  renderAdminAreaBar();
+  loadAdminArea('STORES');
+  loadReportingYearsForAdmin();
+}
+function switchAdminSub(name) {
+  document.querySelectorAll('#content-Admin .toolbar .rep-btn').forEach(function(b){ b.classList.remove('active'); });
+  document.getElementById('adminSub-' + name).classList.add('active');
+  document.querySelectorAll('#content-Admin .admin-sub').forEach(function(p){ p.classList.remove('active'); });
+  document.getElementById('adminPane-' + name).classList.add('active');
+}
+
+// ── CONFIGURATION ────────────────────────────────────────────────────
+function renderAdminAreaBar() {
+  document.getElementById('adminAreaBar').innerHTML = ADMIN_AREAS.map(function(a) {
+    return '<button type="button" class="admin-area-btn' + (a.key === adminArea ? ' active' : '') + '" onclick="loadAdminArea(\'' + a.key + '\')">' + esc(a.label) + '</button>';
+  }).join('');
+}
+
+function loadAdminArea(area) {
+  adminArea = area;
+  adminSelectedEntity = null;
+  renderAdminAreaBar();
+  document.getElementById('adminEntityHdr').textContent = ADMIN_AREAS.filter(function(a){ return a.key === area; })[0].label;
+  document.getElementById('adminNewEntityBtn').hidden = (area === 'RISK' || area === 'SYSTEM');
+  document.getElementById('adminDetailCol').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
+  document.getElementById('adminEntityList').innerHTML = '<div class="state-msg" style="padding:10px 0"><div class="spinner"></div></div>';
+
+  callServer('admin_getAreaSchema', [area], function(schema) {
+    adminSchema = schema;
+    loadAdminEntityList(area);
+  }, function(msg) { adminShowError('adminDetailCol', msg); });
+}
+
+function adminEntityRowHtml(id, label, sub, badgeClass) {
+  return '<div class="admin-entity-row" data-id="' + esc(id) + '" onclick="selectAdminEntity(\'' + esc(id).replace(/'/g, "\\'") + '\')">'
+    + (badgeClass ? '<span class="admin-badge ' + badgeClass + '"> </span> ' : '')
+    + '<b>' + esc(label) + '</b>' + (sub ? '<div style="font-size:10px;color:var(--muted)">' + esc(sub) + '</div>' : '')
+    + '</div>';
+}
+
+function loadAdminEntityList(area) {
+  var listEl = document.getElementById('adminEntityList');
+
+  if (area === 'RISK') {
+    listEl.innerHTML = adminEntityRowHtml('DEFAULT', 'Global Risk Configuration', 'One configuration applies to every store', null);
+    selectAdminEntity('DEFAULT');
+    return;
+  }
+  if (area === 'SYSTEM') {
+    callServer('admin_getSystemAreaInfo', [], function(info) {
+      listEl.innerHTML = info.entities.length
+        ? info.entities.map(function(id){ return adminEntityRowHtml(id, id, '', null); }).join('')
+        : '<div class="admin-note">No system settings have ever been defined.</div>';
+      document.getElementById('adminDetailCol').innerHTML = '<div class="admin-note">' + esc(info.note) + '</div>';
+    }, function(msg) { adminShowError('adminEntityList', msg); });
+    return;
+  }
+  if (area === 'STORES') {
+    callServer('admin_listAllStores', [null], function(list) {
+      adminEntities = list;
+      listEl.innerHTML = list.length
+        ? list.map(function(s){ return adminEntityRowHtml(s.storeId, s.storeName, s.storeId + ' · ' + s.status, s.status === 'ACTIVE' ? 'ok' : 'no'); }).join('')
+        : '<div class="admin-note">No stores exist yet.</div>';
+    }, function(msg) { adminShowError('adminEntityList', msg); });
+    return;
+  }
+  if (area === 'PURPOSES') {
+    callServer('admin_listPurposes', [null], function(list) {
+      adminEntities = list;
+      listEl.innerHTML = list.map(function(p) {
+        var sub = p.valid ? 'Valid — KPI + Risk configured' : p.incomplete ? 'Incomplete' : 'Exists';
+        return adminEntityRowHtml(p.purposeName, p.purposeName, sub, p.valid ? 'ok' : 'warn');
+      }).join('');
+    }, function(msg) { adminShowError('adminEntityList', msg); });
+    return;
+  }
+  if (area === 'COMPLIANCE') {
+    callServer('admin_listComplianceCategories', [], function(cats) {
+      adminEntities = cats;
+      listEl.innerHTML = cats.length
+        ? cats.map(function(c){ return adminEntityRowHtml(c, c, '', null); }).join('')
+        : '<div class="admin-note">No categories found.</div>';
+    }, function(msg) { adminShowError('adminEntityList', msg); });
+    return;
+  }
+  // VISITORS, KPI — plain entity-ID enumeration from CONFIG_*
+  callServer('admin_listConfigEntityIds', [area], function(ids) {
+    adminEntities = ids;
+    listEl.innerHTML = ids.length
+      ? ids.map(function(id){ return adminEntityRowHtml(id, id, '', null); }).join('')
+      : '<div class="admin-note">None configured yet. Click + New to add one.</div>';
+  }, function(msg) { adminShowError('adminEntityList', msg); });
+}
+
+function selectAdminEntity(entityId) {
+  adminSelectedEntity = entityId;
+  document.querySelectorAll('#adminEntityList .admin-entity-row').forEach(function(r) {
+    r.classList.toggle('active', r.getAttribute('data-id') === entityId);
+  });
+  var col = document.getElementById('adminDetailCol');
+  col.innerHTML = '<div class="state-msg"><div class="spinner"></div></div>';
+
+  var fn   = (adminArea === 'RISK') ? 'admin_getRiskDetail' : 'admin_getConfigEntityDetail';
+  var args = (adminArea === 'RISK') ? [null] : [adminArea, entityId, null];
+  callServer(fn, args, function(detail) {
+    col.innerHTML = renderAdminDetail(adminArea, entityId, detail);
+  }, function(msg) { adminShowError('adminDetailCol', msg); });
+}
+
+function renderFieldRows(fields) {
+  return (adminSchema.fields || []).map(function(f) {
+    var v = fields ? fields[f.key] : null;
+    return '<div style="font-size:12px;margin-bottom:4px"><b>' + esc(f.header) + ':</b> ' + (v == null || v === '' ? '—' : esc(String(v))) + '</div>';
+  }).join('');
+}
+
+function renderAdminDetail(area, entityId, detail) {
+  var cur  = detail.current;
+  var hist = detail.history || [];
+  var html = '';
+
+  if (area === 'STORES') {
+    html += '<div class="admin-note"><b>Store ID (immutable identity):</b> ' + esc(entityId) + '<br>'
+      + '<b>Store Name (display label only — never the configuration key):</b> ' + esc(cur ? cur.fields.storeName : '—') + '</div>';
+  }
+  if (area === 'PURPOSES') {
+    var p = adminEntities.filter(function(x){ return x.purposeName === entityId; })[0];
+    if (p) {
+      html += '<div style="margin-bottom:10px">'
+        + '<span class="admin-badge ' + (p.exists ? 'ok' : 'no') + '">Exists: ' + (p.exists ? 'Yes' : 'No') + '</span>'
+        + '<span class="admin-badge ' + (p.active ? 'ok' : 'no') + '">Active: ' + (p.active ? 'Yes' : 'No') + '</span>'
+        + '<span class="admin-badge ' + (p.hasRiskConfig ? 'ok' : 'warn') + '">Risk Config: ' + (p.hasRiskConfig ? 'Yes' : 'No') + '</span>'
+        + '<span class="admin-badge ' + (p.hasKpiConfig ? 'ok' : 'warn') + '">KPI Config: ' + (p.hasKpiConfig ? 'Yes' : 'No') + '</span>'
+        + '</div>'
+        + (p.incomplete ? '<div class="admin-note">This purpose is deliberately incomplete — it does NOT silently inherit another purpose\'s KPI/Risk configuration. Configure it explicitly below if intended.</div>' : '');
+    }
+  }
+
+  if (!cur) {
+    html += '<div class="admin-note">No ACTIVE configuration currently resolves for this entity as of today' + (area === 'PURPOSES' || area === 'STORES' ? ' via CONFIG_* — it may still exist via the legacy/pre-migration path shown above' : '') + '.</div>';
+  } else {
+    html += '<div class="p-card" style="margin-bottom:12px"><div class="p-card-hdr">Current Version — v' + cur.versionNum + '</div><div class="p-card-body">'
+      + renderFieldRows(cur.fields)
+      + '<div style="margin-top:8px;font-size:11px;color:var(--muted)">Effective From ' + fmtDate(cur.effectiveFrom)
+      + (cur.effectiveTo ? ' to ' + fmtDate(cur.effectiveTo) : ' (open-ended)') + ' &middot; Version Status ' + esc(cur.status) + '</div>'
+      + '</div></div>';
+
+    if (area === 'STORES') {
+      var isActive = String(cur.fields.status || 'ACTIVE').toUpperCase() !== 'INACTIVE';
+      html += '<button class="btn-navy" style="width:auto;padding:6px 14px;margin-bottom:12px" onclick="adminStoreSetStatus(\'' + entityId + '\', ' + (isActive ? 'false' : 'true') + ')">'
+        + (isActive ? '⏸ Deactivate Store' : '▶ Reactivate Store') + '</button>';
+    }
+  }
+
+  html += renderAdminCreateForm(area, entityId, false);
+  html += renderVersionHistoryTable(area, entityId, hist);
+  return html;
+}
+
+// VISITORS is the only area whose mutation path (the raw
+// cfg_createConfiguration()) accepts an Effective To — STORES/PURPOSES/
+// RISK/COMPLIANCE/KPI's own dedicated *_create() wrappers do not expose
+// one (Phase 1A/1D never added that parameter to them), so this form
+// never offers a field those backend functions can't accept.
+function areaSupportsEffectiveTo(area) { return area === 'VISITORS'; }
+
+function renderAdminCreateForm(area, entityId, isNewEntity) {
+  if (!adminSchema) return '';
+  var needsEntityIdField = (area !== 'STORES' && area !== 'RISK');
+  var fieldsHtml = adminSchema.fields
+    .filter(function(f) { return !(area === 'PURPOSES' && f.key === 'purposeName') && !(area === 'KPI' && f.key === 'kpiName'); })
+    .map(function(f) {
+      var required = adminSchema.required.indexOf(f.key) !== -1;
+      return '<div class="admin-form-row"><label>' + esc(f.header) + (required ? ' *' : '') + '</label>'
+        + '<input type="text" class="fi" id="af_' + f.key + '" placeholder="' + esc(f.header) + '"></div>';
+    }).join('');
+
+  var entityIdField = needsEntityIdField
+    ? '<div class="admin-form-row"><label>Entity ID' + (isNewEntity ? '' : ' (existing — versions accumulate under this ID)') + ' *</label>'
+      + '<input type="text" class="fi" id="af_entityId" value="' + esc(isNewEntity ? '' : (entityId || '')) + '"' + (isNewEntity ? '' : ' readonly') + '></div>'
+    : '';
+
+  return '<div class="p-card" style="margin-top:14px"><div class="p-card-hdr">' + (isNewEntity ? '➕ Create New ' + esc(ADMIN_AREAS.filter(function(a){return a.key===area;})[0].label) : '📝 Add New Version') + '</div>'
+    + '<div class="p-card-body">'
+    + '<div class="admin-note">Creating this does not rewrite any existing version — it always adds a new one. Historical versions are never edited or deleted.</div>'
+    + entityIdField
+    + fieldsHtml
+    + '<div class="admin-form-row"><label>Effective From *</label><input type="date" class="fi" id="af_effFrom" value="' + todayDateStr() + '"></div>'
+    + (areaSupportsEffectiveTo(area) ? '<div class="admin-form-row"><label>Effective To (optional)</label><input type="date" class="fi" id="af_effTo"></div>' : '')
+    + '<div class="admin-form-row"><label>Reason</label><textarea class="fi" id="af_reason" placeholder="Why is this change being made?"></textarea></div>'
+    + '<div class="status-line" id="af_error"></div>'
+    + '<button class="btn-primary" id="af_submitBtn" onclick="adminSubmitCreate(\'' + area + '\', ' + (isNewEntity ? 'true' : 'false') + ')">' + (isNewEntity ? 'Create' : 'Save New Version') + '</button>'
+    + '</div></div>';
+}
+
+function adminOpenCreateForm() {
+  adminSelectedEntity = null;
+  document.querySelectorAll('#adminEntityList .admin-entity-row').forEach(function(r){ r.classList.remove('active'); });
+  document.getElementById('adminDetailCol').innerHTML = renderAdminCreateForm(adminArea, '', true);
+}
+
+function adminBuildCreateCall(area, entityId, isNewEntity, fields, effFrom, effTo, reason, options) {
+  switch (area) {
+    case 'STORES':
+      return isNewEntity
+        ? { fn: 'store_create', args: [fields, effFrom, reason, options] }
+        : { fn: 'store_update', args: [adminSelectedEntity, fields, effFrom, reason, options] };
+    case 'VISITORS':
+      return { fn: 'cfg_createConfiguration', args: ['VISITORS', entityId, fields, effFrom, effTo || null, reason, options] };
+    case 'PURPOSES':
+      return { fn: 'purpose_create', args: [entityId, fields, effFrom, reason, options] };
+    case 'RISK':
+      return { fn: 'risk_create', args: [fields, effFrom, reason, options] };
+    case 'COMPLIANCE':
+      return { fn: 'cmp_create', args: [entityId, fields, effFrom, reason, options] };
+    case 'KPI':
+      return { fn: 'kpi_create', args: [entityId, fields, effFrom, reason, options] };
+  }
+}
+
+function adminBuildRollbackCall(area, entityId, targetVersionId, reason, effFrom, options) {
+  switch (area) {
+    case 'PURPOSES':   return { fn: 'purpose_rollback', args: [entityId, targetVersionId, reason, effFrom, options] };
+    case 'RISK':       return { fn: 'risk_rollback',    args: [targetVersionId, reason, effFrom, options] };
+    case 'COMPLIANCE': return { fn: 'cmp_rollback',     args: [entityId, targetVersionId, reason, effFrom, options] };
+    case 'KPI':        return { fn: 'kpi_rollback',     args: [entityId, targetVersionId, reason, effFrom, options] };
+    default:           return { fn: 'cfg_rollbackConfiguration', args: [area, entityId, targetVersionId, reason, effFrom, options] }; // STORES, VISITORS have no dedicated rollback wrapper
+  }
+}
+
+function adminSubmitCreate(area, isNewEntity) {
+  var btn = document.getElementById('af_submitBtn');
+  var errEl = document.getElementById('af_error');
+  errEl.textContent = '';
+
+  var fields = {};
+  (adminSchema.fields || []).forEach(function(f) {
+    var el = document.getElementById('af_' + f.key);
+    if (el && el.value.trim() !== '') fields[f.key] = el.value.trim();
+  });
+  var entityIdEl = document.getElementById('af_entityId');
+  var entityId = entityIdEl ? entityIdEl.value.trim().toUpperCase() : null;
+  var effFrom = document.getElementById('af_effFrom').value;
+  var effToEl = document.getElementById('af_effTo');
+  var effTo = effToEl ? effToEl.value : null;
+  var reason = document.getElementById('af_reason').value.trim();
+
+  if (area !== 'STORES' && area !== 'RISK' && !entityId) { errEl.textContent = 'Entity ID is required.'; return; }
+  if (!effFrom) { errEl.textContent = 'Effective From is required.'; return; }
+
+  var isBackdated = effFrom < todayDateStr();
+
+  function doSubmit(options) {
+    if (isBackdated && !reason) { errEl.textContent = 'A reason is required for a backdated change.'; return; }
+    withButtonLoading(btn, '⏳ Saving…', function(restore) {
+      var call = adminBuildCreateCall(area, entityId, isNewEntity, fields, effFrom, effTo, reason, options || {});
+      callServer(call.fn, call.args, function(r) {
+        restore();
+        if (r && r.success) {
+          adminToast('✅ ' + area + ' saved: ' + (r.versionId || r.storeId || 'new version'));
+          loadAdminEntityList(area);
+          var target = entityId || r.storeId;
+          if (target) selectAdminEntity(target); else adminOpenCreateForm();
+        } else if (r && r.requiresBackdateConfirmation) {
+          confirmBackdate(function(){ doSubmit(Object.assign({}, options, { backdateConfirmed: true })); });
+        } else {
+          errEl.textContent = (r && r.message) || 'Save failed.';
+        }
+      }, function(msg) { restore(); errEl.textContent = msg; });
+    });
+  }
+
+  if (isBackdated) confirmBackdate(function(){ doSubmit({ backdateConfirmed: true }); });
+  else doSubmit({});
+}
+
+function confirmBackdate(onYes) {
+  showAdminConfirm({
+    icon: '⏮️', title: 'Backdated configuration change',
+    body: 'The Effective From date you chose is in the past. This is never applied silently — it will be recorded as a backdated change with an audit reason, exactly as the effective date you chose.',
+    confirmLabel: 'Confirm Backdated Change'
+  }, onYes);
+}
+
+function renderVersionHistoryTable(area, entityId, hist) {
+  if (!hist.length) return '';
+  var rows = hist.slice().reverse().map(function(v) {
+    return '<tr><td>v' + v.versionNum + '</td><td>' + esc(v.status) + '</td>'
+      + '<td>' + fmtDate(v.effectiveFrom) + '</td><td>' + (v.effectiveTo ? fmtDate(v.effectiveTo) : '—') + '</td>'
+      + '<td>' + fmtDate(v.createdAt) + '</td><td>' + esc(v.createdBy || '') + '</td>'
+      + '<td>' + esc(truncate(v.reason || '', 60)) + '</td>'
+      + '<td style="white-space:nowrap">' + renderHistActions(area, entityId, v) + '</td></tr>';
+  }).join('');
+  return '<div class="admin-entity-hdr" style="margin-top:18px">Version History — editing never rewrites a row, it only ever adds one</div>'
+    + '<div style="overflow-x:auto"><table class="admin-hist-table"><thead><tr>'
+    + '<th>Ver</th><th>Status</th><th>Eff. From</th><th>Eff. To</th><th>Created</th><th>By</th><th>Reason</th><th>Actions</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+function renderHistActions(area, entityId, v) {
+  var isEnvActive = v.status === 'ACTIVE';
+  return '<button class="vm-btn" style="padding:3px 8px;font-size:10px" onclick="adminToggleEnvStatus(\'' + area + '\',\'' + v.versionId + '\',' + (isEnvActive ? 'false' : 'true') + ')">' + (isEnvActive ? 'Deactivate' : 'Activate') + '</button> '
+    + '<button class="vm-btn vm-add" style="padding:3px 8px;font-size:10px" onclick="adminRollback(\'' + area + '\',\'' + esc(entityId).replace(/'/g,"\\'") + '\',\'' + v.versionId + '\')">↩ Rollback to this</button>';
+}
+
+function adminToggleEnvStatus(area, versionId, activate) {
+  var reason = prompt(activate ? 'Reason for activating this version:' : 'Reason for deactivating this version:');
+  if (reason === null) return;
+  var fn = activate ? 'cfg_activateConfiguration' : 'cfg_deactivateConfiguration';
+  callServer(fn, [area, versionId, reason], function(r) {
+    if (r && r.success) { adminToast('✅ Version status updated.'); selectAdminEntity(adminSelectedEntity); }
+    else { alert((r && r.message) || 'Failed.'); }
+  }, function(msg) { alert(msg); });
+}
+
+function adminRollback(area, entityId, targetVersionId) {
+  var reason = prompt('Reason for this rollback (required):');
+  if (reason === null) return;
+  if (!reason.trim()) { alert('A reason is required for a rollback.'); return; }
+  showAdminConfirm({
+    icon: '↩️', title: 'Rollback to ' + targetVersionId + '?',
+    body: 'This creates a NEW version copying that version’s values effective today. No historical version is edited or deleted — the version you are rolling back FROM remains fully intact and queryable.',
+    confirmLabel: 'Rollback'
+  }, function() {
+    var call = adminBuildRollbackCall(area, entityId, targetVersionId, reason, todayDateStr(), {});
+    callServer(call.fn, call.args, function(r) {
+      if (r && r.success) { adminToast('✅ Rolled back — new version ' + (r.versionId || '')); selectAdminEntity(entityId); loadAdminEntityList(area); }
+      else { alert((r && r.message) || 'Rollback failed.'); }
+    }, function(msg) { alert(msg); });
+  });
+}
+
+function adminStoreSetStatus(storeId, activate) {
+  var reason = prompt(activate ? 'Reason for reactivating this store:' : 'Reason for deactivating this store:');
+  if (reason === null) return;
+  if (!reason.trim()) { alert('A reason is required.'); return; }
+  var fn = activate ? 'store_activate' : 'store_deactivate';
+  callServer(fn, [storeId, reason, todayDateStr(), {}], function(r) {
+    if (r && r.success) { adminToast('✅ Store status updated.'); selectAdminEntity(storeId); loadAdminEntityList('STORES'); }
+    else { alert((r && r.message) || 'Failed.'); }
+  }, function(msg) { alert(msg); });
+}
+
+// ── AUDIT ─────────────────────────────────────────────────────────────
+function loadAuditLog() {
+  var area   = document.getElementById('auditAreaSel').value || null;
+  var entity = document.getElementById('auditEntityInput').value.trim() || null;
+  var action = document.getElementById('auditActionSel').value || null;
+  var from   = document.getElementById('auditFromDate').value || null;
+  var to     = document.getElementById('auditToDate').value || null;
+  var panel  = document.getElementById('auditPanel');
+  panel.innerHTML = '<div class="state-msg"><div class="spinner"></div></div>';
+
+  callServer('cfg_getAuditLog', [area, entity], function(rows) {
+    var filtered = (rows || []).filter(function(r) {
+      if (action && r.action !== action) return false;
+      var ts = fmtDate(r.timestamp);
+      if (from && ts < from) return false;
+      if (to && ts > to) return false;
+      return true;
+    }).sort(function(a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
+    renderAuditTable(filtered);
+  }, function(msg) { adminShowError('auditPanel', msg); });
+}
+
+function renderAuditTable(rows) {
+  var panel = document.getElementById('auditPanel');
+  if (!rows.length) { panel.innerHTML = '<div class="state-msg"><div class="title">No audit entries match those filters.</div></div>'; return; }
+  var body = rows.map(function(r) {
+    return '<tr><td>' + fmtDate(r.timestamp) + '</td><td>' + esc(r.actor) + '</td><td>' + esc(r.area) + '</td>'
+      + '<td>' + esc(r.entityId) + '</td><td>' + esc(r.action) + '</td>'
+      + '<td>' + esc(truncate(r.previousValue, 40)) + '</td><td>' + esc(truncate(r.newValue, 40)) + '</td>'
+      + '<td>' + fmtDate(r.effectiveFrom) + '</td><td>' + esc(truncate(r.reason || '', 60)) + '</td><td>v' + r.version + '</td></tr>';
+  }).join('');
+  panel.innerHTML = '<div style="overflow-x:auto"><table class="admin-hist-table"><thead><tr>'
+    + '<th>Timestamp</th><th>Actor</th><th>Area</th><th>Entity</th><th>Action</th><th>Previous</th><th>New</th><th>Effective From</th><th>Reason</th><th>Ver</th>'
+    + '</tr></thead><tbody>' + body + '</tbody></table></div>';
+}
+
+// ── REPORT SNAPSHOTS ─────────────────────────────────────────────────
+function loadReportingYearsForAdmin() {
+  callServer('getAvailableReportingYears', [], function(years) {
+    reportingYearsAdmin = years || [];
+    var sel = document.getElementById('snapYearSel');
+    sel.innerHTML = reportingYearsAdmin.slice().reverse().map(function(y) { return '<option value="' + y + '">' + y + '</option>'; }).join('');
+    document.getElementById('draftEvalDate').value = todayDateStr();
+    if (reportingYearsAdmin.length) loadSnapshotList();
+    else document.getElementById('snapList').innerHTML = '<div class="admin-note">No reporting years discovered yet — MASTER_LOG has no dated visits.</div>';
+  }, function(msg) { adminShowError('snapList', msg); });
+}
+
+function loadSnapshotList() {
+  var year = Number(document.getElementById('snapYearSel').value);
+  if (!year) return;
+  document.getElementById('snapList').innerHTML = '<div class="state-msg"><div class="spinner"></div></div>';
+  callServer('listReportSnapshots', [year], function(list) {
+    snapshotsForYear = list || [];
+    renderSnapshotList();
+  }, function(msg) { adminShowError('snapList', msg); });
+}
+
+function renderSnapshotList() {
+  var el = document.getElementById('snapList');
+  if (!snapshotsForYear.length) { el.innerHTML = '<div class="admin-note">No snapshots finalized for this year yet.</div>'; return; }
+  // Newest version first — this is purely a display order choice; the
+  // backend semantics (which one is "latest finalized") are always
+  // driven by status, never by this list's order — see selectSnapshot()/
+  // getLatestFinalizedReportSnapshot() itself, never "the top row".
+  el.innerHTML = snapshotsForYear.slice().reverse().map(function(s) {
+    var cls = s.status === 'FINALIZED' ? 'finalized' : s.status === 'SUPERSEDED' ? 'superseded' : 'draft';
+    return '<div class="admin-entity-row" data-id="' + esc(s.snapshotId) + '" onclick="selectSnapshot(\'' + esc(s.snapshotId) + '\')">'
+      + '<span class="admin-badge ' + cls + '">' + esc(s.status) + '</span> v' + s.snapshotVersion
+      + '<div style="font-size:10px;color:var(--muted)">' + esc(s.snapshotId) + '</div></div>';
+  }).join('');
+}
+
+function selectSnapshot(snapshotId) {
+  selectedSnapshotId = snapshotId;
+  document.querySelectorAll('#snapList .admin-entity-row').forEach(function(r) { r.classList.toggle('active', r.getAttribute('data-id') === snapshotId); });
+  var col = document.getElementById('snapDetailCol');
+  col.innerHTML = '<div class="state-msg"><div class="spinner"></div></div>';
+  callServer('getReportSnapshot', [snapshotId], function(snap) {
+    col.innerHTML = snap ? renderSnapshotDetail(snap) : '<div class="admin-note">Snapshot not found.</div>';
+  }, function(msg) { adminShowError('snapDetailCol', msg); });
+}
+
+// Shared by the FINALIZED/SUPERSEDED detail view and the DRAFT view —
+// renders the frozen/calculated Result object as readable sections
+// (never a raw JSON dump) so an Admin can understand the report without
+// parsing it by hand.
+function renderReportResultHtml(result) {
+  result = result || {};
+  var t = result.totals || {};
+  var h = '<div class="admin-note">Stores: ' + (t.storeCount || 0) + ' &middot; High Risk: ' + (t.highRiskCount || 0)
+    + ' &middot; Medium: ' + (t.mediumRiskCount || 0) + ' &middot; Low: ' + (t.lowRiskCount || 0)
+    + ' &middot; Compliance Gaps: ' + (t.complianceGapCount || 0) + '</div>';
+
+  h += '<div class="p-card-hdr" style="margin-top:10px">Executive Summary</div>';
+  h += result.executiveSummary
+    ? (result.executiveSummary.kpi || []).map(function(k) { return '<span class="admin-badge ok" style="margin:2px 4px 2px 0">' + esc(k.label) + ': ' + esc(k.value) + '</span>'; }).join(' ')
+    : '<div class="admin-note">' + esc(result.executiveSummaryNote || 'Not available for this report.') + '</div>';
+
+  h += '<div class="p-card-hdr" style="margin-top:10px">KPI</div>';
+  h += (result.kpi && result.kpi.team)
+    ? '<div style="font-size:12px">Team YTD: <b>' + esc(String(result.kpi.team.ytd != null ? result.kpi.team.ytd : '—')) + '</b></div>'
+    : '<div class="admin-note">' + esc(result.kpiNote || 'Not available for this report.') + '</div>';
+
+  h += '<div class="p-card-hdr" style="margin-top:10px">Store Health / Risk (' + (result.storeRisk || []).length + ')</div>';
+  h += '<div style="overflow-x:auto"><table class="admin-hist-table"><thead><tr>'
+    + '<th>Store</th><th>Brand</th><th>Region</th><th>Days Since</th><th>Total YTD</th><th>Risk Score</th><th>Tier</th><th>Action</th>'
+    + '</tr></thead><tbody>' + (result.storeRisk || []).map(function(s) {
+        return '<tr><td>' + esc(s.store) + '</td><td>' + esc(s.brand) + '</td><td>' + esc(s.region) + '</td>'
+          + '<td>' + (s.daysSince == null ? '—' : s.daysSince) + '</td><td>' + s.totalYTD + '</td><td>' + s.riskScore + '</td>'
+          + '<td>' + esc(s.riskTier) + '</td><td>' + esc(s.action) + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+
+  h += '<div class="p-card-hdr" style="margin-top:10px">Compliance Gaps (' + (result.complianceGaps || []).length + ')</div>';
+  h += (result.complianceGaps || []).length
+    ? '<div style="overflow-x:auto"><table class="admin-hist-table"><thead><tr><th>Store</th><th>Category</th><th>Window</th><th>Required</th><th>Actual</th></tr></thead><tbody>'
+      + result.complianceGaps.map(function(g) { return '<tr><td>' + esc(g.store) + '</td><td>' + esc(g.category) + '</td><td>' + esc(g.windowLabel) + '</td><td>' + g.requiredCount + '</td><td>' + g.actualCount + '</td></tr>'; }).join('')
+      + '</tbody></table></div>'
+    : '<div class="admin-note">No gaps.</div>';
+
+  return h;
+}
+
+function renderSnapshotDetail(snap) {
+  var badge = snap.status === 'FINALIZED' ? 'finalized' : 'superseded';
+  var prov = snap.configurationProvenance || {};
+  var h = '<div class="admin-badge ' + badge + '" style="font-size:12px;padding:4px 10px">' + esc(snap.status) + (snap.status === 'FINALIZED' ? ' — frozen historical snapshot' : '') + '</div>';
+  h += '<h3 style="margin:10px 0 4px;font-size:15px">' + esc(snap.snapshotId) + ' — v' + snap.snapshotVersion + '</h3>';
+  h += '<div class="admin-note">'
+    + 'Reporting Year: ' + snap.reportingYear + '<br>'
+    + 'Evaluation Date: ' + fmtDate(snap.evaluationDate) + '<br>'
+    + 'Created: ' + fmtDate(snap.createdAt) + ' by ' + esc(snap.createdBy) + '<br>'
+    + 'Finalized: ' + fmtDate(snap.finalizedAt) + ' by ' + esc(snap.finalizedBy) + '<br>'
+    + 'Reason: ' + esc(snap.reason) + '<br>'
+    + (snap.supersedesSnapshotId ? 'Supersedes: ' + esc(snap.supersedesSnapshotId) + '<br>' : '')
+    + '</div>';
+
+  h += '<div class="p-card-hdr">Configuration Provenance <span style="font-weight:400;text-transform:none;font-size:10px">(explanatory only — never the source of truth for the frozen result below)</span></div>';
+  h += '<div class="admin-note">Risk: ' + esc((prov.risk && prov.risk.source) || '—') + (prov.risk && prov.risk.versionId ? ' (' + esc(prov.risk.versionId) + ')' : '') + '<br>'
+    + 'Compliance: ' + ((prov.compliance && prov.compliance.versions) || []).map(function(v) { return esc(v.category) + ':' + esc(v.source); }).join(', ') + '<br>'
+    + 'KPI: ' + esc(prov.kpiNote || '') + '</div>';
+
+  h += renderReportResultHtml(snap.result);
+
+  h += '<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">';
+  h += '<button class="btn-navy" style="width:auto;padding:6px 14px" onclick="adminRegenerateSheet(' + snap.reportingYear + ')">🔁 Regenerate Report Sheet</button>';
+  if (snap.status === 'FINALIZED') {
+    h += '<button class="btn-gold" style="width:auto;padding:6px 14px" onclick="adminOpenSupersedeDialog(' + snap.reportingYear + ', \'' + esc(snap.snapshotId) + '\')">✏️ Correct (Supersede)</button>';
+  }
+  h += '</div>';
+  return h;
+}
+
+function adminViewDraft() {
+  var year = Number(document.getElementById('snapYearSel').value);
+  var evalDate = document.getElementById('draftEvalDate').value || todayDateStr();
+  if (!year) { alert('Choose a reporting year first.'); return; }
+  document.querySelectorAll('#snapList .admin-entity-row').forEach(function(r) { r.classList.remove('active'); });
+  var col = document.getElementById('snapDetailCol');
+  col.innerHTML = '<div class="state-msg"><div class="spinner"></div></div>';
+  callServer('getDraftReport', [year, evalDate], function(draft) {
+    if (!draft) { col.innerHTML = '<div class="admin-note">Could not calculate a draft for that year/date — check the reporting year is valid.</div>'; return; }
+    var h = '<div class="admin-badge draft" style="font-size:12px;padding:4px 10px">DRAFT — calculated from current data/configuration</div>';
+    h += '<h3 style="margin:10px 0 4px;font-size:15px">Draft — ' + draft.reportingYear + '</h3>';
+    h += '<div class="admin-note">Evaluated as of ' + fmtDate(draft.evaluationDate) + ', calculated just now (' + fmtDate(draft.calculatedAt) + '). This is NOT a historical record — viewing it again after data or configuration changes will show different numbers. Use Finalize Report to freeze a permanent snapshot.</div>';
+    h += renderReportResultHtml(draft.result);
+    col.innerHTML = h;
+  }, function(msg) { adminShowError('snapDetailCol', msg); });
+}
+
+function adminOpenFinalizeDialog() {
+  var yearDefault = Number(document.getElementById('snapYearSel').value) || (reportingYearsAdmin.length ? reportingYearsAdmin[reportingYearsAdmin.length - 1] : '');
+  var yearStr = prompt('Reporting Year to finalize:', String(yearDefault || ''));
+  if (!yearStr) return;
+  var evalDate = prompt('Evaluation Date (YYYY-MM-DD):', todayDateStr());
+  if (!evalDate) return;
+  var reason = prompt('Reason for finalizing this report (required):');
+  if (reason === null) return;
+  if (!reason.trim()) { alert('A reason is required to finalize a report.'); return; }
+
+  showAdminConfirm({
+    icon: '🧊', title: 'Finalize Report — ' + yearStr + '?',
+    body: 'Evaluation Date: ' + evalDate,
+    detailHtml: '<ul style="margin:0;padding-left:18px;text-align:left;font-size:11px;line-height:1.6">'
+      + '<li>This <b>freezes</b> the report result — it becomes a permanent historical record.</li>'
+      + '<li>Later configuration or MASTER_LOG changes will <b>NOT</b> alter this finalized snapshot.</li>'
+      + '<li>This will <b>rebuild the shared Executive Summary sheet</b> for ' + esc(yearStr) + '.</li>'
+      + '<li>This may <b>create the "KPI ' + esc(yearStr) + '" sheet</b> if it does not exist yet.</li>'
+      + '</ul>',
+    confirmLabel: 'Finalize Report'
+  }, function() {
+    callServer('finalizeReport', [Number(yearStr), evalDate, reason], function(r) {
+      if (r && r.success) {
+        adminToast('✅ Finalized ' + r.snapshotId);
+        document.getElementById('snapYearSel').value = String(r.reportingYear);
+        loadReportingYearsForAdmin();
+      } else {
+        // Surfaces the ACTUAL backend reason verbatim (e.g. "already has a
+        // finalized snapshot ... use supersedeReportSnapshot()") rather
+        // than a generic failure message.
+        alert((r && r.message) || 'Finalization failed.');
+      }
+    }, function(msg) { alert(msg); });
+  });
+}
+
+function adminOpenSupersedeDialog(year, previousSnapshotId) {
+  var evalDate = prompt('Evaluation Date for the corrected report (YYYY-MM-DD):', todayDateStr());
+  if (!evalDate) return;
+  var reason = prompt('Correction reason (required):');
+  if (reason === null) return;
+  if (!reason.trim()) { alert('A reason is required to supersede a snapshot.'); return; }
+
+  showAdminConfirm({
+    icon: '✏️', title: 'Supersede ' + previousSnapshotId + '?',
+    body: 'This creates a new snapshot version. The previous snapshot will be preserved and marked SUPERSEDED.',
+    detail: previousSnapshotId + ' is never deleted or edited — its frozen result remains permanently retrievable.',
+    confirmLabel: 'Create Corrected Version'
+  }, function() {
+    callServer('supersedeReportSnapshot', [year, previousSnapshotId, evalDate, reason], function(r) {
+      if (r && r.success) { adminToast('✅ Superseded — new snapshot ' + r.snapshotId); loadSnapshotList(); }
+      else { alert((r && r.message) || 'Supersede failed.'); }
+    }, function(msg) { alert(msg); });
+  });
+}
+
+function adminRegenerateSheet(year) {
+  showAdminConfirm({
+    icon: '🔁', title: 'Regenerate REPORT_' + year + '?',
+    body: 'This rebuilds the REPORT_' + year + ' presentation sheet ENTIRELY from the latest finalized snapshot in REPORT_SNAPSHOTS.',
+    detail: 'It does NOT recalculate from current MASTER_LOG/configuration. If you need updated numbers, finalize a new snapshot (or supersede) first.',
+    confirmLabel: 'Regenerate Sheet'
+  }, function() {
+    callServer('regenerateReportSheet', [year], function(r) {
+      if (r && r.success) adminToast('✅ ' + r.sheetName + ' regenerated from ' + r.snapshotId);
+      else alert((r && r.message) || 'Regeneration failed.');
+    }, function(msg) { alert(msg); });
+  });
 }
 </script>
 </body>
