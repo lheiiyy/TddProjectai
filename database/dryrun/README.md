@@ -46,6 +46,23 @@ no database — so it was fully testable BEFORE any real data existed, and
 needs no changes once real data arrives; only a reader that turns the real
 export into the same input shape is still needed (see below).
 
+## Phase 2A — Store Identity & Historical Data Reconciliation
+
+The real-data dry run (Phase 2) found production has never minted a Store
+ID for any store, and confirmed real cross-brand name collisions (the
+same town/location name used by two different brands). Phase 2A adds the
+canonical-identity groundwork needed before any Store ID is ever minted:
+
+| Module | Purpose |
+|---|---|
+| `store_canonical_identity.js` | Derives canonical (Store Name, Brand) identities directly from raw SETTINGS + MASTER_LOG, before any Store ID exists — classifies each as ready/duplicate/candidate-for-review. Never fuzzy-matches. |
+| `store_id_generator.js` | Deterministic (RFC 4122 UUID v5) Store ID proposal — same canonical key always produces the same `STR-<uuid>`, across repeated runs and process restarts. Proposal only; never writes anywhere. |
+| `visitor_identity_classification.js` | Classifies each historical visitor token as an exact roster match, a case-only variant of a roster entry, a likely-new visitor, or unresolved — never silently merges case variants. |
+
+`reconcile_stores.js` was also fixed in this phase: its store-identity
+grouping previously used Name alone, which real data proved wrong (see
+above) — it now uses the same composite (Name, Brand) key.
+
 ## What's still needed once real data is available
 
 1. **A reader** turning whatever file the user provides (CSV per sheet, or

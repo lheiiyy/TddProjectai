@@ -4,14 +4,25 @@
 // NEVER fuzzy matching, NEVER inferring a Store ID from a similar-looking
 // name. Every ambiguous mapping is reported, not resolved.
 //
+// Identity key is Store Name + Brand (Phase 2A rule #2), NOT Name alone.
+// Real production data has confirmed legitimate cases of the same town/
+// location name used by two different brands (e.g. a Figaro and an
+// Angel's Pizza both named after the same town) — these are genuinely
+// distinct stores and must never collapse into one identity just because
+// they share a display name.
+//
 // Inputs (already-parsed row shapes, not raw sheet cells):
 //   configStoreVersions: [{ entityId, versionNum, effectiveFrom,
-//     effectiveTo, envelopeStatus, storeName, status, ... }]
+//     effectiveTo, envelopeStatus, storeName, storeBrand, status, ... }]
 //   settingsRows: [{ store, brand, region, category }]
-//   masterLogRows: [{ store, storeId, rowRef, ... }]  (raw, unfiltered)
+//   masterLogRows: [{ store, brand, storeId, rowRef, ... }]  (raw, unfiltered)
 
 function normalizeName(name) {
   return String(name || '').trim().toUpperCase();
+}
+
+function compositeIdentityKey(name, brand) {
+  return `${normalizeName(name)}|${normalizeName(brand)}`;
 }
 
 function latestVersionPerEntity(configStoreVersions) {
@@ -40,47 +51,55 @@ function reconcileStores({ configStoreVersions, settingsRows, masterLogRows }) {
     duplicateIdentities: [],   // >1 distinct Store ID sharing the SAME current name
   };
 
-  // Active/inactive counts from each entity's latest version.
-  const nameToEntityIds = new Map();
+  // Active/inactive counts from each entity's latest version. Grouped by
+  // the composite (Name, Brand) key — NOT name alone — since real data
+  // has confirmed the same town/location name legitimately used by two
+  // different brands (see same-name/different-brand regression test).
+  const keyToEntityIds = new Map();
   for (const [entityId, v] of latest) {
     if (v.status === 'ACTIVE') report.activeStoreCount += 1;
     else if (v.status === 'INACTIVE') report.inactiveStoreCount += 1;
-    const norm = normalizeName(v.storeName);
-    if (!nameToEntityIds.has(norm)) nameToEntityIds.set(norm, new Set());
-    nameToEntityIds.get(norm).add(entityId);
+    const key = compositeIdentityKey(v.storeName, v.storeBrand);
+    if (!keyToEntityIds.has(key)) keyToEntityIds.set(key, new Set());
+    keyToEntityIds.get(key).add(entityId);
   }
 
-  // Duplicate identities: two+ distinct Store IDs, same current name —
+  // Duplicate identities: two+ distinct Store IDs, same (Name, Brand) —
   // a real, legitimate historical possibility (old store closed, new
-  // store opened later with the same display name). Reported, never merged.
-  for (const [name, ids] of nameToEntityIds) {
+  // store opened later with the same display name AND brand). Reported,
+  // never merged.
+  for (const [key, ids] of keyToEntityIds) {
     if (ids.size > 1) {
-      report.duplicateIdentities.push({ storeName: name, storeIds: Array.from(ids) });
+      const [storeName, storeBrand] = key.split('|');
+      report.duplicateIdentities.push({ storeName, storeBrand, storeIds: Array.from(ids) });
     }
   }
 
-  // SETTINGS cross-check: exact match against each entity's CURRENT name.
+  // SETTINGS cross-check: exact match against each entity's CURRENT
+  // (Name, Brand).
   for (const s of settingsRows || []) {
     const norm = normalizeName(s.store);
     if (!norm) continue;
-    const ids = nameToEntityIds.get(norm);
+    const key = compositeIdentityKey(s.store, s.brand);
+    const ids = keyToEntityIds.get(key);
     if (!ids) {
-      report.unresolvedNames.push({ source: 'SETTINGS', name: s.store });
+      report.unresolvedNames.push({ source: 'SETTINGS', name: s.store, brand: s.brand });
     } else if (ids.size === 1) {
       report.exactMatches += 1;
     } else {
-      report.ambiguousMatches.push({ source: 'SETTINGS', name: s.store, candidateStoreIds: Array.from(ids) });
+      report.ambiguousMatches.push({ source: 'SETTINGS', name: s.store, brand: s.brand, candidateStoreIds: Array.from(ids) });
     }
   }
 
   // MASTER_LOG: every row with a Store ID that isn't a known entity ID,
   // or a blank Store ID, is either UNMAPPED or a resolution problem —
   // never guessed via name similarity.
-  const unmappedByName = new Map();
+  const unmappedByKey = new Map();
   const inactiveEntityIdsWithHistory = new Set();
   for (const row of masterLogRows || []) {
     const storeId = String(row.storeId || '').trim();
     const storeName = String(row.store || '').trim();
+    const storeBrand = String(row.brand || '').trim();
 
     if (storeId && entityIds.has(storeId)) {
       const v = latest.get(storeId);
@@ -89,20 +108,20 @@ function reconcileStores({ configStoreVersions, settingsRows, masterLogRows }) {
     }
 
     // Blank or unknown Store ID — quarantine bucket, grouped by the
-    // ORIGINAL historical name (never rewritten).
-    const key = storeName || '(blank store name)';
-    if (!unmappedByName.has(key)) {
-      unmappedByName.set(key, { originalStoreName: key, occurrenceCount: 0, rowRefs: [] });
+    // ORIGINAL historical (Name, Brand) — never rewritten.
+    const key = storeName ? compositeIdentityKey(storeName, storeBrand) : '(blank store name)';
+    if (!unmappedByKey.has(key)) {
+      unmappedByKey.set(key, { originalStoreName: storeName || '(blank store name)', originalStoreBrand: storeBrand, occurrenceCount: 0, rowRefs: [] });
     }
-    const entry = unmappedByName.get(key);
+    const entry = unmappedByKey.get(key);
     entry.occurrenceCount += 1;
     entry.rowRefs.push(row.rowRef);
   }
 
-  report.unmappedStores = Array.from(unmappedByName.values());
+  report.unmappedStores = Array.from(unmappedByKey.values());
   report.historicalOnlyStores = Array.from(inactiveEntityIdsWithHistory);
 
   return report;
 }
 
-module.exports = { reconcileStores, normalizeName };
+module.exports = { reconcileStores, normalizeName, compositeIdentityKey };
