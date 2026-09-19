@@ -192,14 +192,25 @@ function sl_getStoreData(storeName) {
   const lastPurpose  = String(lastRow_[SL_COL.PURPOSE] || '').trim().toUpperCase() || '—';
   const lastVisitStr = lastDate ? _sl_formatDate(lastDate) : '—';
 
-  // ── Step 6: Purpose breakdown ─────────────────────────────
+  // ── Step 6: Purpose breakdown (Phase 2C-continued: generic discovery) ──
+  // Seeded from APPROVED_PURPOSES so the 4 legacy purposes keep appearing
+  // exactly as before, even at zero — unchanged behavior. Any OTHER
+  // purpose actually present on one of this store's own rows (discovered
+  // from the data itself, never a hardcoded name) gets its own entry too,
+  // instead of being silently folded away by the old hasOwnProperty()
+  // gate, which dropped anything not already in APPROVED_PURPOSES. A
+  // purpose with zero visits AT THIS STORE that isn't one of the 4
+  // legacy ones is simply never added (omitted) — same convention this
+  // app already uses elsewhere (e.g. KPI 2026 only lists visitors who
+  // actually have history), not a newly invented presentation rule.
   const purposeCounts = {};
   APPROVED_PURPOSES.forEach(p => { purposeCounts[p] = 0; });
   rows.forEach(row => {
     const p = String(row[SL_COL.PURPOSE] || '').trim().toUpperCase();
-    if (purposeCounts.hasOwnProperty(p)) purposeCounts[p]++;
+    if (!p) return;
+    purposeCounts[p] = (purposeCounts[p] || 0) + 1;
   });
-  const purposes = APPROVED_PURPOSES.map(label => {
+  const purposes = Object.keys(purposeCounts).map(label => {
     const count = purposeCounts[label];
     const pct   = totalVisits > 0 ? ((count / totalVisits) * 100).toFixed(1) : '0.0';
     return { label, count, pct };

@@ -320,21 +320,30 @@ function buildRegion(sheet) {
   sheet.getRange('F25:F31').setBackground(C.WHITE).setValue('');
 }
 
+/**
+ * buildPurpose(sheet)
+ * Draws ONLY the styled 4-row skeleton (background bands, fonts) for the
+ * VISIT PURPOSE BREAKDOWN block — rows 27-30 + TOTAL at 31, unchanged
+ * geometry, so nothing below (Top Stores/Leaderboard start at row 33)
+ * ever shifts. Phase 2C-continued: this function no longer decides WHICH
+ * purpose names occupy those 4 rows — that decision requires the
+ * reporting year and live MASTER_LOG data (to rank purposes by actual
+ * volume, generically), neither of which this pure-layout function has,
+ * so the name/count/pct VALUES are written by _buildESFormulas()
+ * (below) via a data-driven formula instead. Leaving name cells blank
+ * here is safe: they're unconditionally overwritten the moment
+ * buildExecutiveSummaryLayout() calls _buildESFormulas() next.
+ */
 function buildPurpose(sheet) {
   _merge(sheet, 'G25:I25');
   _sectionHeader(sheet.getRange('G25'), 'VISIT PURPOSE BREAKDOWN', C.BURNT_ORANGE);
   _subHeaders(sheet, [['G26','PURPOSE'],['H26','COUNT'],['I26','% SHARE']], C.BURNT_ORANGE);
 
-  const rows = [
-    { name: 'STORE VISIT',    bg: C.LIGHT_PEACH },
-    { name: 'TLTC',           bg: C.WHITE },
-    { name: 'FAILED QA/MS',   bg: C.LIGHT_PEACH },
-    { name: 'CURING/SUPPORT', bg: C.WHITE },
-  ];
+  const rowStyles = [C.LIGHT_PEACH, C.WHITE, C.LIGHT_PEACH, C.WHITE]; // alternating band, unchanged look
 
-  rows.forEach(({ name, bg }, i) => {
+  rowStyles.forEach((bg, i) => {
     const row = 27 + i;
-    sheet.getRange(`G${row}`).setValue(name)
+    sheet.getRange(`G${row}`).setValue('')
       .setBackground(bg).setFontSize(8).setHorizontalAlignment('left').setFontColor(C.BODY_TEXT).setFontWeight('normal').setWrap(false);
 
     sheet.getRange(`H${row}`).setValue('0')
@@ -620,13 +629,34 @@ function _buildESFormulas(sheet, year) {
   sheet.getRange(31, 4).setFormula('=SUM(D27:D29)');
   sheet.getRange(31, 5).setFormula('=IFERROR(D31/D31,1)').setNumberFormat('0.0%');
 
-  // ── Visit Purpose Breakdown (rows 27-30, cols 8-9) ──────────
-  const purposes = ['STORE VISIT', 'TLTC', 'FAILED QA/MS', 'CURING/SUPPORT'];
-  purposes.forEach((purpose, i) => {
-    const row = 27 + i;
-    sheet.getRange(row, 8).setFormula(`=COUNTIF(${ML}!G:G,"${purpose}")`);
+  // ── Visit Purpose Breakdown (rows 27-30, cols 7-9) ──────────
+  // Phase 2C-continued: purposes are discovered and ranked dynamically
+  // straight from MASTER_LOG (QUERY GROUP BY/ORDER BY COUNT DESC) for
+  // THIS reportYear only — never a hardcoded purpose-name list. This is
+  // the exact same "fixed-size window over a data-ranked set" pattern
+  // already used just below for "Top 10 Most Visited Stores" (a limit of
+  // 10 there is a presentation window, not a claim only 10 stores exist;
+  // LIMIT 4 here is the same kind of window, not a claim only 4 purposes
+  // exist). A deliberately configured new purpose with enough visit
+  // volume to rank in the top 4 for the year appears automatically, with
+  // zero purpose-specific code. The B>=/<= year bound keeps this
+  // year-explicit and safe on the shared EXECUTIVE SUMMARY sheet — a
+  // rebuild for a different year re-runs this whole function against
+  // that year's own bound, and the row/TOTAL geometry here never changes
+  // (still exactly rows 27-30 + 31), so nothing below (Top Stores/
+  // Leaderboard at row 33+) is ever affected.
+  const purposeQuery = `"SELECT G, COUNT(G) WHERE G<>'' AND B >= date '${year}-01-01' AND B <= date '${year}-12-31' GROUP BY G ORDER BY COUNT(G) DESC LIMIT 4 LABEL COUNT(G) ''"`;
+  for (let i = 0; i < 4; i++) {
+    const row  = 27 + i;
+    const rank = i + 1;
+    sheet.getRange(row, 7).setFormula(
+      `=IFERROR(INDEX(QUERY(${ML}!B2:G,${purposeQuery}),${rank},1),"")`
+    );
+    sheet.getRange(row, 8).setFormula(
+      `=IFERROR(INDEX(QUERY(${ML}!B2:G,${purposeQuery}),${rank},2),0)`
+    );
     sheet.getRange(row, 9).setFormula(`=IFERROR(H${row}/H31,0)`).setNumberFormat('0.0%');
-  });
+  }
   sheet.getRange(31, 8).setFormula('=SUM(H27:H30)');
   sheet.getRange(31, 9).setFormula('=IFERROR(H31/H31,1)').setNumberFormat('0.0%');
 

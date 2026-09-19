@@ -519,6 +519,78 @@ console.log('\n── SCENARIO F: TEST_SECOND_PURPOSE proves the mechanism is ge
 
 
 // ═══════════════════════════════════════════════════════════════
+// TASK 8 — SNAPSHOT BEHAVIOR: the established snapshot architecture is
+// UNCHANGED — draft is always live, finalized is always frozen,
+// regeneration always reads the frozen result rather than recalculating.
+// ═══════════════════════════════════════════════════════════════
+console.log('\n── TASK 8: draft is live, finalized snapshot freezes the dynamic purpose\'s result, regeneration never recalculates ──');
+{
+  // January visit dates + evaluating everything "as of TODAY" (the real
+  // current date, whatever day this suite happens to run) keeps every
+  // evaluation date safely AFTER both the visits and every config change
+  // below — sidesteps the effective-dating trap documented earlier in
+  // this file (a config version never applies to an evaluation date
+  // before its own Effective From).
+  const CFG_EFFECTIVE = YEAR + '-01-01';
+  const { sandbox: dateSb } = newSandbox({});
+  const SDate0 = vm.runInContext('Date', dateSb);
+  const masterLogRows = [
+    row(SDate0, YEAR, 1, 5, 'GAMMA', 'LEO', 'STORE VISIT'),
+    row(SDate0, YEAR, 1, 10, 'GAMMA', 'LEO', 'TEST_NEW_PURPOSE'),
+  ];
+  const { sandbox: sb } = newSandbox({ masterLogRows, settingsRows: SETTINGS_FIXTURE });
+  sb.purpose_create('TEST_NEW_PURPOSE', { purposeName: 'TEST_NEW_PURPOSE', riskWeight: -3 }, CFG_EFFECTIVE, 'x', { backdateConfirmed: true });
+
+  // 1. A DRAFT reflects the dynamic purpose under the CURRENT config —
+  //    always a fresh calculation, never persisted.
+  const draft1 = sb.getDraftReport(YEAR, TODAY);
+  check('draft report mode is DRAFT', draft1.mode === 'DRAFT', JSON.stringify(draft1.mode));
+  const draftGamma = draft1.result.storeRisk.find(r => r.store === 'GAMMA');
+  eq('draft basePurposeScore reflects TEST_NEW_PURPOSE\'s configured weight (-3) alongside STORE VISIT (-2)', draftGamma.basePurposeScore, -5);
+
+  // 2. FINALIZE captures that exact calculated result, once.
+  const finalized = sb.finalizeReport(YEAR, TODAY, 'freeze for snapshot-behavior proof');
+  check('finalizeReport succeeds', finalized.success === true, JSON.stringify(finalized));
+  const snap1 = sb.getReportSnapshot(finalized.snapshotId);
+  const frozenGamma = snap1.result.storeRisk.find(r => r.store === 'GAMMA');
+  eq('finalized snapshot stores the calculated purpose-related result (-5)', frozenGamma.basePurposeScore, -5);
+  const frozenRiskScore = frozenGamma.riskScore;
+
+  // 3. Reconfigure TEST_NEW_PURPOSE's weight AFTER finalization — an
+  //    extreme, unmistakable change (-999) so any accidental
+  //    recalculation would be obvious. Effective TODAY (a later, distinct
+  //    date from CFG_EFFECTIVE's Jan 1), so it's live for any evaluation
+  //    as of TODAY or later — exactly what step 5 below evaluates at.
+  const reconfig = sb.purpose_update('TEST_NEW_PURPOSE', { purposeName: 'TEST_NEW_PURPOSE', riskWeight: -999 }, TODAY, 'reconfigured after finalization — must NOT affect the frozen snapshot');
+  check('reconfiguration itself succeeds', reconfig.success === true, JSON.stringify(reconfig));
+
+  // 4. Reading the SAME finalized snapshot again must NOT recalculate
+  //    using today's (now-changed) configuration.
+  const snap2 = sb.getReportSnapshot(finalized.snapshotId);
+  const rereadGamma = snap2.result.storeRisk.find(r => r.store === 'GAMMA');
+  eq('re-reading the finalized snapshot returns the SAME frozen score (-5), unaffected by the -999 reconfiguration', rereadGamma.basePurposeScore, -5);
+
+  // 5. A NEW draft, evaluated as of TODAY (the reconfiguration's own
+  //    effective date), DOES reflect the new config — proving the draft/
+  //    finalized distinction is real, not that recalculation is globally
+  //    broken.
+  const draft2 = sb.getDraftReport(YEAR, TODAY);
+  const draft2Gamma = draft2.result.storeRisk.find(r => r.store === 'GAMMA');
+  eq('a fresh draft DOES reflect the reconfigured -999 weight (drafts are always live)', draft2Gamma.basePurposeScore, (-2) + (-999));
+
+  // 6. regenerateReportSheet() rebuilds the presentation sheet FROM the
+  //    frozen snapshot, never by recalculating live.
+  const regen = sb.regenerateReportSheet(YEAR);
+  check('regenerateReportSheet succeeds', regen.success === true, JSON.stringify(regen));
+  const reportSheet = sb.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('REPORT_' + YEAR);
+  const allRows = reportSheet.getRange(1, 1, 40, 14).getValues();
+  const gammaRow = allRows.find(r => r[0] === 'GAMMA');
+  check('regenerated REPORT_<year> sheet contains GAMMA\'s frozen risk row', !!gammaRow, JSON.stringify(allRows.filter(r => r[0])));
+  eq('its riskScore column matches the FROZEN snapshot\'s score, not a recalculation with the -999 weight', Number(gammaRow[10]), frozenRiskScore);
+}
+
+
+// ═══════════════════════════════════════════════════════════════
 // CONFIRMATIONS — CAPAR
 // ═══════════════════════════════════════════════════════════════
 console.log('\n── CONFIRMATION: CAPAR was not reintroduced anywhere by this work ──');
