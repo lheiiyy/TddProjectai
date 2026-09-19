@@ -72,26 +72,42 @@ function getExecutiveSummaryReport() {
   const rt = sheet.getRange(CELL.REGION_TOTAL_ROW, 4, 1, 2).getDisplayValues()[0];
   const regionTotal = { visits: rt[0], pct: rt[1] };
 
-  const purposeRows = sheet.getRange(CELL.PURPOSE_START_ROW, 7, 4, 3).getDisplayValues();
-  const purpose = purposeRows.map(row => ({ name: row[0], count: row[1], pct: row[2] }));
-  const pt = sheet.getRange(CELL.PURPOSE_TOTAL_ROW, 8, 1, 2).getDisplayValues()[0];
+  // Purpose Breakdown (must show EVERY recognized/configured purpose —
+  // no fixed row count, per this phase's business decision). Scanned
+  // dynamically downward from CELL.PURPOSE_START_ROW until the literal
+  // "TOTAL" marker _totalRow() (SVMKPI_LAYOUT.gs) always writes at the
+  // end of that block — never assumes a fixed 4-row window. Every
+  // section below Purpose Breakdown (Top Stores/Leaderboard/Brand
+  // Performance) shifts by the exact same `offset` the writer used,
+  // derived here purely by OBSERVING where the sheet's own TOTAL row
+  // actually landed — no dependency on SVMKPI_LAYOUT.gs's internal
+  // discovery function, and no hardcoded purpose-name list or count.
+  const purpose = [];
+  let purposeTotalRowFound = CELL.PURPOSE_TOTAL_ROW;
+  for (let r = CELL.PURPOSE_START_ROW; r <= CELL.PURPOSE_START_ROW + 500; r++) {
+    const rowVals = sheet.getRange(r, 7, 1, 3).getDisplayValues()[0];
+    if (String(rowVals[0]).trim().toUpperCase() === 'TOTAL') { purposeTotalRowFound = r; break; }
+    purpose.push({ name: rowVals[0], count: rowVals[1], pct: rowVals[2] });
+  }
+  const offset = purposeTotalRowFound - CELL.PURPOSE_TOTAL_ROW;
+  const pt = sheet.getRange(purposeTotalRowFound, 8, 1, 2).getDisplayValues()[0];
   const purposeTotal = { count: pt[0], pct: pt[1] };
 
-  const topStoreRows = sheet.getRange(CELL.STORES_START_ROW, 3, CELL.STORES_LIMIT, 3).getDisplayValues();
+  const topStoreRows = sheet.getRange(CELL.STORES_START_ROW + offset, 3, CELL.STORES_LIMIT, 3).getDisplayValues();
   const topStores = topStoreRows
     .filter(row => String(row[1] || '').trim())
     .map(row => ({ rank: row[0], name: row[1], visits: row[2] }));
 
-  const leaderRows = sheet.getRange(CELL.LEADER_START_ROW, 7, CELL.LEADER_LIMIT, 3).getDisplayValues();
+  const leaderRows = sheet.getRange(CELL.LEADER_START_ROW + offset, 7, CELL.LEADER_LIMIT, 3).getDisplayValues();
   const leaderboard = leaderRows
     .filter(row => String(row[1] || '').trim())
     .map(row => ({ rank: row[0], name: row[1], visits: row[2] }));
 
-  const brandRows = sheet.getRange(CELL.BRAND_START_ROW, 3, APPROVED_BRANDS.length, 5).getDisplayValues();
+  const brandRows = sheet.getRange(CELL.BRAND_START_ROW + offset, 3, APPROVED_BRANDS.length, 5).getDisplayValues();
   const brandPerformance = brandRows.map(row => ({
     brand: row[0], total: row[1], pct: row[2], peakMonth: row[3], peakCount: row[4],
   }));
-  const bt = sheet.getRange(CELL.BRAND_TOTAL_ROW, 4, 1, 4).getDisplayValues()[0];
+  const bt = sheet.getRange(CELL.BRAND_TOTAL_ROW + offset, 4, 1, 4).getDisplayValues()[0];
   const brandTotal = { total: bt[0], pct: bt[1], peakMonth: bt[2], peakCount: bt[3] };
 
   return { kpi, monthBrandLabels, monthly, monthlyTotal, region, regionTotal, purpose, purposeTotal, topStores, leaderboard, brandPerformance, brandTotal };

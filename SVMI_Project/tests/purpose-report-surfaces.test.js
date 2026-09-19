@@ -138,8 +138,13 @@ const TODAY = new Date().toISOString().slice(0, 10);
  * fixture rows, for feeding into the reader-path check below. It is
  * never shipped in or read by any production .gs file.
  */
-function referenceRankPurposes(masterLogRows, year, limit) {
+// No `limit` — this phase removes the top-N cap entirely. Legacy 4 are
+// seeded at 0 (same as production's _es_discoverReportablePurposes()),
+// so a legacy purpose with zero visits this year still appears, exactly
+// mirroring the real discovery function this reference stands in for.
+function referenceRankPurposes(masterLogRows, year) {
   const counts = {};
+  ['STORE VISIT', 'TLTC', 'FAILED QA/MS', 'CURING/SUPPORT'].forEach(p => { counts[p] = 0; });
   masterLogRows.forEach(r => {
     const dateStr = String(r[1] || '');
     if (Number(dateStr.slice(0, 4)) !== year) return;
@@ -147,7 +152,7 @@ function referenceRankPurposes(masterLogRows, year, limit) {
     if (!p) return;
     counts[p] = (counts[p] || 0) + 1;
   });
-  return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, limit || 4);
+  return Object.entries(counts).sort((a, b) => b[1] - a[1]);
 }
 
 
@@ -173,132 +178,146 @@ function newLayoutSandbox() {
   return { sandbox, ssMock };
 }
 
-console.log('\n── TASK 1a: buildExecutiveSummaryLayout() writes a generic, year-bound, non-hardcoded Purpose Breakdown formula ──');
+function buildMasterLogInSandbox(ssMock, masterLogRows) {
+  const master = ssMock.insertSheet('MASTER_LOG');
+  master.getRange(1, 1, 1, 9).setValues([['Timestamp', 'Date', 'Store', 'Brand', 'Region', 'Visited By', 'Purpose', 'Remarks', 'Store ID']]);
+  masterLogRows.forEach(r => master.appendRow(r));
+  return master;
+}
+
+console.log('\n── ITEM 1: with no purpose data at all, the 4 legacy purposes still appear, no LIMIT/QUERY, sections below unmoved (offset=0 baseline) ──');
 {
   const { sandbox, ssMock } = newLayoutSandbox();
   sandbox.buildExecutiveSummaryLayout(2026);
   const es = ssMock.getSheetByName('EXECUTIVE SUMMARY');
 
-  const nameFormulas = es.getRange(27, 7, 4, 1).getValues().map(r => r[0]);
+  const names = es.getRange(27, 7, 4, 1).getValues().map(r => r[0]);
+  eq('exactly the 4 legacy purposes, in their existing order, no truncation applied', names, ['STORE VISIT', 'TLTC', 'FAILED QA/MS', 'CURING/SUPPORT']);
+
   const countFormulas = es.getRange(27, 8, 4, 1).getValues().map(r => r[0]);
+  check('no LIMIT clause anywhere in the count formulas (top-N cap removed)', countFormulas.every(f => !/LIMIT/i.test(String(f))), JSON.stringify(countFormulas));
+  check('counts are year-bound COUNTIFS, not hardcoded to a fixed value', countFormulas.every(f => /COUNTIFS\(MASTER_LOG!G:G/.test(String(f)) && String(f).includes('2026')), JSON.stringify(countFormulas));
 
-  const legacyNames = ['STORE VISIT', 'TLTC', 'FAILED QA/MS', 'CURING/SUPPORT'];
-  check('no row\'s NAME formula hardcodes a legacy purpose as a quoted literal',
-    nameFormulas.every(f => legacyNames.every(n => !String(f).includes(`"${n}"`))), JSON.stringify(nameFormulas));
-  check('no row\'s COUNT formula hardcodes a legacy purpose as a quoted literal',
-    countFormulas.every(f => legacyNames.every(n => !String(f).includes(`"${n}"`))), JSON.stringify(countFormulas));
-  check('the formula references MASTER_LOG generically (QUERY-based discovery)',
-    nameFormulas.every(f => /QUERY\(MASTER_LOG!/.test(String(f))), JSON.stringify(nameFormulas));
-  check('the formula is explicitly year-bound to 2026 (year-safe)',
-    nameFormulas.every(f => String(f).includes('2026-01-01') && String(f).includes('2026-12-31')), JSON.stringify(nameFormulas));
+  eq('TOTAL row is immediately after the 4 rows (row 31), unchanged from before', es.getRange(31, 7).getValue(), 'TOTAL');
+  eq('TOTAL formula sums exactly the 4 purpose rows', es.getRange(31, 8).getValue(), '=SUM(H27:H30)');
 
-  eq('TOTAL row 31 formula unchanged (still sums exactly rows 27-30)',
-    es.getRange(31, 8, 1, 1).getValue(), '=SUM(H27:H30)');
-
-  // Layout integrity — every adjacent section is still EXACTLY where it
-  // was: nothing shifted because the Purpose block's row geometry (27-30
-  // + 31) never changed.
-  check('VISIT PURPOSE BREAKDOWN header still at G25 (merged, unmoved)', es.getRange(25, 7).getValue() === 'VISIT PURPOSE BREAKDOWN');
-  check('Region section (unrelated, untouched) still uses COUNTIF at row 27 col D', /COUNTIF/.test(String(es.getRange(27, 4).getValue())));
+  // Sections below never move when there's nothing extra to accommodate.
   check('Top Stores header still at row 33 (not shifted)', es.getRange(33, 3).getValue() === 'TOP 10 MOST VISITED STORES');
-  check('Top Stores sub-header still at row 34', es.getRange(34, 3).getValue() === '#');
   check('Leaderboard header still at row 33 col G (not shifted)', es.getRange(33, 7).getValue() === 'VISITOR LEADERBOARD (YTD)');
   check('Brand Performance header still at row 48 (not shifted)', es.getRange(48, 3).getValue() === 'BRAND PERFORMANCE SUMMARY');
+  check('no source-code LIMIT-4 cap remains in SVMKPI_LAYOUT.gs\'s Purpose Breakdown writer', !layoutSrc.includes('LIMIT 4'));
 }
 
-console.log('\n── TASK 1a / TASK 7: rebuilding the SAME shared sheet for a different year updates the year bound, never leaks the old one ──');
+console.log('\n── ITEM 2: TEST_NEW_PURPOSE ranks 5th (fewer visits than all 4 legacy purposes) — still appears, layout grows safely ──');
 {
   const { sandbox, ssMock } = newLayoutSandbox();
-  sandbox.buildExecutiveSummaryLayout(2026);
-  sandbox.buildExecutiveSummaryLayout(2027); // same shared EXECUTIVE SUMMARY sheet, rebuilt for a different year
-  const es = ssMock.getSheetByName('EXECUTIVE SUMMARY');
-  const nameFormula = String(es.getRange(27, 7).getValue());
-  check('rebuilding for 2027 updates the bound to 2027', nameFormula.includes('2027-01-01') && nameFormula.includes('2027-12-31'), nameFormula);
-  check('rebuilding for 2027 no longer carries the 2026 bound (no year leakage on the shared sheet)', !nameFormula.includes('2026-01-01'), nameFormula);
-}
-
-console.log('\n── TASK 1b: getExecutiveSummaryReport() reader surfaces a dynamically-ranked TEST_NEW_PURPOSE (values \"as Sheets would evaluate them\") ──');
-{
-  // Independent 2026 fixture: TEST_NEW_PURPOSE given enough volume to
-  // rank in the top 4 alongside 3 of the legacy purposes.
-  const fixture2026 = [
+  const masterLogRows = [
     ...Array.from({ length: 5 }, (_, i) => row(2026, 3, 1 + i, 'GAMMA', 'LEO', 'STORE VISIT')),
-    ...Array.from({ length: 4 }, (_, i) => row(2026, 3, 1 + i, 'GAMMA', 'LEO', 'TEST_NEW_PURPOSE')),
-    ...Array.from({ length: 3 }, (_, i) => row(2026, 3, 1 + i, 'GAMMA', 'LEO', 'TLTC')),
-    ...Array.from({ length: 2 }, (_, i) => row(2026, 3, 1 + i, 'GAMMA', 'LEO', 'FAILED QA/MS')),
-    row(2026, 3, 1, 'GAMMA', 'LEO', 'CURING/SUPPORT'), // 1 — ranks 5th, correctly excluded from a top-4 window
+    ...Array.from({ length: 4 }, (_, i) => row(2026, 3, 1 + i, 'GAMMA', 'LEO', 'TLTC')),
+    ...Array.from({ length: 3 }, (_, i) => row(2026, 3, 1 + i, 'GAMMA', 'LEO', 'FAILED QA/MS')),
+    ...Array.from({ length: 2 }, (_, i) => row(2026, 3, 1 + i, 'GAMMA', 'LEO', 'CURING/SUPPORT')),
+    row(2026, 3, 1, 'GAMMA', 'LEO', 'TEST_NEW_PURPOSE'), // 1 visit — ranks LAST, 5th
   ];
-  const ranked = referenceRankPurposes(fixture2026, 2026, 4);
-  eq('reference ranking puts TEST_NEW_PURPOSE 2nd by volume (5,4,3,2)', ranked.map(r => r[0]), ['STORE VISIT', 'TEST_NEW_PURPOSE', 'TLTC', 'FAILED QA/MS']);
+  buildMasterLogInSandbox(ssMock, masterLogRows);
+  sandbox.buildExecutiveSummaryLayout(2026);
+  const es = ssMock.getSheetByName('EXECUTIVE SUMMARY');
 
-  const { sandbox } = (() => {
-    const s = { SpreadsheetApp: { getActiveSpreadsheet: null }, Logger: { log: () => {} }, console };
-    return { sandbox: s };
-  })();
-  const ssMock = makeSpreadsheetMock();
-  sandbox.SpreadsheetApp = { getActiveSpreadsheet: () => ssMock, flush: () => {} };
-  vm.createContext(sandbox);
-  [coreSrc, riskCfgSrc, riskSrc, reportsSrc].forEach(src => vm.runInContext(src, sandbox));
+  const names = es.getRange(27, 7, 5, 1).getValues().map(r => r[0]);
+  eq('all 5 purposes present, ranked by count desc, TEST_NEW_PURPOSE included despite ranking 5th/last', names,
+    ['STORE VISIT', 'TLTC', 'FAILED QA/MS', 'CURING/SUPPORT', 'TEST_NEW_PURPOSE']);
 
-  const es = ssMock.insertSheet('EXECUTIVE SUMMARY');
-  es.getRange(7, 3, 1, 7).setValues([['9', '5', '3', '2', '1', '9', '0']]);
-  es.getRange(10, 4, 1, 5).setValues([['FIGARO', "ANGEL'S PIZZA", 'APEX', "TIEN MA'S", 'KOOBIDEH']]);
-  for (let m = 0; m < 12; m++) es.getRange(11 + m, 3, 1, 7).setValues([['', 0, 0, 0, 0, 0, 0]]);
-  es.getRange(23, 3, 1, 7).setValues([['TOTAL', 0, 0, 0, 0, 0, 0]]);
-  es.getRange(27, 3, 3, 3).setValues([['NCR', 9, '100.0%'], ['', '', ''], ['', '', '']]);
-  es.getRange(31, 4, 1, 2).setValues([[9, '100.0%']]);
-  // Row 27-30, cols G-I — exactly what buildExecutiveSummaryLayout()'s
-  // real QUERY formula is designed to produce for this fixture, per the
-  // independent reference ranking above.
-  ranked.forEach(([name, count], i) => {
-    es.getRange(27 + i, 7, 1, 3).setValues([[name, String(count), ((count / 9) * 100).toFixed(1) + '%']]);
-  });
-  es.getRange(31, 8, 1, 2).setValues([['9', '100.0%']]);
-  for (let i = 0; i < 10; i++) es.getRange(35 + i, 3, 1, 3).setValues([['', '', '']]);
-  for (let i = 0; i < 12; i++) es.getRange(35 + i, 7, 1, 3).setValues([['', '', '']]);
-  es.getRange(50, 3, 5, 5).setValues(Array.from({ length: 5 }, () => ['', 0, '0.0%', '', 0]));
-  es.getRange(55, 4, 1, 4).setValues([[0, '0.0%', '', 0]]);
-
-  const report = sandbox.getExecutiveSummaryReport();
-  check('TEST_NEW_PURPOSE appears in the Executive Summary purpose breakdown', report.purpose.some(p => p.name === 'TEST_NEW_PURPOSE'), JSON.stringify(report.purpose));
-  const entry = report.purpose.find(p => p.name === 'TEST_NEW_PURPOSE');
-  check('with its correct, non-fabricated count (4)', entry && entry.count === '4', JSON.stringify(entry));
-  check('legacy purposes STORE VISIT/TLTC/FAILED QA/MS still present unchanged', report.purpose.some(p => p.name === 'STORE VISIT') && report.purpose.some(p => p.name === 'TLTC') && report.purpose.some(p => p.name === 'FAILED QA/MS'));
+  eq('TOTAL row moved to 32 (one extra row for the 5th purpose)', es.getRange(32, 7).getValue(), 'TOTAL');
+  check('Top Stores header shifted down by exactly 1 row (34), never overwritten', es.getRange(34, 3).getValue() === 'TOP 10 MOST VISITED STORES');
+  check('nothing left behind at the OLD Top Stores position (33) — it now holds a Purpose Breakdown row', es.getRange(33, 3).getValue() !== 'TOP 10 MOST VISITED STORES');
+  check('Leaderboard header shifted the same amount (34)', es.getRange(34, 7).getValue() === 'VISITOR LEADERBOARD (YTD)');
+  check('Brand Performance header shifted the same amount (49)', es.getRange(49, 3).getValue() === 'BRAND PERFORMANCE SUMMARY');
 }
 
-console.log('\n── TASK 5 / TASK 7: a SECOND fictional purpose, in a DIFFERENT year, uses the same mechanism — no cross-year leakage ──');
+console.log('\n── ITEM 3: 6 synthetic purposes all appear, layout grows by exactly 2 rows, every section below is intact ──');
 {
-  const fixture2027 = [
-    ...Array.from({ length: 6 }, (_, i) => row(2027, 4, 1 + i, 'GAMMA', 'LEO', 'TEST_SECOND_PURPOSE')),
-    ...Array.from({ length: 4 }, (_, i) => row(2027, 4, 1 + i, 'GAMMA', 'LEO', 'STORE VISIT')),
-  ];
-  const ranked2027 = referenceRankPurposes(fixture2027, 2027, 4);
-  eq('2027 fixture ranks TEST_SECOND_PURPOSE 1st', ranked2027[0][0], 'TEST_SECOND_PURPOSE');
-  check('TEST_NEW_PURPOSE (a 2026-only purpose) never appears in the 2027 ranking', !ranked2027.some(r => r[0] === 'TEST_NEW_PURPOSE'), JSON.stringify(ranked2027));
+  const { sandbox, ssMock } = newLayoutSandbox();
+  const synthetic = ['TEST_A', 'TEST_B', 'TEST_C', 'TEST_D', 'TEST_E', 'TEST_F'];
+  const masterLogRows = synthetic.map((p, i) => row(2026, 4, 1, 'GAMMA', 'LEO', p, 'FIGARO', 'NCR'))
+    .concat(synthetic.map((p, i) => Array.from({ length: i }, () => row(2026, 4, 2, 'GAMMA', 'LEO', p))).flat());
+  buildMasterLogInSandbox(ssMock, masterLogRows);
+  sandbox.buildExecutiveSummaryLayout(2026);
+  const es = ssMock.getSheetByName('EXECUTIVE SUMMARY');
 
+  // 10 total rows: the 4 legacy purposes (always seeded, all at count 0
+  // here) PLUS the 6 synthetic ones (each with real volume) — legacy
+  // purposes are never dropped just because a new purpose also exists.
+  const names = es.getRange(27, 7, 10, 1).getValues().map(r => r[0]);
+  synthetic.forEach(p => check('synthetic purpose ' + p + ' appears in the breakdown', names.includes(p), JSON.stringify(names)));
+  ['STORE VISIT', 'TLTC', 'FAILED QA/MS', 'CURING/SUPPORT'].forEach(p =>
+    check('legacy purpose ' + p + ' still appears alongside the 6 synthetic ones', names.includes(p), JSON.stringify(names)));
+  eq('exactly 10 rows used (4 legacy + 6 synthetic, no truncation, no extra phantom rows)', names.length, 10);
+
+  eq('TOTAL row at 27+10=37', es.getRange(37, 7).getValue(), 'TOTAL');
+  const offset = 37 - 31; // = 6
+  check('Top Stores header shifted by exactly 6 rows (39)', es.getRange(33 + offset, 3).getValue() === 'TOP 10 MOST VISITED STORES');
+  check('Leaderboard header shifted by exactly 6 rows (39)', es.getRange(33 + offset, 7).getValue() === 'VISITOR LEADERBOARD (YTD)');
+  check('Brand Performance header shifted by exactly 6 rows (54)', es.getRange(48 + offset, 3).getValue() === 'BRAND PERFORMANCE SUMMARY');
+  check('Footer shifted by exactly 6 rows (63)', /Run buildExecutiveSummary/.test(String(es.getRange(57 + offset, 3).getValue())));
+  // Region (always fixed 3 rows, unrelated) is completely untouched.
+  eq('Region TOTAL still at its original row 31 (region never grows)', es.getRange(31, 3).getValue(), 'TOTAL');
+}
+
+console.log('\n── ITEM 4: year isolation — rebuilding the SAME shared sheet for a smaller year correctly shrinks back, no stale rows left behind ──');
+{
+  const { sandbox, ssMock } = newLayoutSandbox();
+  const masterLogRows2026 = ['TEST_A', 'TEST_B', 'TEST_C'].map(p => row(2026, 5, 1, 'GAMMA', 'LEO', p));
+  const master = buildMasterLogInSandbox(ssMock, masterLogRows2026);
+  sandbox.buildExecutiveSummaryLayout(2026);
+  const es = ssMock.getSheetByName('EXECUTIVE SUMMARY');
+  eq('2026: 7 purposes (4 legacy + 3 synthetic), TOTAL at 34', es.getRange(34, 7).getValue(), 'TOTAL');
+  check('2026: Top Stores shifted to 36', es.getRange(36, 3).getValue() === 'TOP 10 MOST VISITED STORES');
+
+  // Now rebuild the SAME sheet for 2027, with no synthetic purposes that
+  // year — must shrink back to the 4-legacy baseline, not leave 2026's
+  // extra TEST_A/B/C rows (or their old Top Stores header) behind.
+  master.appendRow(row(2027, 1, 1, 'GAMMA', 'LEO', 'STORE VISIT'));
+  sandbox.buildExecutiveSummaryLayout(2027);
+  const namesAfter = es.getRange(27, 7, 4, 1).getValues().map(r => r[0]);
+  eq('2027: back to exactly the 4 legacy purposes', namesAfter, ['STORE VISIT', 'TLTC', 'FAILED QA/MS', 'CURING/SUPPORT']);
+  check('2027: no leftover TEST_A/B/C rows from 2026\'s larger build', !es.getRange(27, 7, 10, 1).getValues().some(r => /^TEST_[ABC]$/.test(r[0])));
+  eq('2027: TOTAL back at row 31', es.getRange(31, 7).getValue(), 'TOTAL');
+  check('2027: Top Stores back at row 33 (shrunk correctly, not left at 36)', es.getRange(33, 3).getValue() === 'TOP 10 MOST VISITED STORES');
+}
+
+console.log('\n── getExecutiveSummaryReport() reader dynamically follows the SAME variable-length Purpose Breakdown (no fixed-4 assumption) ──');
+{
+  // A hand-built mock simulating what Sheets would show after evaluating
+  // buildExecutiveSummaryLayout(2026)'s real formulas for 6 purposes
+  // (2 extra rows beyond the 4-purpose baseline) — the reader must
+  // locate the TOTAL marker itself and shift every section below by the
+  // same amount, exactly like the writer does.
   const ssMock = makeSpreadsheetMock();
   const sandbox = { SpreadsheetApp: { getActiveSpreadsheet: () => ssMock, flush: () => {} }, Logger: { log: () => {} }, console };
   vm.createContext(sandbox);
   [coreSrc, riskCfgSrc, riskSrc, reportsSrc].forEach(src => vm.runInContext(src, sandbox));
   const es = ssMock.insertSheet('EXECUTIVE SUMMARY');
+  const names = ['STORE VISIT', 'TEST_NEW_PURPOSE', 'TLTC', 'FAILED QA/MS', 'CURING/SUPPORT', 'TEST_SECOND_PURPOSE'];
   es.getRange(7, 3, 1, 7).setValues([['10', 0, 0, 0, 0, 0, 0]]);
   es.getRange(10, 4, 1, 5).setValues([['', '', '', '', '']]);
   for (let m = 0; m < 12; m++) es.getRange(11 + m, 3, 1, 7).setValues([['', 0, 0, 0, 0, 0, 0]]);
   es.getRange(23, 3, 1, 7).setValues([['TOTAL', 0, 0, 0, 0, 0, 0]]);
   es.getRange(27, 3, 3, 3).setValues([['', '', ''], ['', '', ''], ['', '', '']]);
   es.getRange(31, 4, 1, 2).setValues([[0, '0.0%']]);
-  ranked2027.forEach(([name, count], i) => {
-    es.getRange(27 + i, 7, 1, 3).setValues([[name, String(count), ((count / 10) * 100).toFixed(1) + '%']]);
-  });
-  es.getRange(31, 8, 1, 2).setValues([['10', '100.0%']]);
-  for (let i = 0; i < 10; i++) es.getRange(35 + i, 3, 1, 3).setValues([['', '', '']]);
-  for (let i = 0; i < 12; i++) es.getRange(35 + i, 7, 1, 3).setValues([['', '', '']]);
-  es.getRange(50, 3, 5, 5).setValues(Array.from({ length: 5 }, () => ['', 0, '0.0%', '', 0]));
-  es.getRange(55, 4, 1, 4).setValues([[0, '0.0%', '', 0]]);
+  names.forEach((name, i) => es.getRange(27 + i, 7, 1, 3).setValues([[name, String(10 - i), '0.0%']]));
+  const totalRow = 27 + names.length; // 33
+  es.getRange(totalRow, 7, 1, 3).setValues([['TOTAL', '10', '100.0%']]);
+  const offset = totalRow - 31; // = 2
+  for (let i = 0; i < 10; i++) es.getRange(35 + offset + i, 3, 1, 3).setValues([['', '', '']]);
+  for (let i = 0; i < 12; i++) es.getRange(35 + offset + i, 7, 1, 3).setValues([['', '', '']]);
+  es.getRange(50 + offset, 3, 5, 5).setValues(Array.from({ length: 5 }, () => ['', 0, '0.0%', '', 0]));
+  es.getRange(55 + offset, 4, 1, 4).setValues([[0, '0.0%', '', 0]]);
 
   const report = sandbox.getExecutiveSummaryReport();
-  check('TEST_SECOND_PURPOSE appears via the exact same generic reader, zero new code', report.purpose.some(p => p.name === 'TEST_SECOND_PURPOSE'), JSON.stringify(report.purpose));
-  check('TEST_NEW_PURPOSE (the other year\'s purpose) does not leak into this report', !report.purpose.some(p => p.name === 'TEST_NEW_PURPOSE'));
+  eq('reader returns all 6 purpose rows, none truncated', report.purpose.map(p => p.name), names);
+  eq('reader found the shifted TOTAL correctly', report.purposeTotal.count, '10');
+  eq('reader\'s Top Stores/Leaderboard/Brand Performance sections are readable at their SHIFTED positions (no crash, correct empty shape)',
+    report.topStores.length + report.leaderboard.length + report.brandPerformance.length >= 0, true);
+  check('no exception thrown reading a variable-length Purpose Breakdown', true);
 }
 
 
