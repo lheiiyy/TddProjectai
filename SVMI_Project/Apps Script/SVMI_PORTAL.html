@@ -307,15 +307,15 @@ textarea.fi{resize:vertical;min-height:50px}
 .comp-active-note{font-size:10px;color:var(--orange);font-weight:700;margin-left:8px}
 @media (max-width:820px){ .colf{width:min(260px,86vw)} }
 
-/* ── System Tools ── */
+/* ── System Tools (now the Admin tab's "Tools" sub-tab) ── */
 /* .tools-grid itself must NOT be the scroll container: a CSS Grid element
    with overflow-y:auto sizes its auto rows to fit whatever height it's
    given rather than to content (a scroll-container-specific quirk in the
    Grid sizing algorithm), silently squashing every card — .tool-card's
    own overflow:hidden then clips the excess instead of it ever
-   scrolling into view. .tools-scroll (a plain flex/block box) does the
-   actual scrolling; .tools-grid just lays out cards at their natural size. */
-.tools-scroll{flex:1;overflow-y:auto}
+   scrolling into view. Its parent .admin-sub.active (a plain block box,
+   see the Admin tab CSS below) does the actual scrolling; .tools-grid
+   just lays out cards at their natural size. */
 .tools-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px 14px}
 .tool-card{background:var(--card);border:1px solid var(--border);border-radius:6px;overflow:hidden}
 .tool-hdr{background:var(--navy);padding:8px 12px;display:flex;align-items:center;gap:8px}
@@ -425,7 +425,7 @@ textarea.fi{padding-right:28px}
   .portal-form{border-bottom:8px solid var(--bg)}
   .si-side{overflow:visible;border-right:none;border-bottom:3px solid var(--gold)}
   .tools-grid{grid-template-columns:1fr}
-  .tools-scroll{overflow:visible}
+  .admin-sub.active{overflow:visible}
   .kpi-row{grid-template-columns:1fr 1fr}
   .profile-grid,.kpi2{grid-template-columns:1fr 1fr}
   .profile-grid{grid-template-columns:1fr}
@@ -465,8 +465,18 @@ textarea.fi{padding-right:28px}
 /* ── Admin tab (Phase 1F) — reuses existing vars/.p-card/.pill/.sel-dark/
    .btn-gold/.btn-navy/.dup-* modal/.state-msg conventions; only new
    layout/badge primitives are added here. ── */
+/* .admin-sub.active is a direct child of #content-Admin (.tab-content.active
+   — a flex column, see that rule above), same as .tools-scroll is for
+   System Tools. Without flex:1/overflow-y:auto here, this pane had no
+   flex-basis of its own: it grew to its natural content height, and
+   .tab-content's own overflow:hidden then clipped everything past the
+   viewport with no scrollbar — the config/audit/snapshot panes could
+   never be scrolled to their end. flex:1+overflow-y:auto makes THIS the
+   scroll container (mirrors .tools-scroll exactly); overflow other than
+   visible already zeroes the flex item's automatic min-height per spec,
+   so no separate min-height:0 is needed. */
 .admin-sub{display:none}
-.admin-sub.active{display:block}
+.admin-sub.active{display:block;flex:1;overflow-y:auto}
 .admin-area-bar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
 .admin-area-btn{padding:6px 12px;border-radius:6px;border:1px solid var(--border-d);
   background:var(--card);color:var(--text);font-size:11px;font-weight:700;cursor:pointer}
@@ -552,7 +562,9 @@ textarea.fi{padding-right:28px}
     <div class="nav-item"        id="tab-Insights" onclick="switchTab('Insights')">🔍 Store Insights</div>
     <div class="nav-item"        id="tab-Visits"   onclick="switchTab('Visits')">📅 Unvisited This Month</div>
     <div class="nav-item"        id="tab-Input"   onclick="switchTab('Input')">📋 Input Portal</div>
-    <div class="nav-item"        id="tab-Tools"    onclick="switchTab('Tools')">⚙ System Tools</div>
+    <!-- System Tools moved into the Admin tab (Configuration / Audit /
+         Report Snapshots / Tools sub-tabs) — a single admin-only home for
+         all admin functionality instead of two separate nav entries. -->
     <div class="nav-item"        id="tab-Admin"    data-admin-only="true" hidden onclick="switchTab('Admin')">🛡 Admin</div>
   </div>
 </div>
@@ -734,163 +746,7 @@ textarea.fi{padding-right:28px}
   </div>
 </div>
 
-<!-- TAB 4: SYSTEM TOOLS -->
-<div class="tab-content" id="content-Tools">
-  <div class="tools-scroll">
-  <div class="tools-grid">
-
-    <div class="tool-card primary" data-admin-only="true">
-      <div class="tool-hdr"><span class="tool-icon">📋</span>
-        <div><div class="tool-title">Store Master Insight</div>
-        <div class="tool-desc-hdr">All stores · visits · status · risk</div></div></div>
-      <div class="tool-body">
-        <span class="risk-badge info">🔄 Regenerated from MASTER_LOG</span>
-        <p>Rebuilds STORE MASTER INSIGHT sheet with per-store visit counts, last visit, risk tier, and compliance status.</p>
-        <button class="tool-run" onclick="runTool('rebuildStoreMaster','stat-SMI')">▶ Rebuild Store Master</button>
-        <div class="tool-stat idle" id="stat-SMI">Ready</div>
-        <div class="tool-lock" id="lock-SMI" hidden>🔒 Admin access required to run this tool.</div>
-      </div>
-    </div>
-
-    <div class="tool-card primary" data-admin-only="true">
-      <div class="tool-hdr"><span class="tool-icon">🏥</span>
-        <div><div class="tool-title">Store Health</div>
-        <div class="tool-desc-hdr">Risk scores + sheet rebuild</div></div></div>
-      <div class="tool-body">
-        <span class="risk-badge info">🔄 Regenerated from MASTER_LOG</span>
-        <p>Reads MASTER_LOG, scores all stores by visit frequency and QA/MS history, writes STORE HEALTH sheet.</p>
-        <button class="tool-run" onclick="runTool('rebuildStoreHealth','stat-SH')">▶ Rebuild Store Health</button>
-        <div class="tool-stat idle" id="stat-SH">Ready</div>
-        <div class="tool-lock" id="lock-SH" hidden>🔒 Admin access required to run this tool.</div>
-      </div>
-    </div>
-
-    <div class="tool-card" data-admin-only="true">
-      <div class="tool-hdr"><span class="tool-icon">📊</span>
-        <div><div class="tool-title">Executive Summary</div>
-        <div class="tool-desc-hdr">Layout + live GS formulas</div></div></div>
-      <div class="tool-body">
-        <span class="risk-badge warn">⚠ Clears formatting too</span>
-        <p>Rebuilds EXECUTIVE SUMMARY with COUNTIF/COUNTIFS/QUERY formulas that auto-update from MASTER_LOG.</p>
-        <button class="tool-run" onclick="runTool('rebuildExecutiveSummary','stat-ES')">▶ Rebuild Executive Summary</button>
-        <div class="tool-stat idle" id="stat-ES">Ready</div>
-        <div class="tool-lock" id="lock-ES" hidden>🔒 Admin access required to run this tool.</div>
-      </div>
-    </div>
-
-    <div class="tool-card" data-admin-only="true">
-      <div class="tool-hdr"><span class="tool-icon">📈</span>
-        <div><div class="tool-title">KPI 2026</div>
-        <div class="tool-desc-hdr">SUMPRODUCT formulas from SETTINGS!F</div></div></div>
-      <div class="tool-body">
-        <span class="risk-badge warn">⚠ Overwrites sheet</span>
-        <p>Rebuilds KPI 2026 weekly tracker. Reads visitor roster from SETTINGS!F and writes pipe-aware SUMPRODUCT formulas.</p>
-        <button class="tool-run" onclick="runTool('rebuildKPI2026','stat-KPI')">▶ Rebuild KPI 2026</button>
-        <div class="tool-stat idle" id="stat-KPI">Ready</div>
-        <div class="tool-lock" id="lock-KPI" hidden>🔒 Admin access required to run this tool.</div>
-      </div>
-    </div>
-
-    <div class="tool-card" data-admin-only="true">
-      <div class="tool-hdr"><span class="tool-icon">✅</span>
-        <div><div class="tool-title">Validate MASTER_LOG</div>
-        <div class="tool-desc-hdr">Check for missing or invalid data</div></div></div>
-      <div class="tool-body">
-        <span class="risk-badge safe">✓ Read-only · safe</span>
-        <p>Scans MASTER_LOG for rows with missing required fields, invalid dates, or unrecognized brand names. Changes nothing.</p>
-        <button class="tool-run" onclick="runTool('validateMasterLog','stat-VAL')">▶ Run Validation</button>
-        <div class="tool-stat idle" id="stat-VAL">Ready</div>
-        <div class="tool-lock" id="lock-VAL" hidden>🔒 Admin access required to run this tool.</div>
-      </div>
-    </div>
-
-    <div class="tool-card" data-admin-only="true">
-      <div class="tool-hdr"><span class="tool-icon">🗂</span>
-        <div><div class="tool-title">Data Sheet Headers</div>
-        <div class="tool-desc-hdr">MASTER_LOG + SETTINGS headers</div></div></div>
-      <div class="tool-body">
-        <span class="risk-badge warn">⚠ Rewrites headers</span>
-        <p>Restores MASTER_LOG row 1 headers with brand color rules. Restores SETTINGS headers and rebuilds col D formula. Data rows untouched.</p>
-        <button class="tool-run" onclick="runTool('rebuildDataHeaders','stat-DH')">▶ Rebuild Data Headers</button>
-        <div class="tool-stat idle" id="stat-DH">Ready</div>
-        <div class="tool-lock" id="lock-DH" hidden>🔒 Admin access required to run this tool.</div>
-      </div>
-    </div>
-
-    <div class="tool-card primary" data-admin-only="true" style="grid-column:1/-1">
-      <div class="tool-hdr"><span class="tool-icon">🗄️</span>
-        <div><div class="tool-title">Store & Roster Manager</div>
-        <div class="tool-desc-hdr">Add/edit stores · visitor roster · purpose list</div></div></div>
-      <div class="tool-body">
-        <span class="risk-badge safe">✓ Writes straight to SETTINGS — no rebuild needed</span>
-        <p>Add a new store or edit an existing one's brand/region/category, and manage the Visitor Roster and Purpose List — the same SETTINGS columns Input Portal reads from.</p>
-        <button class="tool-run" onclick="toggleStoreManager()">🗄️ Open Store & Roster Manager</button>
-        <div class="tool-lock" id="lock-SRM" hidden>🔒 Admin access required to run this tool.</div>
-
-        <div id="srmPanel" hidden style="margin-top:12px">
-          <div class="srm-section">
-            <div class="srm-hdr">Store</div>
-            <div class="fg">
-              <label>Store Name</label>
-              <div class="ss-wrap">
-                <input type="text" id="srmStoreSearch" class="ss-input"
-                  placeholder="Search an existing store, or type a new name…"
-                  oninput="srmFilterStores()" onfocus="srmFilterStores()"
-                  onblur="setTimeout(function(){ document.getElementById('srmStoreDrop').classList.remove('open'); }, 200)"
-                  autocomplete="off">
-                <div class="ss-drop" id="srmStoreDrop"></div>
-              </div>
-            </div>
-            <div class="fg"><label>Brand</label><select class="fi" id="srmBrand"></select></div>
-            <div class="fg"><label>Region</label><select class="fi" id="srmRegion"></select></div>
-            <div class="fg"><label>Category</label><select class="fi" id="srmCategory"></select></div>
-            <button class="btn-gold" onclick="srmSaveStore()">💾 Save Store</button>
-            <button class="vm-btn vm-rem" onclick="srmRemoveStore()">🗑️ Remove Store</button>
-            <div class="tool-stat idle" id="srmStoreStat">Ready</div>
-          </div>
-
-          <hr class="divider">
-
-          <div class="srm-section">
-            <div class="srm-hdr">Visitor Roster</div>
-            <div class="vm-row">
-              <input type="text" id="srmVisitorInput" class="vm-input" placeholder="Visitor name…"
-                onkeydown="if(event.key==='Enter')srmManageVisitor('add')" autocomplete="off">
-              <button class="vm-btn vm-add" onclick="srmManageVisitor('add')">+ Add</button>
-              <button class="vm-btn vm-rem" onclick="srmManageVisitor('remove')">− Remove</button>
-            </div>
-            <div class="vm-msg" id="srmVisitorMsg"></div>
-          </div>
-
-          <hr class="divider">
-
-          <div class="srm-section">
-            <div class="srm-hdr">Purpose List</div>
-            <div class="vm-row">
-              <input type="text" id="srmPurposeInput" class="vm-input" placeholder="Purpose name…"
-                onkeydown="if(event.key==='Enter')srmManagePurpose('add')" autocomplete="off">
-              <button class="vm-btn vm-add" onclick="srmManagePurpose('add')">+ Add</button>
-              <button class="vm-btn vm-rem" onclick="srmManagePurpose('remove')">− Remove</button>
-            </div>
-            <div class="vm-msg" id="srmPurposeMsg"></div>
-            <div class="srm-list">Current: <span id="srmPurposeList">—</span></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="log-panel">
-      <div class="log-hdr">
-        <span>📟 Activity Log</span>
-        <button class="log-clr" onclick="clearLog()">clear</button>
-      </div>
-      <div class="log-body" id="actLog">
-        <div class="log-entry info">System ready.</div>
-      </div>
-    </div>
-  </div>
-  </div>
-</div>
+<!-- System Tools relocated into the Admin tab's "Tools" sub-tab — see #adminPane-tools below. -->
 
 <!-- TAB: ADMIN (Phase 1F) — exposes Phase 1A/1B/1D configuration
      versioning + Phase 1E report snapshots through the existing portal
@@ -905,6 +761,7 @@ textarea.fi{padding-right:28px}
     <button class="rep-btn active" id="adminSub-config" onclick="switchAdminSub('config')">Configuration</button>
     <button class="rep-btn"        id="adminSub-audit"  onclick="switchAdminSub('audit')">Audit</button>
     <button class="rep-btn"        id="adminSub-snap"   onclick="switchAdminSub('snap')">Report Snapshots</button>
+    <button class="rep-btn"        id="adminSub-tools"  onclick="switchAdminSub('tools')">Tools</button>
   </div>
 
   <!-- CONFIGURATION -->
@@ -970,6 +827,181 @@ textarea.fi{padding-right:28px}
       <div class="admin-detail-col" id="snapDetailCol">
         <div class="state-msg"><span class="icon">🧊</span><div class="title">Select a snapshot</div>
           <div>Choose a version on the left for a read-only, frozen historical view, or view the live Draft — a fresh calculation from current data/configuration that is never persisted.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOOLS (moved here from the former standalone "⚙ System Tools" tab —
+       same cards, same server calls, just grouped and explained). -->
+  <div class="admin-sub" id="adminPane-tools">
+    <div class="tools-grid">
+
+      <div class="srm-hdr" style="grid-column:1/-1">🔄 Rebuild / Refresh Reports</div>
+
+      <div class="tool-card primary" data-admin-only="true">
+        <div class="tool-hdr"><span class="tool-icon">📋</span>
+          <div><div class="tool-title">Store Master Insight</div>
+          <div class="tool-desc-hdr">All stores · visits · status · risk</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge info">🔄 Regenerated from MASTER_LOG</span>
+          <p>Rebuilds STORE MASTER INSIGHT sheet with per-store visit counts, last visit, risk tier, and compliance status.</p>
+          <button class="tool-run" onclick="runTool('rebuildStoreMaster','stat-SMI')">▶ Rebuild Store Master</button>
+          <div class="tool-stat idle" id="stat-SMI">Ready</div>
+          <div class="tool-lock" id="lock-SMI" hidden>🔒 Admin access required to run this tool.</div>
+        </div>
+      </div>
+
+      <div class="tool-card primary" data-admin-only="true">
+        <div class="tool-hdr"><span class="tool-icon">🏥</span>
+          <div><div class="tool-title">Store Health</div>
+          <div class="tool-desc-hdr">Risk scores + sheet rebuild</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge info">🔄 Regenerated from MASTER_LOG</span>
+          <p>Reads MASTER_LOG, scores all stores by visit frequency and QA/MS history, writes STORE HEALTH sheet.</p>
+          <button class="tool-run" onclick="runTool('rebuildStoreHealth','stat-SH')">▶ Rebuild Store Health</button>
+          <div class="tool-stat idle" id="stat-SH">Ready</div>
+          <div class="tool-lock" id="lock-SH" hidden>🔒 Admin access required to run this tool.</div>
+        </div>
+      </div>
+
+      <div class="tool-card" data-admin-only="true">
+        <div class="tool-hdr"><span class="tool-icon">📊</span>
+          <div><div class="tool-title">Executive Summary</div>
+          <div class="tool-desc-hdr">Layout + live GS formulas</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge warn">⚠ Clears formatting too</span>
+          <p>Rebuilds EXECUTIVE SUMMARY with COUNTIF/COUNTIFS/QUERY formulas that auto-update from MASTER_LOG.</p>
+          <button class="tool-run" onclick="runTool('rebuildExecutiveSummary','stat-ES')">▶ Rebuild Executive Summary</button>
+          <div class="tool-stat idle" id="stat-ES">Ready</div>
+          <div class="tool-lock" id="lock-ES" hidden>🔒 Admin access required to run this tool.</div>
+        </div>
+      </div>
+
+      <div class="tool-card" data-admin-only="true">
+        <div class="tool-hdr"><span class="tool-icon">📈</span>
+          <div><div class="tool-title">KPI 2026</div>
+          <div class="tool-desc-hdr">SUMPRODUCT formulas from SETTINGS!F</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge warn">⚠ Overwrites sheet</span>
+          <p>Rebuilds KPI 2026 weekly tracker. Reads visitor roster from SETTINGS!F and writes pipe-aware SUMPRODUCT formulas.</p>
+          <button class="tool-run" onclick="runTool('rebuildKPI2026','stat-KPI')">▶ Rebuild KPI 2026</button>
+          <div class="tool-stat idle" id="stat-KPI">Ready</div>
+          <div class="tool-lock" id="lock-KPI" hidden>🔒 Admin access required to run this tool.</div>
+        </div>
+      </div>
+
+      <div class="srm-hdr" style="grid-column:1/-1;margin-top:4px">✅ Validation &amp; Repair</div>
+
+      <div class="tool-card" data-admin-only="true">
+        <div class="tool-hdr"><span class="tool-icon">✅</span>
+          <div><div class="tool-title">Validate MASTER_LOG</div>
+          <div class="tool-desc-hdr">Check for missing or invalid data</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge safe">✓ Read-only · safe</span>
+          <p>Scans MASTER_LOG for rows with missing required fields, invalid dates, or unrecognized brand names. Changes nothing.</p>
+          <button class="tool-run" onclick="runTool('validateMasterLog','stat-VAL')">▶ Run Validation</button>
+          <div class="tool-stat idle" id="stat-VAL">Ready</div>
+          <div class="tool-lock" id="lock-VAL" hidden>🔒 Admin access required to run this tool.</div>
+        </div>
+      </div>
+
+      <div class="tool-card" data-admin-only="true">
+        <div class="tool-hdr"><span class="tool-icon">🗂</span>
+          <div><div class="tool-title">Data Sheet Headers</div>
+          <div class="tool-desc-hdr">MASTER_LOG + SETTINGS headers</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge warn">⚠ Rewrites headers</span>
+          <p>Restores MASTER_LOG row 1 headers with brand color rules. Restores SETTINGS headers and rebuilds col D formula. Data rows untouched.</p>
+          <button class="tool-run" onclick="runTool('rebuildDataHeaders','stat-DH')">▶ Rebuild Data Headers</button>
+          <div class="tool-stat idle" id="stat-DH">Ready</div>
+          <div class="tool-lock" id="lock-DH" hidden>🔒 Admin access required to run this tool.</div>
+        </div>
+      </div>
+
+      <div class="srm-hdr" style="grid-column:1/-1;margin-top:4px">🗄️ Store, Visitor &amp; Purpose List Management</div>
+
+      <div class="tool-card primary" data-admin-only="true" style="grid-column:1/-1">
+        <div class="tool-hdr"><span class="tool-icon">🗄️</span>
+          <div><div class="tool-title">Store & Roster Manager</div>
+          <div class="tool-desc-hdr">Add/edit stores · visitor roster · purpose list</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge safe">✓ Writes straight to SETTINGS — no rebuild needed</span>
+          <p>Add a new store or edit an existing one's brand/region/category, and manage the Visitor Roster and Purpose List — the same SETTINGS columns Input Portal reads from.</p>
+          <p class="hint">This list feeds the Input Portal's Store/Visitor/Purpose dropdowns and the live report formulas (Executive Summary, KPI 2026). It is separate from the versioned entities under <b>Admin → Configuration → Stores/Visitors/Purposes</b> — that area is the governance/history record (effective-dated, audited); this tool is the fast day-to-day list editor. Use Configuration when you need an effective date, a reason, or an audit trail; use this when you just need the dropdown/list updated right away.</p>
+          <button class="tool-run" onclick="toggleStoreManager()">🗄️ Open Store & Roster Manager</button>
+          <div class="tool-lock" id="lock-SRM" hidden>🔒 Admin access required to run this tool.</div>
+
+          <div id="srmPanel" hidden style="margin-top:12px">
+            <div class="srm-section">
+              <div class="srm-hdr">Store</div>
+              <div class="fg">
+                <label>Store Name <span class="req">*</span></label>
+                <div class="ss-wrap">
+                  <input type="text" id="srmStoreSearch" class="ss-input"
+                    placeholder="Search an existing store, or type a new name…"
+                    oninput="srmFilterStores()" onfocus="srmFilterStores()"
+                    onblur="setTimeout(function(){ document.getElementById('srmStoreDrop').classList.remove('open'); }, 200)"
+                    autocomplete="off">
+                  <div class="ss-drop" id="srmStoreDrop"></div>
+                </div>
+                <div class="hint">Required. Type an existing store name to edit it, or a new name to create it — matching is case-insensitive (names are stored in ALL CAPS). Example: <b>ACME MALL - MAIN</b>.</div>
+              </div>
+              <div class="fg"><label>Brand <span class="req">*</span></label><select class="fi" id="srmBrand"></select>
+                <div class="hint">Required. Pick the brand this store belongs to from the list (e.g., <b>APEX</b>).</div>
+              </div>
+              <div class="fg"><label>Region <span class="req">*</span></label><select class="fi" id="srmRegion"></select>
+                <div class="hint">Required. Pick the store's region (e.g., <b>NCR</b>).</div>
+              </div>
+              <div class="fg"><label>Category <span class="req">*</span></label><select class="fi" id="srmCategory"></select>
+                <div class="hint">Required. Pick the store's visit-frequency category (e.g., <b>FAR PROVINCIAL</b>) — this drives how often Store Health expects the store to be visited.</div>
+              </div>
+              <div class="hint">⚠ Saving updates the live store list immediately — no separate rebuild step is needed, and Store Health refreshes automatically.</div>
+              <button class="btn-gold" onclick="srmSaveStore()">💾 Save Store</button>
+              <button class="vm-btn vm-rem" onclick="srmRemoveStore()">🗑️ Remove Store</button>
+              <div class="hint">Removing a store clears it from the active list (Input Portal dropdown) but keeps all of its past visits in Store Health.</div>
+              <div class="tool-stat idle" id="srmStoreStat">Ready</div>
+            </div>
+
+            <hr class="divider">
+
+            <div class="srm-section">
+              <div class="srm-hdr">Visitor Roster</div>
+              <div class="hint">Add or remove a name from the Visitor Roster that Input Portal's "Visited By" field lists. Required, free text (any non-blank name), auto-uppercased. Example: <b>JUAN DELA CRUZ</b>. Adding a name refreshes KPI 2026 automatically so it appears without a manual rebuild.</div>
+              <div class="vm-row">
+                <input type="text" id="srmVisitorInput" class="vm-input" placeholder="Visitor name…"
+                  onkeydown="if(event.key==='Enter')srmManageVisitor('add')" autocomplete="off">
+                <button class="vm-btn vm-add" onclick="srmManageVisitor('add')">+ Add</button>
+                <button class="vm-btn vm-rem" onclick="srmManageVisitor('remove')">− Remove</button>
+              </div>
+              <div class="vm-msg" id="srmVisitorMsg"></div>
+            </div>
+
+            <hr class="divider">
+
+            <div class="srm-section">
+              <div class="srm-hdr">Purpose List</div>
+              <div class="hint">Add or remove an entry from the Purpose List that Input Portal's "Purpose" field lists. Required, free text (any non-blank name), auto-uppercased. Example: <b>STORE VISIT</b>.</div>
+              <div class="vm-row">
+                <input type="text" id="srmPurposeInput" class="vm-input" placeholder="Purpose name…"
+                  onkeydown="if(event.key==='Enter')srmManagePurpose('add')" autocomplete="off">
+                <button class="vm-btn vm-add" onclick="srmManagePurpose('add')">+ Add</button>
+                <button class="vm-btn vm-rem" onclick="srmManagePurpose('remove')">− Remove</button>
+              </div>
+              <div class="vm-msg" id="srmPurposeMsg"></div>
+              <div class="srm-list">Current: <span id="srmPurposeList">—</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="log-panel">
+        <div class="log-hdr">
+          <span>📟 Activity Log</span>
+          <button class="log-clr" onclick="clearLog()">clear</button>
+        </div>
+        <div class="log-body" id="actLog">
+          <div class="log-entry info">System ready.</div>
+        </div>
       </div>
     </div>
   </div>
