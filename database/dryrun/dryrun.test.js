@@ -18,6 +18,8 @@ const { buildStoreIdentityReconciliation, compositeKey, findLocationOnlyCandidat
 const { findEmbeddedConventionCandidates } = require('./location_convention_candidates');
 const { classifyHistoricalIdentity, CLASSIFICATION } = require('./historical_identity_classification');
 const { deriveProposedStoreId, buildProposedStoreIdMap, uuidV5, SVMI_STORE_NAMESPACE_UUID } = require('./store_id_generator');
+const { STATUS: OPERATIONAL_STATUS, applyOperationalStatus } = require('./operational_status');
+const { finalizeProposedStoreId } = require('./store_id_finalization');
 const { classifyVisitorTokens } = require('./visitor_identity_classification');
 
 let pass = 0, fail = 0;
@@ -513,6 +515,147 @@ check('parseDateCell: decimal-like garbage rejected', parseDateCell('2026-01') =
       sameLocationDifferentBrandCandidates: ["TOWN|ANGEL'S PIZZA"],
     });
     return result.classification === CLASSIFICATION.NEW && result.proposedStoreId === null;
+  })());
+}
+
+// ── operational_status: business-declared status, never inferred ───────
+// (Phase 2A.4). Fictional fixtures.
+{
+  const canonicalIdentities = [
+    { normalizedLocation: 'X RIVERSIDE', normalizedBrand: 'FIGARO', canonicalLocation: 'X RIVERSIDE', canonicalBrand: 'FIGARO', proposedStoreId: 'STR-x1' },
+    { normalizedLocation: 'RIVERSIDE', normalizedBrand: "ANGEL'S PIZZA", canonicalLocation: 'RIVERSIDE', canonicalBrand: "ANGEL'S PIZZA", proposedStoreId: 'STR-x3' },
+    { normalizedLocation: 'LAKEVIEW', normalizedBrand: 'APEX', canonicalLocation: 'LAKEVIEW', canonicalBrand: 'APEX', proposedStoreId: 'STR-x4' },
+  ];
+
+  // A batch of historical identities business has declared INACTIVE,
+  // including one HUMAN_REVIEW (identity unresolved) and one NEW.
+  const historicalIdentities = [
+    { historicalLocation: 'RIVERSIDE', historicalBrand: 'FIGARO' }, // HUMAN_REVIEW candidate: X RIVERSIDE
+    { historicalLocation: 'GHOSTBAY', historicalBrand: 'APEX' }, // NEW, no candidate
+  ].map((h) => ({
+    ...h,
+    ...classifyHistoricalIdentity({
+      historicalLocation: h.historicalLocation, historicalBrand: h.historicalBrand,
+      canonicalIdentities, sameLocationDifferentBrandCandidates: [],
+    }),
+    compositeKey: compositeKey(h.historicalLocation, h.historicalBrand),
+  }));
+
+  const declarations = {
+    'RIVERSIDE|FIGARO': OPERATIONAL_STATUS.INACTIVE,
+    'GHOSTBAY|APEX': OPERATIONAL_STATUS.INACTIVE,
+  };
+  const withStatus = applyOperationalStatus(historicalIdentities, declarations);
+
+  check('operational_status: all declared identities carry the declared status (all INACTIVE)',
+    withStatus.every((r) => r.operationalStatus === OPERATIONAL_STATUS.INACTIVE));
+
+  check('operational_status: operationalStatus is a separate field, never overloaded onto classification', (() => {
+    const humanReview = withStatus.find((r) => r.historicalLocation === 'RIVERSIDE');
+    const newOne = withStatus.find((r) => r.historicalLocation === 'GHOSTBAY');
+    return humanReview.classification === CLASSIFICATION.HUMAN_REVIEW && humanReview.operationalStatus === OPERATIONAL_STATUS.INACTIVE
+      && newOne.classification === CLASSIFICATION.NEW && newOne.operationalStatus === OPERATIONAL_STATUS.INACTIVE;
+  })());
+
+  check('operational_status: an identity with no declaration stays UNSPECIFIED, never defaulted', (() => {
+    const undeclared = applyOperationalStatus([{ historicalLocation: 'UNTOUCHED', historicalBrand: 'APEX' }], declarations);
+    return undeclared[0].operationalStatus === OPERATIONAL_STATUS.UNSPECIFIED;
+  })());
+
+  check('operational_status: declaring status never merges or changes an identity\'s classification/evidence',
+    withStatus.find((r) => r.historicalLocation === 'RIVERSIDE').evidence.some((e) => e.candidateLocation === 'X RIVERSIDE'));
+}
+
+// ── store_id_finalization: administrative "established" is separate ────
+// from identity matching (Phase 2A.4). HUMAN_REVIEW NEVER gets a fresh
+// ID (that would silently invent "these are separate stores"); NEW only
+// gets one once explicitly declared established; EXISTING always keeps
+// its already-known canonical Store ID; status never participates.
+{
+  check('store_id_finalization: EXISTING always returns its canonical Store ID, regardless of "established" flag',
+    finalizeProposedStoreId({ classification: 'EXISTING', canonicalStoreId: 'STR-known', compositeKey: 'X|Y', identityEstablished: false }) === 'STR-known');
+
+  check('store_id_finalization: HUMAN_REVIEW NEVER receives a proposed Store ID, even if declared "established"',
+    finalizeProposedStoreId({ classification: 'HUMAN_REVIEW', canonicalStoreId: null, compositeKey: 'RIVERSIDE|FIGARO', identityEstablished: true }) === null);
+
+  check('store_id_finalization: NEW without administrative establishment stays null (no invented ID)',
+    finalizeProposedStoreId({ classification: 'NEW', canonicalStoreId: null, compositeKey: 'GHOSTBAY|APEX', identityEstablished: false }) === null);
+
+  check('store_id_finalization: NEW + administratively established -> deterministic proposed Store ID', (() => {
+    const id = finalizeProposedStoreId({ classification: 'NEW', canonicalStoreId: null, compositeKey: 'GHOSTBAY|APEX', identityEstablished: true });
+    return typeof id === 'string' && id.startsWith('STR-') && id === deriveProposedStoreId('GHOSTBAY|APEX');
+  })());
+
+  check('store_id_finalization: inactive operational status never changes the deterministic Store ID', (() => {
+    const idWithoutStatus = finalizeProposedStoreId({ classification: 'NEW', canonicalStoreId: null, compositeKey: 'GHOSTBAY|APEX', identityEstablished: true });
+    // Attach a status AFTER computing the ID — status is not, and never
+    // can be, an input to deriveProposedStoreId (it takes only the
+    // canonical key string), so this is structurally guaranteed, and
+    // this test also exercises that guarantee end-to-end.
+    const record = applyOperationalStatus([{ historicalLocation: 'GHOSTBAY', historicalBrand: 'APEX', proposedStoreId: idWithoutStatus }], { 'GHOSTBAY|APEX': OPERATIONAL_STATUS.INACTIVE });
+    return record[0].proposedStoreId === idWithoutStatus && record[0].operationalStatus === OPERATIONAL_STATUS.INACTIVE;
+  })());
+
+  check('store_id_finalization: no duplicate Store IDs across distinct established NEW identities', (() => {
+    const keys = ['GHOSTBAY|APEX', 'RIVERSIDE|FIGARO', 'LAKEVIEW|APEX'];
+    const ids = keys.map((k) => finalizeProposedStoreId({ classification: 'NEW', canonicalStoreId: null, compositeKey: k, identityEstablished: true }));
+    return new Set(ids).size === ids.length;
+  })());
+
+  check('store_id_finalization: Store IDs identical across independent calls (repeat + fresh order)', (() => {
+    const keys = ['GHOSTBAY|APEX', 'RIVERSIDE|FIGARO'];
+    const run1 = keys.map((k) => finalizeProposedStoreId({ classification: 'NEW', canonicalStoreId: null, compositeKey: k, identityEstablished: true }));
+    const run2 = keys.slice().reverse().map((k) => finalizeProposedStoreId({ classification: 'NEW', canonicalStoreId: null, compositeKey: k, identityEstablished: true }));
+    return run1[0] === run2[1] && run1[1] === run2[0];
+  })());
+}
+
+// ── Combined pipeline: status + finalization compose with existing ─────
+// classification/duplicate/ready-count logic without disturbing it
+// (Phase 2A.4 regression protection, rules F8/F9).
+{
+  const settingsRows = [
+    { rowRef: 'S1', store: 'DUPTOWN', brand: 'APEX', region: 'NCR', category: 'NCR' },
+    { rowRef: 'S2', store: 'DUPTOWN', brand: 'APEX', region: 'NCR', category: 'NCR' }, // duplicate, identical
+    { rowRef: 'S3', store: 'X RIVERSIDE', brand: 'FIGARO', region: 'FRANCHISE', category: 'NCR' },
+    { rowRef: 'S4', store: 'RIVERSIDE', brand: "ANGEL'S PIZZA", region: 'FRANCHISE', category: 'NCR' },
+  ];
+  const masterLogRows = [
+    { rowRef: 'M1', store: 'DUPTOWN', brand: 'APEX', dateVisited: '2026-01-01' },
+    { rowRef: 'M2', store: 'RIVERSIDE', brand: 'FIGARO', dateVisited: '2026-02-01' }, // HUMAN_REVIEW candidate
+    { rowRef: 'M3', store: 'GHOSTBAY', brand: 'APEX', dateVisited: '2026-03-01' }, // NEW
+  ];
+  const before = buildStoreIdentityReconciliation({ settingsRows, masterLogRows });
+
+  check('combined pipeline: duplicate-source-row behavior unchanged by this phase\'s additions',
+    before.duplicateSourceRowsCount === 1 && before.identities.find((i) => i.compositeKey === 'DUPTOWN|APEX').status === STORE_STATUS.DUPLICATE_SOURCE_ROWS);
+
+  check('combined pipeline: ready/eligible counts remain internally consistent after layering status', (() => {
+    const readyBefore = before.readyCount; // strict: EXACT_MATCH + SETTINGS_ONLY only
+    const eligibleBefore = before.storeIdEligibleCount; // + DUPLICATE_SOURCE_ROWS
+    // Layer status onto every identity — must not change either count.
+    const withStatus = applyOperationalStatus(before.identities, {
+      'RIVERSIDE|FIGARO': OPERATIONAL_STATUS.INACTIVE,
+      'GHOSTBAY|APEX': OPERATIONAL_STATUS.INACTIVE,
+    });
+    const readyAfter = withStatus.filter((i) => i.status === STORE_STATUS.EXACT_MATCH || i.status === STORE_STATUS.SETTINGS_ONLY).length;
+    const eligibleAfter = withStatus.filter((i) => i.readyForStoreIdAssignment).length;
+    return readyBefore === 2 // X RIVERSIDE/FIGARO (SETTINGS_ONLY) + RIVERSIDE/ANGEL'S PIZZA (SETTINGS_ONLY)
+      && eligibleBefore === 3 // + DUPTOWN/APEX (DUPLICATE_SOURCE_ROWS)
+      && eligibleBefore === readyBefore + before.duplicateSourceRowsCount
+      && readyAfter === readyBefore
+      && eligibleAfter === eligibleBefore;
+  })());
+
+  check('combined pipeline: HUMAN_REVIEW identity (RIVERSIDE/FIGARO) never silently merged into X RIVERSIDE/FIGARO despite status layering', (() => {
+    const sameLoc = findLocationOnlyCandidates('RIVERSIDE|FIGARO', new Map());
+    const classification = classifyHistoricalIdentity({
+      historicalLocation: 'RIVERSIDE', historicalBrand: 'FIGARO',
+      canonicalIdentities: before.identities.filter((i) => i.readyForStoreIdAssignment),
+      sameLocationDifferentBrandCandidates: sameLoc,
+    });
+    const withStatus = applyOperationalStatus([{ ...classification, historicalLocation: 'RIVERSIDE', historicalBrand: 'FIGARO' }], { 'RIVERSIDE|FIGARO': OPERATIONAL_STATUS.INACTIVE });
+    return withStatus[0].classification === CLASSIFICATION.HUMAN_REVIEW && withStatus[0].operationalStatus === OPERATIONAL_STATUS.INACTIVE;
   })());
 }
 

@@ -132,6 +132,22 @@ they exist purely for human context, consistent with the confirmed rule
 that brands differing always means a different Store regardless of
 physical co-location.
 
+### Phase 2A.4 — operational status and Store-ID finalization
+
+Two more modules keep two more concerns cleanly separate, on top of
+everything above:
+
+| Module | Purpose |
+|---|---|
+| `operational_status.js` | Records a business-DECLARED status (`ACTIVE`/`INACTIVE`/`UNSPECIFIED`) for a canonical identity — never inferred from data. Deliberately writes to an `operationalStatus` field, not `status`, because `store_canonical_identity.js` identities already use `status` for their own EXACT_MATCH/SETTINGS_ONLY/etc. classification — reusing the name would silently clobber it. |
+| `store_id_finalization.js` | Decides whether a classified identity gets a proposed Store ID: `EXISTING` always keeps its already-known canonical ID; `HUMAN_REVIEW` NEVER receives one (minting one would silently presuppose "this is a separate Store," which is exactly the open question); `NEW` receives one only when a separate, explicit `identityEstablished` administrative flag says so. |
+
+Operational status and the "established" flag are both external,
+declared inputs — never derived from evidence — and neither one is ever
+part of a Store ID's derivation (`store_id_generator.js` takes only the
+canonical key string), so declaring a historical identity `INACTIVE`
+never changes its deterministic Store ID.
+
 ## What's still needed once real data is available
 
 1. **A reader** turning whatever file the user provides (CSV per sheet, or
