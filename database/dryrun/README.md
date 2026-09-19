@@ -148,6 +148,25 @@ part of a Store ID's derivation (`store_id_generator.js` takes only the
 canonical key string), so declaring a historical identity `INACTIVE`
 never changes its deterministic Store ID.
 
+### Phase 2A.5 — administratively confirmed merges and distinct-new Stores
+
+Once a business decision explicitly confirms either "this historical
+identity IS an existing canonical Store" or "this historical identity IS
+a distinct new Store," two things apply that decision without ever
+letting it masquerade as something the evidence itself discovered:
+
+| Module/change | Purpose |
+|---|---|
+| `historical_identity_classification.js`'s `confirmedCanonicalMatch` param | An explicit, external fact (never inferred) that a historical identity is the same Store as a given canonical identity. Reclassifies to `EXISTING`, tagged `matchType: ADMINISTRATIVELY_CONFIRMED_MERGE` — distinct from an automatic `EXACT_MATCH`, so the evidence trail never claims a match was "discovered" when it was actually declared. |
+| `administrative_confirmation.js` | Labels the administrative act itself, from signals that already exist elsewhere: `EXISTING_CANONICAL` (a confirmed merge), `CONFIRMED_DISTINCT_STORE` (a `NEW` identity administratively authorized to receive a Store ID), or `NONE` (no administrative act was involved — including a genuine automatic `EXACT_MATCH`, which needs no confirmation at all). |
+
+Two guarantees hold regardless of which path an identity took: a
+confirmed merge always reuses the target's existing Store ID (never
+mints a second one for the same Store), and administrative confirmation
+of distinctness never reclassifies a `NEW` identity as `EXISTING` — it
+only ever authorizes `store_id_finalization.js` to mint a deterministic
+ID for it.
+
 ## What's still needed once real data is available
 
 1. **A reader** turning whatever file the user provides (CSV per sheet, or

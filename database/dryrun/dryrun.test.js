@@ -16,10 +16,11 @@ const { validateSnapshots } = require('./snapshot_validation');
 const { extractYearsFromMasterLog, compareReportingYears } = require('./reporting_year_check');
 const { buildStoreIdentityReconciliation, compositeKey, findLocationOnlyCandidates, STATUS: STORE_STATUS } = require('./store_canonical_identity');
 const { findEmbeddedConventionCandidates } = require('./location_convention_candidates');
-const { classifyHistoricalIdentity, CLASSIFICATION } = require('./historical_identity_classification');
+const { classifyHistoricalIdentity, CLASSIFICATION, MATCH_TYPE } = require('./historical_identity_classification');
 const { deriveProposedStoreId, buildProposedStoreIdMap, uuidV5, SVMI_STORE_NAMESPACE_UUID } = require('./store_id_generator');
 const { STATUS: OPERATIONAL_STATUS, applyOperationalStatus } = require('./operational_status');
 const { finalizeProposedStoreId } = require('./store_id_finalization');
+const { ADMINISTRATIVE_CONFIRMATION, describeAdministrativeConfirmation } = require('./administrative_confirmation');
 const { classifyVisitorTokens } = require('./visitor_identity_classification');
 
 let pass = 0, fail = 0;
@@ -656,6 +657,141 @@ check('parseDateCell: decimal-like garbage rejected', parseDateCell('2026-01') =
     });
     const withStatus = applyOperationalStatus([{ ...classification, historicalLocation: 'RIVERSIDE', historicalBrand: 'FIGARO' }], { 'RIVERSIDE|FIGARO': OPERATIONAL_STATUS.INACTIVE });
     return withStatus[0].classification === CLASSIFICATION.HUMAN_REVIEW && withStatus[0].operationalStatus === OPERATIONAL_STATUS.INACTIVE;
+  })());
+}
+
+// ── Administratively confirmed merge + distinct-new confirmation ───────
+// (Phase 2A.5). Fictional fixtures mirroring a real business decision
+// (documented locally, never committed): one historical identity is
+// explicitly confirmed the same Store as an existing naming-convention
+// candidate, and several others are confirmed distinct new Stores.
+{
+  const canonicalIdentities = [
+    { normalizedLocation: 'X RIVERSIDE', normalizedBrand: 'FIGARO', canonicalLocation: 'X RIVERSIDE', canonicalBrand: 'FIGARO', proposedStoreId: 'STR-existing-x1' },
+    { normalizedLocation: 'RIVERSIDE', normalizedBrand: "ANGEL'S PIZZA", canonicalLocation: 'RIVERSIDE', canonicalBrand: "ANGEL'S PIZZA", proposedStoreId: 'STR-existing-x3' },
+  ];
+  const targetForMerge = canonicalIdentities[0]; // X RIVERSIDE/FIGARO
+
+  // 1 + 11 + 12: the confirmed merge (RIVERSIDE/FIGARO -> X RIVERSIDE/FIGARO)
+  const mergedResult = classifyHistoricalIdentity({
+    historicalLocation: 'RIVERSIDE', historicalBrand: 'FIGARO', canonicalIdentities,
+    sameLocationDifferentBrandCandidates: ["RIVERSIDE|ANGEL'S PIZZA"],
+    confirmedCanonicalMatch: targetForMerge,
+  });
+
+  check('administratively confirmed merge: classification becomes EXISTING, matchType distinguishes it from an automatic exact match',
+    mergedResult.classification === CLASSIFICATION.EXISTING && mergedResult.matchType === MATCH_TYPE.ADMINISTRATIVELY_CONFIRMED_MERGE);
+
+  check('administratively confirmed merge: resolves to the intended canonical identity (rule #11 analog)',
+    mergedResult.canonicalLocation === 'X RIVERSIDE' && mergedResult.canonicalBrand === 'FIGARO');
+
+  check('administratively confirmed merge: reuses the EXISTING canonical Store ID, never mints a second one', (() => {
+    const finalId = finalizeProposedStoreId({
+      classification: mergedResult.classification, canonicalStoreId: mergedResult.canonicalStoreId,
+      compositeKey: compositeKey('RIVERSIDE', 'FIGARO'), identityEstablished: false,
+    });
+    return finalId === 'STR-existing-x1' && finalId === targetForMerge.proposedStoreId;
+  })());
+
+  check('administratively confirmed merge: never leaks into the same-location/different-brand sibling', (() => {
+    const sibling = classifyHistoricalIdentity({
+      historicalLocation: 'RIVERSIDE', historicalBrand: "ANGEL'S PIZZA", canonicalIdentities,
+      sameLocationDifferentBrandCandidates: [], confirmedCanonicalMatch: null,
+    });
+    // RIVERSIDE/ANGEL'S PIZZA has its OWN exact match already (unrelated
+    // to the FIGARO merge) — confirms the merge was scoped to exactly
+    // the (Location,Brand) key it was declared for.
+    return sibling.classification === CLASSIFICATION.EXISTING && sibling.matchType === MATCH_TYPE.EXACT_MATCH
+      && sibling.canonicalStoreId === 'STR-existing-x3';
+  })());
+
+  // 3 + 4: administrative confirmation of distinctness never converts NEW to EXISTING
+  const noMatchResult = classifyHistoricalIdentity({
+    historicalLocation: 'GHOSTBAY', historicalBrand: 'APEX', canonicalIdentities,
+    sameLocationDifferentBrandCandidates: [], confirmedCanonicalMatch: null,
+  });
+  check('no confirmedCanonicalMatch: classification stays NEW (no-match remains no-match)', noMatchResult.classification === CLASSIFICATION.NEW);
+
+  check('administrative confirmation of distinctness never converts classification to EXISTING', (() => {
+    const confirmation = describeAdministrativeConfirmation({ classification: noMatchResult.classification, matchType: noMatchResult.matchType, identityEstablished: true });
+    return noMatchResult.classification === CLASSIFICATION.NEW // classification field itself untouched
+      && confirmation === ADMINISTRATIVE_CONFIRMATION.CONFIRMED_DISTINCT_STORE;
+  })());
+
+  check('without administrative confirmation, a NEW identity gets NO Store ID and administrativeConfirmation is NONE', (() => {
+    const finalId = finalizeProposedStoreId({ classification: noMatchResult.classification, canonicalStoreId: null, compositeKey: compositeKey('GHOSTBAY', 'APEX'), identityEstablished: false });
+    const confirmation = describeAdministrativeConfirmation({ classification: noMatchResult.classification, matchType: noMatchResult.matchType, identityEstablished: false });
+    return finalId === null && confirmation === ADMINISTRATIVE_CONFIRMATION.NONE;
+  })());
+
+  check('an EXACT_MATCH EXISTING identity needs no administrative confirmation (rule #12)', (() => {
+    const exact = classifyHistoricalIdentity({ historicalLocation: 'RIVERSIDE', historicalBrand: "ANGEL'S PIZZA", canonicalIdentities, sameLocationDifferentBrandCandidates: [] });
+    const confirmation = describeAdministrativeConfirmation({ classification: exact.classification, matchType: exact.matchType, identityEstablished: false });
+    return confirmation === ADMINISTRATIVE_CONFIRMATION.NONE; // never claims an admin act "discovered" it
+  })());
+
+  // 13: all 10 confirmed-distinct-new identities each get exactly one Store ID
+  const tenConfirmedNew = ['GHOSTBAY', 'HOLLOWDALE', 'PINEHURST', 'MISTVALE', 'EMBERTON', 'QUARRYFIELD', 'SALTMARSH', 'IRONGATE', 'CLIFFHAVEN', 'MOSSWELL']
+    .map((loc) => ({ loc, brand: 'APEX', key: compositeKey(loc, 'APEX') }));
+  const tenResults = tenConfirmedNew.map(({ loc, brand, key }) => {
+    const classification = classifyHistoricalIdentity({ historicalLocation: loc, historicalBrand: brand, canonicalIdentities: [], sameLocationDifferentBrandCandidates: [] });
+    const id = finalizeProposedStoreId({ classification: classification.classification, canonicalStoreId: null, compositeKey: key, identityEstablished: true });
+    return { loc, classification: classification.classification, id };
+  });
+  check('all 10 confirmed-distinct-new identities are classified NEW and each receives exactly one Store ID',
+    tenResults.every((r) => r.classification === CLASSIFICATION.NEW && typeof r.id === 'string' && r.id.startsWith('STR-')));
+  check('all 10 confirmed-distinct-new Store IDs are mutually distinct (no duplicates)',
+    new Set(tenResults.map((r) => r.id)).size === 10);
+  check('none of the 10 confirmed-distinct-new IDs collides with the merge target\'s reused ID',
+    !tenResults.some((r) => r.id === 'STR-existing-x1'));
+
+  // 8 + 9: determinism across independent runs and input ordering, for the full mixed batch
+  check('determinism: repeating the merge classification+finalization independently yields the identical Store ID', (() => {
+    const run2 = classifyHistoricalIdentity({
+      historicalLocation: 'RIVERSIDE', historicalBrand: 'FIGARO', canonicalIdentities: canonicalIdentities.slice().reverse(),
+      sameLocationDifferentBrandCandidates: ["RIVERSIDE|ANGEL'S PIZZA"], confirmedCanonicalMatch: targetForMerge,
+    });
+    const id1 = finalizeProposedStoreId({ classification: mergedResult.classification, canonicalStoreId: mergedResult.canonicalStoreId, compositeKey: compositeKey('RIVERSIDE', 'FIGARO'), identityEstablished: false });
+    const id2 = finalizeProposedStoreId({ classification: run2.classification, canonicalStoreId: run2.canonicalStoreId, compositeKey: compositeKey('RIVERSIDE', 'FIGARO'), identityEstablished: false });
+    return id1 === id2;
+  })());
+
+  check('determinism: the 10 confirmed-new IDs are identical when computed in reverse order', (() => {
+    const reversed = tenConfirmedNew.slice().reverse().map(({ loc, brand, key }) => {
+      const classification = classifyHistoricalIdentity({ historicalLocation: loc, historicalBrand: brand, canonicalIdentities: [], sameLocationDifferentBrandCandidates: [] });
+      return finalizeProposedStoreId({ classification: classification.classification, canonicalStoreId: null, compositeKey: key, identityEstablished: true });
+    });
+    return reversed.slice().reverse().every((id, i) => id === tenResults[i].id);
+  })());
+
+  // 6 + 7: operationalStatus never overwrites classification, and never
+  // participates in Store-ID derivation, for BOTH the merge case and the confirmed-new case.
+  check('operationalStatus applied to the merge result never overwrites classification/matchType', (() => {
+    const record = { historicalLocation: 'RIVERSIDE', historicalBrand: 'FIGARO', ...mergedResult };
+    const withStatus = applyOperationalStatus([record], { [compositeKey('RIVERSIDE', 'FIGARO')]: OPERATIONAL_STATUS.INACTIVE })[0];
+    return withStatus.classification === CLASSIFICATION.EXISTING && withStatus.matchType === MATCH_TYPE.ADMINISTRATIVELY_CONFIRMED_MERGE
+      && withStatus.operationalStatus === OPERATIONAL_STATUS.INACTIVE;
+  })());
+
+  check('operationalStatus applied to a confirmed-new result never changes its already-finalized Store ID', (() => {
+    const first = tenResults[0];
+    const withStatus = applyOperationalStatus([{ historicalLocation: first.loc, historicalBrand: 'APEX', proposedStoreId: first.id }], { [compositeKey(first.loc, 'APEX')]: OPERATIONAL_STATUS.INACTIVE })[0];
+    return withStatus.proposedStoreId === first.id && withStatus.operationalStatus === OPERATIONAL_STATUS.INACTIVE;
+  })());
+
+  // 14: final manifest internal consistency (mirrors the real 11-row manifest shape)
+  check('final manifest counts are internally consistent (1 merge + 10 confirmed-new = 11, all resolved)', (() => {
+    const manifest = [
+      { classification: mergedResult.classification, storeId: 'STR-existing-x1', unresolved: false },
+      ...tenResults.map((r) => ({ classification: r.classification, storeId: r.id, unresolved: false })),
+    ];
+    const existingCount = manifest.filter((m) => m.classification === CLASSIFICATION.EXISTING).length;
+    const newCount = manifest.filter((m) => m.classification === CLASSIFICATION.NEW).length;
+    const withId = manifest.filter((m) => !!m.storeId).length;
+    const unresolvedCount = manifest.filter((m) => m.unresolved).length;
+    return manifest.length === 11 && existingCount === 1 && newCount === 10
+      && withId === 11 && unresolvedCount === 0
+      && new Set(manifest.map((m) => m.storeId)).size === 11; // no duplicate IDs anywhere in the manifest
   })());
 }
 
