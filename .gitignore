@@ -1,0 +1,17 @@
+# clasp OAuth credential — contains a refresh token, must never be committed.
+# Revoke at https://myaccount.google.com/permissions if it ever leaks.
+.clasprc.json
+**/.clasprc.json
+
+# Local clasp overrides (e.g. pointing at a different sheet than the tracked
+# .clasp.json). The tracked one deliberately targets the TEST COPY.
+.clasp.local.json
+**/.clasp.local.json
+
+# Node
+node_modules/
+npm-debug.log*
+
+# OS noise
+.DS_Store
+Thumbs.db
