@@ -216,6 +216,71 @@ KPI weight/target, risk weight/rule, or compliance rule field is ever
 produced by this module — that remains a separate, deliberate future
 step.
 
+### Phase 2C — Purpose operational readiness (CAPAR removed from active/selectable configuration)
+
+`purpose_operational_readiness.js` is a dry-run mirror of the EXISTING
+production configuration architecture —
+`SVMI_Project/Apps Script/SVMKPI_PURPOSE_CONFIG.gs`'s
+`purpose_getConfigurationStatus()` and `SVMKPI_ADMIN_API.gs`'s
+`admin_listPurposes()` — not a new model invented for this phase. It
+answers a different question than `purpose_reconciliation.js`:
+
+- `purpose_reconciliation.js` — a one-time **migration** question: "what
+  purposes exist across the three migration source systems, and what
+  should be decided about a discrepancy?" (`sourceStatus`,
+  `reconciliationDecision`, `configurationStatus`).
+- `purpose_operational_readiness.js` — an ongoing **operational**
+  question: "is this purpose currently active/selectable, and is it
+  ready for the reporting pipeline?" (`operationalConfigurationStatus`).
+
+`annotateWithOperationalStatus()` takes a `purpose_reconciliation.js`
+result and adds this second field **additively** — every existing field
+(`sourceValue`, `sourceStatus`, `reconciliationDecision`,
+`configurationStatus`, `historicalUseCount`, `historicalRowRefs`, ...) is
+copied through completely unchanged. This is the same non-colliding-field
+discipline used for Stores/Visitors: identity classification, an
+administrative decision, and an operational status are three separate
+concepts and are never collapsed into one.
+
+**CAPAR is historically preserved but currently inactive/not selectable.**
+It has real historical usage and real workbook presence — evidence a real
+gap exists — but no deliberate KPI/Risk configuration record exists for
+it, so `resolvePurposeConfigurationStatus()` (mirroring the real app's
+`exists`/`active`/`hasKpiConfig`/`hasRiskConfig`/`valid`/`incomplete`)
+resolves it `INACTIVE_NOT_SELECTABLE`. **Historical validity and
+analytics readiness are separate concepts**: CAPAR's 7 historical rows,
+exact `sourceValue`, and `sourceStatus: WORKBOOK_AND_HISTORICAL` are
+completely untouched by its operational status — its absence from the
+legacy `APPROVED_PURPOSES` list is never treated as proof those records
+are invalid.
+
+**No cross-purpose inheritance.** A purpose's KPI/Risk configuration is
+looked up by its own exact normalized key in `deliberateConfigurations`
+only — mirroring the real system's own documented guarantee
+(`SVMKPI_RISK_CONFIG.gs`: "Never silently reuses a DIFFERENT purpose's
+weight at any step"). A purpose absent from that map — CAPAR, or any
+other — has no configuration; it is never defaulted from another
+purpose's entry, from legacy behavior, or from its own historical usage.
+**New purposes require deliberate configuration**: nothing in this module
+ever creates a `deliberateConfigurations` entry — it only ever reads
+whatever was explicitly supplied.
+
+**Report inclusion is configuration-driven, not purpose-name hardcoded.**
+`getActiveSelectablePurposes()`/`getReportEligiblePurposes()`/
+`getPendingAnalyticsConfigurationPurposes()` each take only the annotated
+result — no purpose name, no `if (purpose === 'CAPAR')` branch anywhere.
+A synthetic `TEST_NEW_PURPOSE` proves the generic lifecycle end to end
+with zero purpose-specific code: absent from `deliberateConfigurations`
+it doesn't exist yet (same as CAPAR today); given an entry with
+`hasKpiConfig`/`hasRiskConfig` both `false` it becomes
+`ACTIVE_SELECTABLE` but reports explicitly as
+"configuration pending" (`getPendingAnalyticsConfigurationPurposes()`),
+never silently report-ready; once both flags are deliberately set `true`
+it is picked up by `getReportEligiblePurposes()` through the exact same
+function every other purpose goes through — **missing analytics
+configuration is always reported explicitly as a readiness state, never
+silently treated as another purpose or silently promoted to ready.**
+
 ## What's still needed once real data is available
 
 1. **A reader** turning whatever file the user provides (CSV per sheet, or

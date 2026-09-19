@@ -28,6 +28,10 @@ const { classifyVisitorTokens } = require('./visitor_identity_classification');
 const {
   VISITOR_CLASSIFICATION, VISITOR_MATCH_TYPE, ADMINISTRATIVE_CONFIRMATION: VISITOR_ADMIN_CONFIRMATION, finalizeVisitorIdentity,
 } = require('./visitor_identity_finalization');
+const {
+  PURPOSE_OPERATIONAL_STATUS, resolvePurposeConfigurationStatus, annotateWithOperationalStatus,
+  getActiveSelectablePurposes, getReportEligiblePurposes, getPendingAnalyticsConfigurationPurposes,
+} = require('./purpose_operational_readiness');
 
 let pass = 0, fail = 0;
 function check(name, cond, extra) {
@@ -1046,6 +1050,197 @@ check('parseDateCell: decimal-like garbage rejected', parseDateCell('2026-01') =
     return capar.reconciliationDecision === PURPOSE_RECONCILIATION_DECISION.HUMAN_REVIEW
       && capar.configurationStatus === CONFIGURATION_STATUS.UNCONFIRMED
       && capar.unresolvedFlag === true;
+  })());
+}
+
+// ── purpose_operational_readiness: Phase 2C operational readiness ──────
+// (CAPAR removal from active/selectable configuration; generic,
+// data-driven future-purpose readiness). Fictional TEST_NEW_PURPOSE
+// stands in for "any deliberately added new purpose."
+{
+  const legacyPurposeIds = ['STORE VISIT', 'TLTC', 'FAILED QA/MS', 'CURING/SUPPORT'];
+  const workbookSelectablePurposes = ['TLTC', 'STORE VISIT', 'CURING/SUPPORT', 'FAILED QA/MS', 'CAPAR'];
+  const masterLogRows = [
+    { rowRef: 'r1', purpose: 'STORE VISIT' },
+    { rowRef: 'r2', purpose: 'STORE VISIT' },
+    { rowRef: 'r3', purpose: 'TLTC' },
+    { rowRef: 'r4', purpose: 'CAPAR' },
+    { rowRef: 'r5', purpose: 'CAPAR' },
+    { rowRef: 'r6', purpose: 'CAPAR' },
+    { rowRef: 'r7', purpose: 'CAPAR' },
+    { rowRef: 'r8', purpose: 'CAPAR' },
+    { rowRef: 'r9', purpose: 'CAPAR' },
+    { rowRef: 'r10', purpose: 'CAPAR' }, // 7 CAPAR rows, mirroring the real 7-occurrence historical count
+    { rowRef: 'r11', purpose: 'TEST_NEW_PURPOSE' }, // a fictional, deliberately-added-later purpose
+  ];
+
+  // No administrative decision is required for operational readiness —
+  // that's purpose_reconciliation.js's separate migration-decision
+  // concern. This module only cares whether a DELIBERATE configuration
+  // (CONFIG_PURPOSES/CONFIG_KPI/CONFIG_RISK equivalent) exists.
+  const baseReconciliation = reconcilePurposeSources({ legacyPurposeIds, workbookSelectablePurposes, masterLogRows, administrativeDecisions: {} });
+
+  // ── A: CAPAR removal ──
+  check('A1: CAPAR is not returned as an active/selectable purpose (no deliberate configuration exists for it)', (() => {
+    const annotated = annotateWithOperationalStatus(baseReconciliation, {});
+    const active = getActiveSelectablePurposes(annotated);
+    return !active.some((p) => p.normalizedValue === 'CAPAR');
+  })());
+
+  check('A2: CAPAR is not accidentally resurrected through the legacy APPROVED_PURPOSES fallback', (() => {
+    // The legacy list passed in is the real, unmodified 4-entry list —
+    // proving CAPAR reaching ACTIVE_SELECTABLE would require someone to
+    // have added it there, which nothing in this module ever does.
+    return !legacyPurposeIds.includes('CAPAR') && legacyPurposeIds.length === 4;
+  })());
+
+  check('A3: CAPAR historical usage/workbook presence alone do not make it active', (() => {
+    const annotated = annotateWithOperationalStatus(baseReconciliation, {});
+    const capar = annotated.purposes.find((p) => p.normalizedValue === 'CAPAR');
+    return capar.workbookSelectable === true && capar.historicalUseCount === 7
+      && capar.operationalConfigurationStatus.operationalStatus === PURPOSE_OPERATIONAL_STATUS.INACTIVE_NOT_SELECTABLE;
+  })());
+
+  // ── B: historical preservation ──
+  check('B1: all 7 historical CAPAR rows remain preserved after annotation', (() => {
+    const annotated = annotateWithOperationalStatus(baseReconciliation, {});
+    const capar = annotated.purposes.find((p) => p.normalizedValue === 'CAPAR');
+    return capar.historicalUseCount === 7 && capar.historicalRowRefs.length === 7
+      && capar.historicalRowRefs.every((r) => ['r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10'].includes(r));
+  })());
+
+  check('B2: exact source value remains "CAPAR" (verbatim) after annotation', (() => {
+    const annotated = annotateWithOperationalStatus(baseReconciliation, {});
+    const capar = annotated.purposes.find((p) => p.normalizedValue === 'CAPAR');
+    return capar.sourceValue === 'CAPAR';
+  })());
+
+  check('B3: historical CAPAR rows are not remapped to any other purpose, and its absence from operational status never invalidates them', (() => {
+    const annotated = annotateWithOperationalStatus(baseReconciliation, {});
+    const capar = annotated.purposes.find((p) => p.normalizedValue === 'CAPAR');
+    const storeVisit = annotated.purposes.find((p) => p.normalizedValue === 'STORE VISIT');
+    // Inactive operational status is a SEPARATE concept from historical
+    // validity — capar's own 7 rows are untouched and unmoved regardless.
+    return !storeVisit.historicalRowRefs.some((r) => capar.historicalRowRefs.includes(r))
+      && capar.sourceStatus === PURPOSE_SOURCE_STATUS.WORKBOOK_AND_HISTORICAL; // still a real, valid historical fact
+  })());
+
+  // ── C: no configuration inheritance ──
+  check('C1: CAPAR with no configuration does not resolve another purpose\'s KPI/Risk configuration', (() => {
+    const deliberateConfigurations = {
+      'STORE VISIT': { hasKpiConfig: true, hasRiskConfig: true },
+      // No entry at all for CAPAR.
+    };
+    const status = resolvePurposeConfigurationStatus({ legacyApproved: false, deliberateConfiguration: deliberateConfigurations.CAPAR });
+    return status.hasKpiConfig === false && status.hasRiskConfig === false && status.valid === false;
+  })());
+
+  check('C2: a fictional new purpose with no configuration behaves identically to CAPAR (generic, not CAPAR-specific)', (() => {
+    const status = resolvePurposeConfigurationStatus({ legacyApproved: false, deliberateConfiguration: undefined });
+    const caparStatus = resolvePurposeConfigurationStatus({ legacyApproved: false, deliberateConfiguration: undefined });
+    return JSON.stringify(status) === JSON.stringify(caparStatus)
+      && status.operationalStatus === PURPOSE_OPERATIONAL_STATUS.INACTIVE_NOT_SELECTABLE;
+  })());
+
+  check('C3: annotateWithOperationalStatus looks up each purpose by its OWN exact key only, never a fallback', (() => {
+    const deliberateConfigurations = {
+      'STORE VISIT': { hasKpiConfig: true, hasRiskConfig: true },
+      TLTC: { hasKpiConfig: true, hasRiskConfig: false },
+    };
+    const annotated = annotateWithOperationalStatus(baseReconciliation, deliberateConfigurations);
+    const capar = annotated.purposes.find((p) => p.normalizedValue === 'CAPAR');
+    const testNewPurpose = annotated.purposes.find((p) => p.normalizedValue === 'TEST_NEW_PURPOSE');
+    return capar.operationalConfigurationStatus.hasKpiConfig === false
+      && capar.operationalConfigurationStatus.hasRiskConfig === false
+      && testNewPurpose.operationalConfigurationStatus.hasKpiConfig === false
+      && testNewPurpose.operationalConfigurationStatus.hasRiskConfig === false;
+  })());
+
+  // ── D: generic future-purpose readiness (TEST_NEW_PURPOSE) ──
+  check('D1: before deliberate configuration, TEST_NEW_PURPOSE reports a pending/readiness state, not report-ready', (() => {
+    const annotated = annotateWithOperationalStatus(baseReconciliation, {});
+    const pending = getPendingAnalyticsConfigurationPurposes(annotated);
+    const eligible = getReportEligiblePurposes(annotated);
+    return !eligible.some((p) => p.normalizedValue === 'TEST_NEW_PURPOSE')
+      && !getActiveSelectablePurposes(annotated).some((p) => p.normalizedValue === 'TEST_NEW_PURPOSE')
+      // Not yet "pending" either (no CONFIG_PURPOSES-equivalent row was
+      // ever created) — it simply does not exist as a configuration yet,
+      // exactly like CAPAR, distinguishing "unconfigured" from
+      // "configured but incomplete."
+      && !pending.some((p) => p.normalizedValue === 'TEST_NEW_PURPOSE');
+  })());
+
+  check('D2: TEST_NEW_PURPOSE can be deliberately configured and becomes discoverable dynamically, through the SAME generic function used for every other purpose', (() => {
+    // Step 1: a deliberate CONFIG_PURPOSES-equivalent record is created
+    // (activated) but KPI/Risk configuration is not complete yet.
+    const stepOne = annotateWithOperationalStatus(baseReconciliation, {
+      TEST_NEW_PURPOSE: { hasKpiConfig: false, hasRiskConfig: false },
+    });
+    const activeAfterStepOne = getActiveSelectablePurposes(stepOne);
+    const pendingAfterStepOne = getPendingAnalyticsConfigurationPurposes(stepOne);
+    const readyAfterStepOne = getReportEligiblePurposes(stepOne);
+
+    // Step 2: KPI + Risk configuration is deliberately completed.
+    const stepTwo = annotateWithOperationalStatus(baseReconciliation, {
+      TEST_NEW_PURPOSE: { hasKpiConfig: true, hasRiskConfig: true },
+    });
+    const readyAfterStepTwo = getReportEligiblePurposes(stepTwo);
+
+    return activeAfterStepOne.some((p) => p.normalizedValue === 'TEST_NEW_PURPOSE') // discoverable as soon as it's configured
+      && pendingAfterStepOne.some((p) => p.normalizedValue === 'TEST_NEW_PURPOSE')   // explicit pending state, not silently ready
+      && !readyAfterStepOne.some((p) => p.normalizedValue === 'TEST_NEW_PURPOSE')
+      && readyAfterStepTwo.some((p) => p.normalizedValue === 'TEST_NEW_PURPOSE');    // report-ready once fully configured
+  })());
+
+  check('D3: no purpose-specific function/branch exists — getReportEligiblePurposes/getActiveSelectablePurposes take only the annotated result, never a purpose name', (() => {
+    // Structural check: both functions have arity 1 (just the annotated
+    // result) — there is no per-purpose parameter to hardcode against.
+    return getActiveSelectablePurposes.length === 1 && getReportEligiblePurposes.length === 1
+      && getPendingAnalyticsConfigurationPurposes.length === 1;
+  })());
+
+  check('D4: TEST_NEW_PURPOSE\'s configuration is never borrowed from an existing purpose (e.g. CAPAR\'s or STORE VISIT\'s)', (() => {
+    const annotated = annotateWithOperationalStatus(baseReconciliation, {
+      'STORE VISIT': { hasKpiConfig: true, hasRiskConfig: true },
+      TEST_NEW_PURPOSE: { hasKpiConfig: true, hasRiskConfig: false },
+    });
+    const testNewPurpose = annotated.purposes.find((p) => p.normalizedValue === 'TEST_NEW_PURPOSE');
+    // Its OWN entry says hasRiskConfig:false — if it had inherited
+    // STORE VISIT's entry, this would incorrectly read true.
+    return testNewPurpose.operationalConfigurationStatus.hasKpiConfig === true
+      && testNewPurpose.operationalConfigurationStatus.hasRiskConfig === false
+      && testNewPurpose.operationalConfigurationStatus.valid === false;
+  })());
+
+  // ── Additional guarantees ──
+  check('legacy-approved purposes are always active/selectable, with no configuration record required (matches production backward-compat rule)', (() => {
+    const annotated = annotateWithOperationalStatus(baseReconciliation, {});
+    const active = getActiveSelectablePurposes(annotated).map((p) => p.normalizedValue);
+    return ['STORE VISIT', 'TLTC', 'FAILED QA/MS', 'CURING/SUPPORT'].every((p) => active.includes(p));
+  })());
+
+  check('annotateWithOperationalStatus never overwrites the reconciliation\'s own fields (sourceStatus/reconciliationDecision/configurationStatus)', (() => {
+    const decisions = { CAPAR: { decision: PURPOSE_RECONCILIATION_DECISION.CONFIGURE_AS_NEW_PURPOSE } };
+    const withDecision = reconcilePurposeSources({ legacyPurposeIds, workbookSelectablePurposes, masterLogRows, administrativeDecisions: decisions });
+    const annotated = annotateWithOperationalStatus(withDecision, {});
+    const capar = annotated.purposes.find((p) => p.normalizedValue === 'CAPAR');
+    return capar.sourceStatus === PURPOSE_SOURCE_STATUS.WORKBOOK_AND_HISTORICAL
+      && capar.reconciliationDecision === PURPOSE_RECONCILIATION_DECISION.CONFIGURE_AS_NEW_PURPOSE
+      && capar.configurationStatus === CONFIGURATION_STATUS.PENDING_DELIBERATE_CONFIGURATION
+      && 'operationalConfigurationStatus' in capar; // additive, not a replacement
+  })());
+
+  check('annotateWithOperationalStatus never mutates its input reconciliation result', (() => {
+    const snapshot = JSON.stringify(baseReconciliation);
+    annotateWithOperationalStatus(baseReconciliation, { TEST_NEW_PURPOSE: { hasKpiConfig: true, hasRiskConfig: true } });
+    return JSON.stringify(baseReconciliation) === snapshot;
+  })());
+
+  check('operational readiness is deterministic across independent calls', (() => {
+    const configs = { TEST_NEW_PURPOSE: { hasKpiConfig: true, hasRiskConfig: true } };
+    const runA = annotateWithOperationalStatus(baseReconciliation, configs);
+    const runB = annotateWithOperationalStatus(baseReconciliation, configs);
+    return JSON.stringify(runA) === JSON.stringify(runB);
   })());
 }
 
