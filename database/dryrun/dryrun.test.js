@@ -11,6 +11,9 @@ const { analyzeMasterLog } = require('./masterlog_integrity');
 const { reconcileStores } = require('./reconcile_stores');
 const { reconcileVisitors } = require('./reconcile_visitors');
 const { reconcilePurposes } = require('./reconcile_purposes');
+const {
+  PURPOSE_SOURCE_STATUS, PURPOSE_RECONCILIATION_DECISION, CONFIGURATION_STATUS, reconcilePurposeSources,
+} = require('./purpose_reconciliation');
 const { checkConfigOverlaps } = require('./config_overlap_check');
 const { validateSnapshots } = require('./snapshot_validation');
 const { extractYearsFromMasterLog, compareReportingYears } = require('./reporting_year_check');
@@ -913,6 +916,137 @@ check('parseDateCell: decimal-like garbage rejected', parseDateCell('2026-01') =
 
   check('CHEF-ARVIN-analog (GHOST VISITOR): remains a separate visitor identity, distinct from every roster member',
     !roster.includes(ghostInactive.canonicalVisitor) && ghostInactive.canonicalVisitor === 'GHOST VISITOR');
+}
+
+// ── purpose_reconciliation: cross-source Purpose reconciliation ────────
+// (Phase 2 purpose reconciliation). Uses the real legacy purpose names
+// (already public in SVMKPI_CORE.gs's APPROVED_PURPOSES and already used
+// in earlier committed tests in this file) — these are business-process
+// category labels, not sensitive data. Historical usage counts below are
+// fictional/small, not the real production statistics.
+{
+  const legacyPurposeIds = ['STORE VISIT', 'TLTC', 'FAILED QA/MS', 'CURING/SUPPORT'];
+  const workbookSelectablePurposes = ['TLTC', 'STORE VISIT', 'CURING/SUPPORT', 'FAILED QA/MS', 'CAPAR'];
+  const masterLogRows = [
+    { rowRef: 'r1', purpose: 'STORE VISIT' },
+    { rowRef: 'r2', purpose: 'STORE VISIT' },
+    { rowRef: 'r3', purpose: 'TLTC' },
+    { rowRef: 'r4', purpose: 'CAPAR' },
+    { rowRef: 'r5', purpose: 'CAPAR' },
+    { rowRef: 'r6', purpose: 'CAPAR' },
+    { rowRef: 'r7', purpose: 'GHOST PURPOSE' }, // historical-only: not legacy, not workbook-selectable
+  ];
+  const administrativeDecisions = {
+    CAPAR: { decision: PURPOSE_RECONCILIATION_DECISION.CONFIGURE_AS_NEW_PURPOSE },
+  };
+
+  const result = reconcilePurposeSources({ legacyPurposeIds, workbookSelectablePurposes, masterLogRows, administrativeDecisions });
+  const byName = Object.fromEntries(result.purposes.map((p) => [p.normalizedValue, p]));
+
+  check('1: CAPAR appears in workbook-selectable purposes but not legacy-approved purposes',
+    byName.CAPAR.workbookSelectable === true && byName.CAPAR.legacyApproved === false);
+
+  check('2: historical CAPAR usage is counted correctly',
+    byName.CAPAR.historicalUseCount === 3 && byName.CAPAR.historicalRowRefs.length === 3);
+
+  check('3: CAPAR is classified as a new purpose, never merged into an existing one', (() => {
+    // CAPAR must appear as its OWN entry, not folded into STORE VISIT/TLTC/etc.
+    const capar = byName.CAPAR;
+    return capar.sourceValue === 'CAPAR' && capar.sourceStatus === PURPOSE_SOURCE_STATUS.WORKBOOK_AND_HISTORICAL
+      && !['STORE VISIT', 'TLTC', 'FAILED QA/MS', 'CURING/SUPPORT'].includes(capar.sourceValue);
+  })());
+
+  check('4: the explicit CONFIGURE_AS_NEW_PURPOSE decision is represented separately from source discovery', (() => {
+    // sourceStatus (discovery) and reconciliationDecision (administrative act) are distinct fields.
+    return byName.CAPAR.sourceStatus === PURPOSE_SOURCE_STATUS.WORKBOOK_AND_HISTORICAL
+      && byName.CAPAR.reconciliationDecision === PURPOSE_RECONCILIATION_DECISION.CONFIGURE_AS_NEW_PURPOSE
+      && byName.CAPAR.sourceStatus !== byName.CAPAR.reconciliationDecision;
+  })());
+
+  check('5: historical source value remains exactly "CAPAR" (verbatim, not rewritten)',
+    byName.CAPAR.sourceValue === 'CAPAR');
+
+  check('6: case normalization does not rewrite the source value (lowercase historical variant preserved separately)', (() => {
+    const lowerRows = [{ rowRef: 'x1', purpose: 'capar' }];
+    const lowerResult = reconcilePurposeSources({ legacyPurposeIds, workbookSelectablePurposes, masterLogRows: lowerRows, administrativeDecisions });
+    const lowerCapar = lowerResult.purposes.find((p) => p.normalizedValue === 'CAPAR');
+    // sourceValue is picked from the workbook list ("CAPAR") since that
+    // list exists; the ORIGINAL lowercase MASTER_LOG text is preserved
+    // separately in historicalRowRefs, never silently replaced/upcased
+    // as if it were the same edit.
+    return lowerCapar.sourceValue === 'CAPAR' && lowerCapar.historicalUseCount === 1;
+  })());
+
+  check('7: historical usage alone never creates KPI configuration (no such field exists on the result)',
+    !('kpiWeight' in byName.CAPAR) && !('kpiTarget' in byName.CAPAR));
+
+  check('8: historical usage alone never creates risk configuration (no such field exists on the result)',
+    !('riskWeight' in byName.CAPAR) && !('riskRule' in byName.CAPAR));
+
+  check('9: historical usage alone never creates compliance configuration (no such field exists on the result)',
+    !('complianceRule' in byName.CAPAR) && !('complianceCategory' in byName.CAPAR));
+
+  check('CAPAR configurationStatus is PENDING_DELIBERATE_CONFIGURATION, never a misleading ACTIVE/ESTABLISHED',
+    byName.CAPAR.configurationStatus === CONFIGURATION_STATUS.PENDING_DELIBERATE_CONFIGURATION);
+
+  check('10: no existing purpose receives CAPAR\'s historical records through automatic matching', (() => {
+    const storeVisit = byName['STORE VISIT'];
+    const tltc = byName['TLTC'];
+    return !storeVisit.historicalRowRefs.some((r) => ['r4', 'r5', 'r6'].includes(r))
+      && !tltc.historicalRowRefs.some((r) => ['r4', 'r5', 'r6'].includes(r));
+  })());
+
+  check('13: existing legacy-approved purposes remain unchanged (classification + counts)', (() => {
+    const storeVisit = byName['STORE VISIT'];
+    return storeVisit.legacyApproved === true && storeVisit.sourceStatus === PURPOSE_SOURCE_STATUS.LEGACY_APPROVED
+      && storeVisit.reconciliationDecision === PURPOSE_RECONCILIATION_DECISION.EXISTING_PURPOSE
+      && storeVisit.configurationStatus === CONFIGURATION_STATUS.ESTABLISHED
+      && storeVisit.historicalUseCount === 2;
+  })());
+
+  check('14: workbook-only and historical-only purposes are distinguishable from each other', (() => {
+    const ghost = byName['GHOST PURPOSE'];
+    // GHOST PURPOSE: not legacy, not workbook-selectable, historically used once -> HISTORICAL_ONLY
+    return ghost.sourceStatus === PURPOSE_SOURCE_STATUS.HISTORICAL_ONLY
+      && ghost.reconciliationDecision === PURPOSE_RECONCILIATION_DECISION.HUMAN_REVIEW // no administrative decision was supplied for it
+      && ghost.sourceStatus !== byName.CAPAR.sourceStatus;
+  })());
+
+  check('a purpose that is workbook-selectable but never historically used classifies WORKBOOK_ONLY', (() => {
+    const wbOnlyResult = reconcilePurposeSources({
+      legacyPurposeIds, workbookSelectablePurposes: [...workbookSelectablePurposes, 'FUTURE PURPOSE'],
+      masterLogRows, administrativeDecisions,
+    });
+    const futurePurpose = wbOnlyResult.purposes.find((p) => p.normalizedValue === 'FUTURE PURPOSE');
+    return futurePurpose.sourceStatus === PURPOSE_SOURCE_STATUS.WORKBOOK_ONLY && futurePurpose.historicalUseCount === 0;
+  })());
+
+  check('15: source discrepancies are reported without modifying either source list', (() => {
+    const legacySnapshot = JSON.stringify(legacyPurposeIds);
+    const workbookSnapshot = JSON.stringify(workbookSelectablePurposes);
+    reconcilePurposeSources({ legacyPurposeIds, workbookSelectablePurposes, masterLogRows, administrativeDecisions });
+    return JSON.stringify(legacyPurposeIds) === legacySnapshot && JSON.stringify(workbookSelectablePurposes) === workbookSnapshot;
+  })());
+
+  check('11: reconciliation is deterministic across input ordering (shuffled MASTER_LOG rows)', (() => {
+    const shuffled = [masterLogRows[3], masterLogRows[6], masterLogRows[0], masterLogRows[5], masterLogRows[1], masterLogRows[4], masterLogRows[2]];
+    const shuffledResult = reconcilePurposeSources({ legacyPurposeIds, workbookSelectablePurposes, masterLogRows: shuffled, administrativeDecisions });
+    const summarize = (r) => JSON.stringify(r.purposes.map((p) => ({ v: p.sourceValue, n: p.historicalUseCount, s: p.sourceStatus, d: p.reconciliationDecision })));
+    return summarize(result) === summarize(shuffledResult);
+  })());
+
+  check('12: reconciliation is deterministic across independent runs', (() => {
+    const run2 = reconcilePurposeSources({ legacyPurposeIds, workbookSelectablePurposes, masterLogRows, administrativeDecisions });
+    return JSON.stringify(result) === JSON.stringify(run2);
+  })());
+
+  check('without an administrative decision, a non-legacy purpose stays HUMAN_REVIEW, never silently CONFIGURE_AS_NEW_PURPOSE', (() => {
+    const noDecisionResult = reconcilePurposeSources({ legacyPurposeIds, workbookSelectablePurposes, masterLogRows, administrativeDecisions: {} });
+    const capar = noDecisionResult.purposes.find((p) => p.normalizedValue === 'CAPAR');
+    return capar.reconciliationDecision === PURPOSE_RECONCILIATION_DECISION.HUMAN_REVIEW
+      && capar.configurationStatus === CONFIGURATION_STATUS.UNCONFIRMED
+      && capar.unresolvedFlag === true;
+  })());
 }
 
 // ── Source integrity: reconciliation never mutates its inputs ──────────

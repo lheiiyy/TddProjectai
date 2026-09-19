@@ -193,6 +193,29 @@ status (e.g. an inactive visitor) is layered on afterward via the same
 `operationalStatus` field — never overloaded onto identity
 classification.
 
+### Phase 2 — cross-source Purpose reconciliation (CAPAR)
+
+`purpose_reconciliation.js` is distinct from `reconcile_purposes.js`
+(which reconciles MASTER_LOG usage against a *versioned CONFIG_PURPOSES*
+dataset that doesn't exist in production). This module instead
+reconciles across the three sources that DO exist for every real
+purpose — the legacy application's hardcoded `APPROVED_PURPOSES`, the
+workbook's own selectable Visit-Type/purpose list, and actual MASTER_LOG
+historical usage — classifying each into `PURPOSE_SOURCE_STATUS`
+(`LEGACY_APPROVED` / `WORKBOOK_ONLY` / `HISTORICAL_ONLY` /
+`WORKBOOK_AND_HISTORICAL` / `UNRESOLVED`), and applies the same
+external/never-inferred administrative-decision discipline as the
+Store and Visitor reconciliation modules: an explicit
+`administrativeDecisions` input (e.g. `CONFIGURE_AS_NEW_PURPOSE`) is
+required before a non-legacy purpose's `reconciliationDecision` becomes
+anything other than `HUMAN_REVIEW` — never assumed from workbook
+presence or historical usage alone. A purpose pending deliberate
+configuration is reported `configurationStatus:
+PENDING_DELIBERATE_CONFIGURATION`, never a misleading `ACTIVE`, and no
+KPI weight/target, risk weight/rule, or compliance rule field is ever
+produced by this module — that remains a separate, deliberate future
+step.
+
 ## What's still needed once real data is available
 
 1. **A reader** turning whatever file the user provides (CSV per sheet, or
