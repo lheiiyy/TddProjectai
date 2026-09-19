@@ -14,7 +14,9 @@ const { reconcilePurposes } = require('./reconcile_purposes');
 const { checkConfigOverlaps } = require('./config_overlap_check');
 const { validateSnapshots } = require('./snapshot_validation');
 const { extractYearsFromMasterLog, compareReportingYears } = require('./reporting_year_check');
-const { buildStoreIdentityReconciliation, compositeKey, STATUS: STORE_STATUS } = require('./store_canonical_identity');
+const { buildStoreIdentityReconciliation, compositeKey, findLocationOnlyCandidates, STATUS: STORE_STATUS } = require('./store_canonical_identity');
+const { findEmbeddedConventionCandidates } = require('./location_convention_candidates');
+const { classifyHistoricalIdentity, CLASSIFICATION } = require('./historical_identity_classification');
 const { deriveProposedStoreId, buildProposedStoreIdMap, uuidV5, SVMI_STORE_NAMESPACE_UUID } = require('./store_id_generator');
 const { classifyVisitorTokens } = require('./visitor_identity_classification');
 
@@ -414,6 +416,104 @@ check('parseDateCell: decimal-like garbage rejected', parseDateCell('2026-01') =
     JSON.stringify(result).toUpperCase().includes('CAPAR'));
   check('purpose: no automatic configuration created for CAPAR (legacy list unchanged)',
     legacyPurposeIds.length === 4 && !legacyPurposeIds.includes('CAPAR'));
+}
+
+// ── location_convention_candidates: embedded-naming-convention finder ──
+// (Phase 2A.3). Fictional fixtures mirroring the real pattern found in
+// production: some locations are named "<PREFIX> <TOWN>" or "<TOWN>
+// <BRANDWORD>" with a Brand column that separately, redundantly agrees.
+{
+  const canonicalIdentities = [
+    { normalizedLocation: 'X RIVERSIDE', normalizedBrand: 'FIGARO', proposedStoreId: 'STR-x1' }, // brand-prefix convention
+    { normalizedLocation: 'HILLTOP FIGARO', normalizedBrand: 'FIGARO', proposedStoreId: 'STR-x2' }, // town+brand-suffix convention
+    { normalizedLocation: 'RIVERSIDE', normalizedBrand: "ANGEL'S PIZZA", proposedStoreId: 'STR-x3' }, // same location, different brand — must never surface as a same-brand candidate
+    { normalizedLocation: 'LAKEVIEW', normalizedBrand: 'APEX', proposedStoreId: 'STR-x4' },
+  ];
+
+  check('location_convention_candidates: same-brand suffix-embedded convention detected (X RIVERSIDE ~ RIVERSIDE, both FIGARO)', (() => {
+    const result = findEmbeddedConventionCandidates({ historicalLocation: 'RIVERSIDE', historicalBrand: 'FIGARO', canonicalIdentities });
+    return result.length === 1 && result[0].candidateLocation === 'X RIVERSIDE';
+  })());
+
+  check('location_convention_candidates: never crosses brands (RIVERSIDE/ANGEL\'S PIZZA never surfaces for a FIGARO query)', (() => {
+    const result = findEmbeddedConventionCandidates({ historicalLocation: 'RIVERSIDE', historicalBrand: 'FIGARO', canonicalIdentities });
+    return !result.some((c) => c.candidateBrand === "ANGEL'S PIZZA");
+  })());
+
+  check('location_convention_candidates: no candidate when no structural word-containment exists (LAKEVIEW vs APEX has no relative)', (() => {
+    const result = findEmbeddedConventionCandidates({ historicalLocation: 'LAKEVIEW', historicalBrand: 'APEX', canonicalIdentities });
+    return result.length === 0;
+  })());
+
+  check('location_convention_candidates: does not fire on mere style similarity without word containment (HILLTOP FIGARO style vs a same-brand but textually unrelated town)', (() => {
+    const result = findEmbeddedConventionCandidates({ historicalLocation: 'PLAINTOWN FIGARO', historicalBrand: 'FIGARO', canonicalIdentities });
+    // "PLAINTOWN FIGARO" does not word-contain or get word-contained by
+    // "HILLTOP FIGARO" or "X RIVERSIDE" — sharing only the word "FIGARO"
+    // is NOT structural containment of the whole other location string.
+    return result.length === 0;
+  })());
+}
+
+// ── historical_identity_classification: EXISTING/NEW/HUMAN_REVIEW ──────
+// (Phase 2A.3). Demonstrates rule #9's required proof: same-location/
+// different-brand never resolves; same-location/same-brand can resolve
+// when evidence supports it (an exact canonical match); a same-brand
+// naming-convention candidate routes to HUMAN_REVIEW, never auto-merged.
+{
+  const canonicalIdentities = [
+    { normalizedLocation: 'X RIVERSIDE', normalizedBrand: 'FIGARO', canonicalLocation: 'X RIVERSIDE', canonicalBrand: 'FIGARO', proposedStoreId: 'STR-x1' },
+    { normalizedLocation: 'RIVERSIDE', normalizedBrand: "ANGEL'S PIZZA", canonicalLocation: 'RIVERSIDE', canonicalBrand: "ANGEL'S PIZZA", proposedStoreId: 'STR-x3' },
+    { normalizedLocation: 'LAKEVIEW', normalizedBrand: 'APEX', canonicalLocation: 'LAKEVIEW', canonicalBrand: 'APEX', proposedStoreId: 'STR-x4' },
+  ];
+
+  check('historical_identity_classification: exact same-location/same-brand match resolves to EXISTING', (() => {
+    const result = classifyHistoricalIdentity({ historicalLocation: 'LAKEVIEW', historicalBrand: 'APEX', canonicalIdentities, sameLocationDifferentBrandCandidates: [] });
+    return result.classification === CLASSIFICATION.EXISTING && result.canonicalStoreId === 'STR-x4';
+  })());
+
+  check('historical_identity_classification: same-location/different-brand NEVER resolves to EXISTING (rule #4/#9 — RIVERSIDE+FIGARO must not match RIVERSIDE+ANGEL\'S PIZZA)', (() => {
+    const result = classifyHistoricalIdentity({
+      historicalLocation: 'RIVERSIDE', historicalBrand: 'FIGARO', canonicalIdentities,
+      sameLocationDifferentBrandCandidates: ["RIVERSIDE|ANGEL'S PIZZA"],
+    });
+    return result.classification !== CLASSIFICATION.EXISTING;
+  })());
+
+  check('historical_identity_classification: same-brand naming-convention candidate routes to HUMAN_REVIEW, never auto-merged', (() => {
+    const result = classifyHistoricalIdentity({ historicalLocation: 'RIVERSIDE', historicalBrand: 'FIGARO', canonicalIdentities, sameLocationDifferentBrandCandidates: [] });
+    return result.classification === CLASSIFICATION.HUMAN_REVIEW
+      && result.proposedStoreId === null
+      && result.evidence.some((e) => e.candidateLocation === 'X RIVERSIDE');
+  })());
+
+  check('historical_identity_classification: no candidate at all -> NEW, with no Store ID minted', (() => {
+    const result = classifyHistoricalIdentity({ historicalLocation: 'GHOSTBAY', historicalBrand: 'APEX', canonicalIdentities, sameLocationDifferentBrandCandidates: [] });
+    return result.classification === CLASSIFICATION.NEW && result.proposedStoreId === null;
+  })());
+
+  check('historical_identity_classification: classification is deterministic across repeated calls with the same input', (() => {
+    const run1 = classifyHistoricalIdentity({ historicalLocation: 'RIVERSIDE', historicalBrand: 'FIGARO', canonicalIdentities, sameLocationDifferentBrandCandidates: [] });
+    const run2 = classifyHistoricalIdentity({ historicalLocation: 'RIVERSIDE', historicalBrand: 'FIGARO', canonicalIdentities, sameLocationDifferentBrandCandidates: [] });
+    return run1.classification === run2.classification && JSON.stringify(run1.evidence) === JSON.stringify(run2.evidence);
+  })());
+
+  // Mirrors a real Phase 2A.3 investigation (documented locally, never
+  // committed): a compound "TOWN BRANDWORD" historical location, brand
+  // column separately and
+  // redundantly agreeing, with NO existing canonical entry under either
+  // the compound name or the bare town name for that brand — must
+  // resolve to NEW, never silently decomposed/renamed, and never
+  // confused with a differently-branded entry at the bare town name.
+  check('historical_identity_classification: "TOWN BRANDWORD"-style compound location with no canonical relative -> NEW, not decomposed', (() => {
+    const canonical2 = [
+      { normalizedLocation: 'TOWN', normalizedBrand: "ANGEL'S PIZZA", canonicalLocation: 'TOWN', canonicalBrand: "ANGEL'S PIZZA", proposedStoreId: 'STR-y1' },
+    ];
+    const result = classifyHistoricalIdentity({
+      historicalLocation: 'TOWN FIGARO', historicalBrand: 'FIGARO', canonicalIdentities: canonical2,
+      sameLocationDifferentBrandCandidates: ["TOWN|ANGEL'S PIZZA"],
+    });
+    return result.classification === CLASSIFICATION.NEW && result.proposedStoreId === null;
+  })());
 }
 
 // ── Source integrity: reconciliation never mutates its inputs ──────────

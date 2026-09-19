@@ -114,6 +114,24 @@ identities, statuses, and proposed Store IDs result whether SETTINGS rows
 are supplied in their original order, a shuffled order, or as an
 independently-constructed but data-equivalent row set.
 
+### Phase 2A.3 — final classification of MASTER_LOG-only unresolved identities
+
+For a `MASTER_LOG_ONLY_UNRESOLVED` identity, two more modules determine
+whether it should ultimately be treated as `EXISTING`, `NEW`, or
+`HUMAN_REVIEW` (see `historical_identity_classification.js`'s `CLASSIFICATION`
+enum) — still never minting or writing anything:
+
+| Module | Purpose |
+|---|---|
+| `location_convention_candidates.js` | Finds same-brand canonical identities whose location word-sequence is an exact prefix/suffix of the historical location's (or vice versa) — a real naming convention some organizations use (e.g. a brand-word folded into the location label itself), evidenced from the canonical dataset, never a similarity/edit-distance score. Never crosses brands. |
+| `historical_identity_classification.js` | `EXISTING` only on an exact (Location,Brand) match; `HUMAN_REVIEW` when a same-brand convention candidate exists (real ambiguity, never auto-resolved); `NEW` when neither applies — never mints a Store ID for `NEW`/`HUMAN_REVIEW`. |
+
+Same-location/different-brand candidates are still tracked (from
+`findLocationOnlyCandidates`) but never influence this classification —
+they exist purely for human context, consistent with the confirmed rule
+that brands differing always means a different Store regardless of
+physical co-location.
+
 ## What's still needed once real data is available
 
 1. **A reader** turning whatever file the user provides (CSV per sheet, or
