@@ -1,0 +1,10 @@
+# Runtime artifacts from actually running the tooling against a local
+# DEV database — never committed (backups may contain DEV data, and
+# logs are just a run history, regenerated every run).
+backups/
+scripts/logs/
+
+# Real per-environment credentials — only the .env.*.example templates
+# are committed.
+.env.dev
+.env.prod

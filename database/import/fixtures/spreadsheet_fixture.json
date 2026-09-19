@@ -1,0 +1,124 @@
+{
+  "_comment": "SYNTHETIC fixture standing in for the real Google Sheet's data (SETTINGS, MASTER_LOG, CONFIG_* sheets, CONFIG_AUDIT, REPORT_SNAPSHOTS). No live/production data of any kind — every name, id, and date below is invented for this DEV pipeline proof. Shapes mirror the real sheet layouts documented in database/docs/02-data-inventory.md.",
+
+  "settings": [
+    { "store": "SAMPLE STORE A", "brand": "ANGEL'S PIZZA", "region": "NCR", "category": "NCR" },
+    { "store": "SAMPLE STORE B", "brand": "FIGARO", "region": "PROVINCIAL", "category": "NEAR PROVINCIAL" },
+    { "store": "SAMPLE STORE C", "brand": "APEX", "region": "PROVINCIAL", "category": "FAR PROVINCIAL" },
+    { "store": "SAMPLE STORE D", "brand": "TIEN MA'S", "region": "PROVINCIAL", "category": "FLIGHT PROVINCIAL" },
+    { "store": "SAMPLE STORE E", "brand": "KOOBIDEH", "region": "FRANCHISE", "category": "NCR" }
+  ],
+
+  "configStores": [
+    { "entityId": "STR-0001", "versionNum": 1, "effectiveFrom": "2025-01-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2025-01-01T08:00:00Z", "createdBy": "seed@dev.local", "reason": "Initial store record", "storeName": "SAMPLE STORE A", "brand": "ANGEL'S PIZZA", "region": "NCR", "category": "NCR", "status": "ACTIVE" },
+    { "entityId": "STR-0002", "versionNum": 1, "effectiveFrom": "2025-01-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2025-01-01T08:00:00Z", "createdBy": "seed@dev.local", "reason": "Initial store record", "storeName": "SAMPLE STORE B", "brand": "FIGARO", "region": "PROVINCIAL", "category": "NEAR PROVINCIAL", "status": "ACTIVE" },
+    { "entityId": "STR-0003", "versionNum": 1, "effectiveFrom": "2025-01-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2025-01-01T08:00:00Z", "createdBy": "seed@dev.local", "reason": "Initial store record", "storeName": "SAMPLE STORE C", "brand": "APEX", "region": "PROVINCIAL", "category": "FAR PROVINCIAL", "status": "ACTIVE" },
+    { "entityId": "STR-0004", "versionNum": 1, "effectiveFrom": "2025-01-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2025-01-01T08:00:00Z", "createdBy": "seed@dev.local", "reason": "Initial store record", "storeName": "SAMPLE STORE D", "brand": "TIEN MA'S", "region": "PROVINCIAL", "category": "FLIGHT PROVINCIAL", "status": "ACTIVE" },
+    { "entityId": "STR-0005", "versionNum": 1, "effectiveFrom": "2025-01-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2025-01-01T08:00:00Z", "createdBy": "seed@dev.local", "reason": "Initial store record", "storeName": "SAMPLE STORE E", "brand": "KOOBIDEH", "region": "FRANCHISE", "category": "NCR", "status": "ACTIVE" },
+    { "entityId": "STR-0005", "versionNum": 2, "effectiveFrom": "2026-03-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2026-03-01T09:00:00Z", "createdBy": "admin@dev.local", "reason": "Category corrected after site re-survey", "storeName": "SAMPLE STORE E", "brand": "KOOBIDEH", "region": "FRANCHISE", "category": "NEAR PROVINCIAL", "status": "ACTIVE" }
+  ],
+
+  "configVisitors": [
+    { "entityId": "LEO", "versionNum": 1, "effectiveFrom": "2025-01-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2025-01-01T08:00:00Z", "createdBy": "seed@dev.local", "reason": "Initial visitor roster", "visitorName": "LEO" },
+    { "entityId": "YANA", "versionNum": 1, "effectiveFrom": "2025-01-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2025-01-01T08:00:00Z", "createdBy": "seed@dev.local", "reason": "Initial visitor roster", "visitorName": "YANA" },
+    { "entityId": "MARCO", "versionNum": 1, "effectiveFrom": "2025-01-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2025-01-01T08:00:00Z", "createdBy": "seed@dev.local", "reason": "Initial visitor roster", "visitorName": "MARCO" }
+  ],
+
+  "configPurposes": [
+    { "entityId": "STORE VISIT", "versionNum": 1, "effectiveFrom": "2025-01-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2025-01-01T08:00:00Z", "createdBy": "seed@dev.local", "reason": "Legacy default purpose", "riskWeight": 0, "isLegacy": true },
+    { "entityId": "TLTC", "versionNum": 1, "effectiveFrom": "2025-01-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2025-01-01T08:00:00Z", "createdBy": "seed@dev.local", "reason": "Legacy default purpose", "riskWeight": 5, "isLegacy": true },
+    { "entityId": "FAILED QA/MS", "versionNum": 1, "effectiveFrom": "2025-01-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2025-01-01T08:00:00Z", "createdBy": "seed@dev.local", "reason": "Legacy default purpose", "riskWeight": 15, "isLegacy": true },
+    { "entityId": "CURING/SUPPORT", "versionNum": 1, "effectiveFrom": "2025-01-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2025-01-01T08:00:00Z", "createdBy": "seed@dev.local", "reason": "Legacy default purpose", "riskWeight": 5, "isLegacy": true }
+  ],
+
+  "configComplianceRules": [
+    { "category": "NCR", "versionNum": 1, "effectiveFrom": "2025-01-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2025-01-01T08:00:00Z", "createdBy": "seed@dev.local", "reason": "Legacy default compliance rule (CMP_DEFAULT_RULES)", "cadenceType": "MONTHLY", "cadenceDays": 31, "periodDefinition": "MONTH", "requiredCount": 1, "graceDays": 0, "isLegacyDefault": true },
+    { "category": "NEAR PROVINCIAL", "versionNum": 1, "effectiveFrom": "2025-01-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2025-01-01T08:00:00Z", "createdBy": "seed@dev.local", "reason": "Legacy default compliance rule (CMP_DEFAULT_RULES)", "cadenceType": "MONTHLY", "cadenceDays": 31, "periodDefinition": "MONTH", "requiredCount": 1, "graceDays": 0, "isLegacyDefault": true },
+    { "category": "FAR PROVINCIAL", "versionNum": 1, "effectiveFrom": "2025-01-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2025-01-01T08:00:00Z", "createdBy": "seed@dev.local", "reason": "Legacy default compliance rule (CMP_DEFAULT_RULES)", "cadenceType": "QUARTERLY", "cadenceDays": 92, "periodDefinition": "QUARTER", "requiredCount": 1, "graceDays": 0, "isLegacyDefault": true },
+    { "category": "FLIGHT PROVINCIAL", "versionNum": 1, "effectiveFrom": "2025-01-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2025-01-01T08:00:00Z", "createdBy": "seed@dev.local", "reason": "Legacy default compliance rule (CMP_DEFAULT_RULES)", "cadenceType": "SEMI_ANNUAL", "cadenceDays": 183, "periodDefinition": "SEMI_ANNUAL", "requiredCount": 1, "graceDays": 0, "isLegacyDefault": true }
+  ],
+
+  "configRisk": [
+    { "entityId": "GLOBAL", "versionNum": 1, "effectiveFrom": "2025-01-01", "effectiveTo": "2026-01-01", "envelopeStatus": "INACTIVE", "createdAt": "2025-01-01T08:00:00Z", "createdBy": "seed@dev.local", "reason": "Initial risk thresholds", "lowThreshold": 0, "mediumThreshold": 8, "highThreshold": 15 },
+    { "entityId": "GLOBAL", "versionNum": 2, "effectiveFrom": "2026-01-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2026-01-01T08:00:00Z", "createdBy": "admin@dev.local", "reason": "Annual threshold review", "lowThreshold": 0, "mediumThreshold": 5, "highThreshold": 15 }
+  ],
+
+  "configKpi": [
+    { "entityId": "WEEKLY_VISIT_TARGET", "versionNum": 1, "effectiveFrom": "2025-01-01", "effectiveTo": null, "envelopeStatus": "ACTIVE", "createdAt": "2025-01-01T08:00:00Z", "createdBy": "seed@dev.local", "reason": "Initial KPI target", "targetType": "COUNT", "targetValue": 5 }
+  ],
+
+  "configSystem": [],
+
+  "configAudit": [
+    { "auditId": "AUD-0001", "timestamp": "2026-01-01T08:00:00Z", "actor": "admin@dev.local", "area": "RISK", "entityId": "GLOBAL", "action": "CREATE", "previousValue": null, "newValue": "{\"highThreshold\":15,\"mediumThreshold\":5}", "effectiveFrom": "2026-01-01", "effectiveTo": null, "reason": "Annual threshold review", "version": 2 },
+    { "auditId": "AUD-0002", "timestamp": "2026-03-01T09:00:00Z", "actor": "admin@dev.local", "area": "STORES", "entityId": "STR-0005", "action": "CREATE", "previousValue": "{\"category\":\"NCR\"}", "newValue": "{\"category\":\"NEAR PROVINCIAL\"}", "effectiveFrom": "2026-03-01", "effectiveTo": null, "reason": "Category corrected after site re-survey", "version": 2 }
+  ],
+
+  "masterLog": [
+    { "timestamp": "2026-01-05T10:00:00Z", "dateVisited": "2026-01-05", "store": "SAMPLE STORE A", "brand": "ANGEL'S PIZZA", "region": "NCR", "visitedBy": "LEO | YANA", "purpose": "STORE VISIT", "remarks": "Routine visit", "storeId": "STR-0001" },
+    { "timestamp": "2026-02-10T11:00:00Z", "dateVisited": "2026-02-10", "store": "SAMPLE STORE A", "brand": "ANGEL'S PIZZA", "region": "NCR", "visitedBy": "LEO", "purpose": "FAILED QA/MS", "remarks": "QA issue found", "storeId": "STR-0001" },
+    { "timestamp": "2026-03-02T09:30:00Z", "dateVisited": "2026-03-02", "store": "SAMPLE STORE B", "brand": "FIGARO", "region": "PROVINCIAL", "visitedBy": "MARCO", "purpose": "TLTC", "remarks": "", "storeId": "STR-0002" },
+    { "timestamp": "2026-04-15T14:00:00Z", "dateVisited": "2026-04-15", "store": "SAMPLE STORE C", "brand": "APEX", "region": "PROVINCIAL", "visitedBy": "YANA | MARCO", "purpose": "CURING/SUPPORT", "remarks": "New store curing", "storeId": "STR-0003" },
+    { "timestamp": "2025-11-20T10:00:00Z", "dateVisited": "2025-11-20", "store": "SAMPLE STORE D", "brand": "TIEN MA'S", "region": "PROVINCIAL", "visitedBy": "LEO", "purpose": "STORE VISIT", "remarks": "Prior-year visit", "storeId": "STR-0004" },
+    { "timestamp": "2025-12-28T10:00:00Z", "dateVisited": "2025-12-28", "store": "SAMPLE STORE E", "brand": "KOOBIDEH", "region": "FRANCHISE", "visitedBy": "YANA", "purpose": "STORE VISIT", "remarks": "", "storeId": "STR-0005" },
+    { "timestamp": "2026-06-01T10:00:00Z", "dateVisited": "2026-06-01", "store": "UNKNOWN NEW STORE", "brand": "APEX", "region": "PROVINCIAL", "visitedBy": "LEO", "purpose": "STORE VISIT", "remarks": "Legacy row predating Store ID migration", "storeId": "" }
+  ],
+
+  "reportSnapshots": [
+    {
+      "reportingYear": 2025,
+      "versionNum": 1,
+      "status": "FINALIZED",
+      "createdAt": "2026-01-02T08:00:00Z",
+      "createdBy": "admin@dev.local",
+      "reason": "Year-end close",
+      "evaluationDate": "2025-12-31",
+      "configProvenance": { "riskConfigVersion": 1, "note": "Store/Purpose configuration resolved per-entity at calculation time, not one report-wide version." },
+      "totals": { "storeCount": 2, "highRiskCount": 0, "mediumRiskCount": 0, "lowRiskCount": 2, "complianceGapCount": 0 },
+      "storeResults": [
+        { "storeId": "STR-0004", "storeName": "SAMPLE STORE D", "riskTier": "LOW", "riskScore": 2 },
+        { "storeId": "STR-0005", "storeName": "SAMPLE STORE E", "riskTier": "LOW", "riskScore": 1 }
+      ],
+      "complianceGaps": []
+    },
+    {
+      "reportingYear": 2026,
+      "versionNum": 1,
+      "status": "SUPERSEDED",
+      "createdAt": "2026-05-01T08:00:00Z",
+      "createdBy": "admin@dev.local",
+      "reason": "Initial 2026 finalize",
+      "evaluationDate": "2026-04-30",
+      "configProvenance": { "riskConfigVersion": 2 },
+      "totals": { "storeCount": 3, "highRiskCount": 1, "mediumRiskCount": 0, "lowRiskCount": 2, "complianceGapCount": 1 },
+      "storeResults": [
+        { "storeId": "STR-0001", "storeName": "SAMPLE STORE A", "riskTier": "HIGH", "riskScore": 20 },
+        { "storeId": "STR-0002", "storeName": "SAMPLE STORE B", "riskTier": "LOW", "riskScore": 1 },
+        { "storeId": "STR-0003", "storeName": "SAMPLE STORE C", "riskTier": "LOW", "riskScore": 3 }
+      ],
+      "complianceGaps": [
+        { "storeId": "STR-0001", "category": "FAILED QA/MS", "requiredCount": 0, "actualCount": 1, "gapNote": "QA issue recorded, follow-up required" }
+      ]
+    },
+    {
+      "reportingYear": 2026,
+      "versionNum": 2,
+      "status": "FINALIZED",
+      "createdAt": "2026-06-01T08:00:00Z",
+      "createdBy": "admin@dev.local",
+      "reason": "Correction: prior version omitted April late submission",
+      "supersedesVersion": 1,
+      "evaluationDate": "2026-04-30",
+      "configProvenance": { "riskConfigVersion": 2 },
+      "totals": { "storeCount": 3, "highRiskCount": 1, "mediumRiskCount": 0, "lowRiskCount": 2, "complianceGapCount": 1 },
+      "storeResults": [
+        { "storeId": "STR-0001", "storeName": "SAMPLE STORE A", "riskTier": "HIGH", "riskScore": 20 },
+        { "storeId": "STR-0002", "storeName": "SAMPLE STORE B", "riskTier": "LOW", "riskScore": 1 },
+        { "storeId": "STR-0003", "storeName": "SAMPLE STORE C", "riskTier": "LOW", "riskScore": 3 }
+      ],
+      "complianceGaps": [
+        { "storeId": "STR-0001", "category": "FAILED QA/MS", "requiredCount": 0, "actualCount": 1, "gapNote": "QA issue recorded, follow-up required" }
+      ]
+    }
+  ]
+}
