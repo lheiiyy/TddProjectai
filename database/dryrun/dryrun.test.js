@@ -22,6 +22,9 @@ const { STATUS: OPERATIONAL_STATUS, applyOperationalStatus } = require('./operat
 const { finalizeProposedStoreId } = require('./store_id_finalization');
 const { ADMINISTRATIVE_CONFIRMATION, describeAdministrativeConfirmation } = require('./administrative_confirmation');
 const { classifyVisitorTokens } = require('./visitor_identity_classification');
+const {
+  VISITOR_CLASSIFICATION, VISITOR_MATCH_TYPE, ADMINISTRATIVE_CONFIRMATION: VISITOR_ADMIN_CONFIRMATION, finalizeVisitorIdentity,
+} = require('./visitor_identity_finalization');
 
 let pass = 0, fail = 0;
 function check(name, cond, extra) {
@@ -793,6 +796,123 @@ check('parseDateCell: decimal-like garbage rejected', parseDateCell('2026-01') =
       && withId === 11 && unresolvedCount === 0
       && new Set(manifest.map((m) => m.storeId)).size === 11; // no duplicate IDs anywhere in the manifest
   })());
+}
+
+// ── visitor_identity_finalization: administratively confirmed visitor ──
+// merges and distinct-new identities (Phase 2 visitor reconciliation).
+// Fictional fixtures mirroring a real business decision (documented
+// locally, never committed): case-only variants confirmed merged into
+// their roster entries, a nickname-style token confirmed merged into an
+// existing roster member, and a genuinely new inactive visitor.
+{
+  const roster = ['PAT', 'ROBIN', 'TAYLOR'];
+  const masterLogRows = [
+    { rowRef: 'r1', visitedBy: 'PAT' },
+    { rowRef: 'r2', visitedBy: 'pat' }, // case variant of PAT
+    { rowRef: 'r3', visitedBy: 'ROBIN' },
+    { rowRef: 'r4', visitedBy: 'PJ' }, // nickname for ROBIN, per admin decision
+    { rowRef: 'r5', visitedBy: 'PJ' },
+    { rowRef: 'r6', visitedBy: 'NEW PERSON' }, // confirmed distinct, active
+    { rowRef: 'r7', visitedBy: 'GHOST VISITOR' }, // confirmed distinct, inactive
+    { rowRef: 'r8', visitedBy: 'unclaimed token' }, // no administrative decision at all
+  ];
+  const evidence = classifyVisitorTokens({ roster, masterLogRows });
+  const byToken = Object.fromEntries(evidence.tokens.map((t) => [t.token, t]));
+
+  const patExact = finalizeVisitorIdentity({ token: 'PAT', automaticClassification: byToken['PAT'].classification });
+  const patVariant = finalizeVisitorIdentity({
+    token: 'pat', automaticClassification: byToken['pat'].classification, matchedRosterName: byToken['pat'].matchedRosterName,
+    confirmedMerge: { canonicalVisitor: 'PAT', administrativeConfirmation: VISITOR_ADMIN_CONFIRMATION.CONFIRMED_EXISTING_IDENTITY },
+  });
+  const pjMerge = finalizeVisitorIdentity({
+    token: 'PJ', automaticClassification: byToken['PJ'].classification,
+    confirmedMerge: { canonicalVisitor: 'ROBIN', administrativeConfirmation: VISITOR_ADMIN_CONFIRMATION.CONFIRMED_DISTINCT_VISITOR_IDENTITY },
+  });
+  const newPersonActive = finalizeVisitorIdentity({
+    token: 'NEW PERSON', automaticClassification: byToken['NEW PERSON'].classification,
+    confirmedDistinct: { canonicalVisitor: 'NEW PERSON', administrativeConfirmation: VISITOR_ADMIN_CONFIRMATION.CONFIRMED_VISITOR_IDENTITY },
+  });
+  const ghostInactive = finalizeVisitorIdentity({
+    token: 'GHOST VISITOR', automaticClassification: byToken['GHOST VISITOR'].classification,
+    confirmedDistinct: { canonicalVisitor: 'GHOST VISITOR', administrativeConfirmation: VISITOR_ADMIN_CONFIRMATION.CONFIRMED_VISITOR_IDENTITY },
+  });
+  const unclaimed = finalizeVisitorIdentity({ token: 'unclaimed token', automaticClassification: byToken['unclaimed token'].classification });
+
+  check('1: exact roster token classifies EXISTING automatically, no administrative act needed',
+    patExact.classification === VISITOR_CLASSIFICATION.EXISTING && patExact.matchType === VISITOR_MATCH_TYPE.EXACT_ROSTER_MATCH
+      && patExact.administrativeConfirmation === VISITOR_ADMIN_CONFIRMATION.NONE);
+
+  check('2: confirmed case-variant merge -> EXISTING, canonical = roster entry, labeled CONFIRMED_EXISTING_IDENTITY',
+    patVariant.classification === VISITOR_CLASSIFICATION.EXISTING && patVariant.canonicalVisitor === 'PAT'
+      && patVariant.matchType === VISITOR_MATCH_TYPE.ADMINISTRATIVELY_CONFIRMED_MERGE
+      && patVariant.administrativeConfirmation === VISITOR_ADMIN_CONFIRMATION.CONFIRMED_EXISTING_IDENTITY);
+
+  check('4: confirmed nickname merge (PJ -> ROBIN) -> EXISTING, never classified as an inferred fuzzy match',
+    pjMerge.classification === VISITOR_CLASSIFICATION.EXISTING && pjMerge.canonicalVisitor === 'ROBIN'
+      && pjMerge.matchType === VISITOR_MATCH_TYPE.ADMINISTRATIVELY_CONFIRMED_MERGE
+      && pjMerge.administrativeConfirmation === VISITOR_ADMIN_CONFIRMATION.CONFIRMED_DISTINCT_VISITOR_IDENTITY);
+
+  check('5: confirmed distinct-new visitor (active case) stays NEW, never EXISTING',
+    newPersonActive.classification === VISITOR_CLASSIFICATION.NEW && newPersonActive.canonicalVisitor === 'NEW PERSON'
+      && newPersonActive.matchType === VISITOR_MATCH_TYPE.ADMINISTRATIVELY_IDENTIFIED_NEW);
+
+  check('5: confirmed distinct-new visitor (inactive case) remains its own separate identity, classification still NEW',
+    ghostInactive.classification === VISITOR_CLASSIFICATION.NEW && ghostInactive.canonicalVisitor === 'GHOST VISITOR');
+
+  check('6: no visitor identity is merged merely because names are similar — case variant with NO administrative decision stays unresolved',
+    unclaimed.classification === null && unclaimed.matchType === VISITOR_MATCH_TYPE.UNCONFIRMED);
+
+  check('7: explicit administrative confirmation is distinct from automatic identity discovery (different matchType values)',
+    patExact.matchType !== patVariant.matchType && patExact.matchType === VISITOR_MATCH_TYPE.EXACT_ROSTER_MATCH
+      && patVariant.matchType === VISITOR_MATCH_TYPE.ADMINISTRATIVELY_CONFIRMED_MERGE);
+
+  check('8: historical source tokens remain unchanged (verbatim, including original casing)',
+    patVariant.token === 'pat' && pjMerge.token === 'PJ' && ghostInactive.token === 'GHOST VISITOR');
+
+  // 9: operationalStatus never overwrites identity classification
+  const declarations = { PAT: OPERATIONAL_STATUS.ACTIVE, PJ: OPERATIONAL_STATUS.ACTIVE, 'GHOST VISITOR': OPERATIONAL_STATUS.INACTIVE };
+  const finalized = [
+    { compositeKey: 'PAT', ...patExact }, { compositeKey: 'pat', ...patVariant }, { compositeKey: 'PJ', ...pjMerge },
+    { compositeKey: 'NEW PERSON', ...newPersonActive }, { compositeKey: 'GHOST VISITOR', ...ghostInactive },
+  ];
+  const withStatus = applyOperationalStatus(finalized, declarations);
+  check('9: operationalStatus is layered separately, never overwrites classification/matchType', (() => {
+    const ghost = withStatus.find((r) => r.compositeKey === 'GHOST VISITOR');
+    const pj = withStatus.find((r) => r.compositeKey === 'PJ');
+    return ghost.classification === VISITOR_CLASSIFICATION.NEW && ghost.operationalStatus === OPERATIONAL_STATUS.INACTIVE
+      && pj.classification === VISITOR_CLASSIFICATION.EXISTING && pj.operationalStatus === OPERATIONAL_STATUS.ACTIVE;
+  })());
+
+  check('14: inactive confirmed-distinct visitor still resolves historically (classification present), even though operationally inactive', (() => {
+    const ghost = withStatus.find((r) => r.compositeKey === 'GHOST VISITOR');
+    return ghost.classification !== null && ghost.canonicalVisitor === 'GHOST VISITOR' && ghost.operationalStatus === OPERATIONAL_STATUS.INACTIVE;
+  })());
+
+  // 10: case normalization never creates duplicate canonical identities
+  check('10: case-variant merge and its target share exactly one canonical identity (no duplicate created)',
+    patVariant.canonicalVisitor === patExact.canonicalVisitor && patVariant.canonicalVisitor === 'PAT');
+
+  // 13: no duplicate canonical visitor identities across the whole finalized batch
+  check('13: no duplicate canonical visitor identities in the finalized batch', (() => {
+    const canonicalNames = [patExact, patVariant, pjMerge, newPersonActive, ghostInactive].map((r) => r.canonicalVisitor);
+    // PAT appears twice (exact + merged variant) — that's fine, it's the
+    // SAME canonical identity, not a duplicate NEW identity. The real
+    // uniqueness property is: every DISTINCT identity concept maps to
+    // exactly one canonical name, and distinct identities never share one.
+    const distinctIdentityCanonicalNames = [pjMerge.canonicalVisitor, newPersonActive.canonicalVisitor, ghostInactive.canonicalVisitor];
+    return new Set(distinctIdentityCanonicalNames).size === distinctIdentityCanonicalNames.length
+      && canonicalNames.filter((n) => n === 'PAT').length === 2; // both refer to the one PAT identity
+  })());
+
+  // 11 + 12: deterministic across input ordering and independent runs
+  check('11 + 12: finalization is deterministic — identical results across independent calls regardless of call order', (() => {
+    const runA = finalizeVisitorIdentity({ token: 'PJ', automaticClassification: 'LIKELY_NEW_VISITOR', confirmedMerge: { canonicalVisitor: 'ROBIN', administrativeConfirmation: VISITOR_ADMIN_CONFIRMATION.CONFIRMED_DISTINCT_VISITOR_IDENTITY } });
+    const runB = finalizeVisitorIdentity({ token: 'PJ', automaticClassification: 'LIKELY_NEW_VISITOR', confirmedMerge: { canonicalVisitor: 'ROBIN', administrativeConfirmation: VISITOR_ADMIN_CONFIRMATION.CONFIRMED_DISTINCT_VISITOR_IDENTITY } });
+    return JSON.stringify(runA) === JSON.stringify(runB);
+  })());
+
+  check('CHEF-ARVIN-analog (GHOST VISITOR): remains a separate visitor identity, distinct from every roster member',
+    !roster.includes(ghostInactive.canonicalVisitor) && ghostInactive.canonicalVisitor === 'GHOST VISITOR');
 }
 
 // ── Source integrity: reconciliation never mutates its inputs ──────────

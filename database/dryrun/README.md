@@ -167,6 +167,32 @@ of distinctness never reclassifies a `NEW` identity as `EXISTING` — it
 only ever authorizes `store_id_finalization.js` to mint a deterministic
 ID for it.
 
+### Phase 2 — visitor identity reconciliation (mirrors the Store pattern)
+
+`visitor_identity_finalization.js` applies the same discipline used for
+Stores — automatic evidence vs. explicit administrative confirmation,
+kept strictly separate — to visitor tokens:
+
+| Concept | Store domain | Visitor domain |
+|---|---|---|
+| Automatic evidence | `store_canonical_identity.js` | `visitor_identity_classification.js` (unchanged) |
+| Confirmed merge into an existing identity | `historical_identity_classification.js`'s `confirmedCanonicalMatch` | `finalizeVisitorIdentity()`'s `confirmedMerge` |
+| Confirmed distinct new identity | `store_id_finalization.js`'s `identityEstablished` | `finalizeVisitorIdentity()`'s `confirmedDistinct` |
+| Administrative-act labels | `administrative_confirmation.js` | `visitor_identity_finalization.js`'s own `ADMINISTRATIVE_CONFIRMATION` (`CONFIRMED_EXISTING_IDENTITY` / `CONFIRMED_DISTINCT_VISITOR_IDENTITY` / `CONFIRMED_VISITOR_IDENTITY`) |
+| Canonical identity key | deterministic `STR-<uuid>` (no existing scheme) | the visitor's own normalized name — `SVMKPI_CONFIG.gs`'s `CFG_AREA_SCHEMAS.VISITORS` already documents Entity ID = normalized Visitor Name as the interim scheme, so no new ID generator was invented here |
+
+A confirmed merge (e.g. a nickname-style token identified as an existing
+roster member) always reuses that member's identity and is tagged
+`matchType: ADMINISTRATIVELY_CONFIRMED_MERGE` — distinct from an
+automatic `EXACT_ROSTER_MATCH`, so the record never claims a match was
+discovered when it was actually declared. Confirming a token as a
+distinct new visitor never reclassifies it as `EXISTING` — it stays
+`NEW`, with the administrative act recorded separately. Operational
+status (e.g. an inactive visitor) is layered on afterward via the same
+`operational_status.js` used for Stores, under its own
+`operationalStatus` field — never overloaded onto identity
+classification.
+
 ## What's still needed once real data is available
 
 1. **A reader** turning whatever file the user provides (CSV per sheet, or
