@@ -1,0 +1,74 @@
+# SVMI — Testing Log
+
+Current baseline, verified directly in this session unless marked
+otherwise. See `ARCHITECTURE.md` §8 for how these suites work (real `.gs`
+source in a Node `vm` sandbox; Playwright only against the standalone
+demo; dry-run tooling is pure-function/synthetic-data only).
+
+## Apps Script track — `SVMI_Project/tests/`
+
+**Verified this session: 23 files, 1095 assertions, 0 failures.**
+
+Per-file counts below are as documented in `SVMI_Project/DEPLOY.md`'s own
+"Checks before you push" section (attributed to that source, not
+re-derived here) for files that predate this session; counts for files
+touched or added in Phase 1G are from today's direct run.
+
+| Test file | Covers | Checks |
+|---|---|---|
+| `admin-api.test.js` | Admin UI read-side aggregation + UI-facing security/versioning/snapshot contracts | 84 |
+| `calendar-period.test.js` | Calendar-period (month/quarter/semi-annual) resolution | 25 |
+| `canonical-risk-engine.test.js` | Store Insights vs. Store Health score/tier agreement | — (part of today's 1095) |
+| `compliance-config.test.js` | Versioned compliance configuration + period-to-date evaluation, 5,200-row scale | 42 |
+| `config-service.test.js` | `SVMKPI_CONFIG.gs` end-to-end: validation, effective-dating, versioning, audit, security, backdating, rollback, portability | 71 |
+| `date-parsing.test.js` | `_parseDateCell()` + duplicate-check integration | — |
+| `duplicate-prevention.test.js` | Exact-duplicate-visit blocking under concurrent submission | — |
+| `kpi-purpose-config.test.js` | Versioned KPI config (infra-only) + deliberate Purpose KPI/risk config, no inheritance | 44 |
+| `kpi-roster-history.test.js` | KPI 2026 roster-removal history retention | — |
+| `purpose-generic-reporting.test.js` | No source file re-adds a hardcoded CAPAR-style purpose branch | — |
+| `purpose-report-surfaces.test.js` | Purpose reporting surfaces stay generic, not hardcoded | — |
+| `report-snapshot.test.js` | Finalize/supersede, historical freeze, per-year isolation, concurrency, scale | 163 |
+| `reporting-year.test.js` | Year discovery/validation/default resolution, cross-year isolation, 9,000-row scale | 57 |
+| `risk-config.test.js` | Versioned risk configuration + purpose-weight fallback chain, backdating, rollback | 33 |
+| `risk-scoring.test.js` | Store Health scoring engine | — |
+| `roster-auto-refresh.test.js` | Adding a roster member auto-rebuilds KPI 2026 | — |
+| `settings-config-migration.test.js` | **Phase 1G** — CONFIG_* → SETTINGS mirror sync (create/deactivate/rename), legacy-purpose fallback, `getSidebarData()` sourcing from CONFIG_*, migration idempotency, no-SRM-reference check | 34 (added this session) |
+| `store-identity.test.js` | Store ID identity/immutability, historical resolution, migration + UNMAPPED tracking, security | 51 |
+| `store-lookup-date-handling.test.js` | Date-handling consistency across `SVMKPI_STORE_LOOKUP.gs` call sites | — |
+| `store-remove-history.test.js` | Remove Store preserves history, row isolation, admin gate | — |
+| `store-scale.test.js` | MASTER_LOG scale fixtures (4,999–10,000 rows), no scan-range ceiling | — |
+| `submission-lock.test.js` | LockService behavior around visit submission | — |
+| `portal-ui.test.js` | Playwright, against `SVMI_Command_Center_Demo.html` (not the real portal) | 173 |
+| `responsive-check.js` | Playwright, 6 device profiles, against the same demo file | — |
+
+One pre-existing test fragility was found and fixed during Phase 1G, unrelated
+to the migration itself: `admin-api.test.js`'s rollback test used a
+hardcoded literal date that fell into the past as real time advanced past
+it, tripping the (correctly-working) backdate-confirmation check it wasn't
+testing. Fixed by deferring to the function's own "today" default instead
+of a literal string.
+
+## Database track — `database/dryrun/`
+
+**Verified this session: `dryrun.test.js` — 158/158 passing.** Pure-function
+unit tests against synthetic fixtures; no database connection, no real
+SVMI data. (`database/dryrun/README.md` cites an older "37/37" figure from
+an earlier point in that file's own history — superseded; 158 is current.)
+
+`database/validation/*.js` (field checks, row counts, ad-hoc psql queries)
+require a live PostgreSQL connection and were not run as part of this
+repository's automated suite — no DEV/PROD instance is available in this
+environment.
+
+## Not covered by automated tests
+
+- The real `SVMI_PORTAL.html` has no browser-automation coverage of its
+  own — `portal-ui.test.js`/`responsive-check.js` drive the separate
+  `SVMI_Command_Center_Demo.html` preview only. Playwright checks against
+  the real portal (Admin tab scroll behavior, Configuration form
+  rendering, Tools sub-tab) were run ad hoc during Phase 1G's own work but
+  are not part of the committed, repeatable test suite.
+- `.gs` syntax validity (`new Function()` extraction) and the portal's
+  `<script>` block are checked manually before each push, per
+  `DEPLOY.md`'s "Checks before you push" — not wired into an automated
+  CI step in this repository.
