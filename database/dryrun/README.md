@@ -27,7 +27,13 @@ ephemeral only** (this session used `/tmp/svmi_phase2_realdata/`, outside
 the git working tree) and are never committed — only this
 logic/tooling/docs layer, which contains zero real data, is committed.
 
-## What's built (pure functions, unit-tested — `dryrun.test.js`, 37/37)
+## What's built (pure functions, unit-tested — `dryrun.test.js`)
+
+Verified 158/158 passing as of the 2026-09-23 documentation-reconciliation
+pass (this file previously said "37/37," current as of when the module
+table below first landed — later phases (2A through 2C) added many more
+tests without this line being updated; treat `TESTING_LOG.md` at the repo
+root, not this line, as the authority for the current count going forward).
 
 | Module | Purpose | Phase 2 rule |
 |---|---|---|

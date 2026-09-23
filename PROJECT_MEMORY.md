@@ -31,20 +31,50 @@ SVMI data.**
 Everything else in this file, and in the sibling docs listed below, is
 about `SVMI_Project/` and `database/` only.
 
-## Where to look for what
+## Documentation authority model
 
-| Question | Read |
+**One authoritative document per category — never two.** When a root
+document and an older supporting document disagree, the root document
+wins; the older one has either been corrected or marked historical (see
+"Legacy/supporting documentation" below). Do not create a second file
+that duplicates any of these roles.
+
+| Category | Authoritative document |
 |---|---|
-| What does the system do, and for whom? | `REQUIREMENTS.md` |
-| How is it built, end to end? | `ARCHITECTURE.md` |
-| What data exists and where does it live? | `DATA_MODEL.md` |
-| Why was it built this way — what's settled and must not be re-opened? | `DECISIONS.md` |
-| What has actually been done, in order? | `IMPLEMENTATION_LOG.md` |
-| What's been tested, and what passed? | `TESTING_LOG.md` |
-| Where do things stand right now, and what's next? | `PROJECT_STATUS.md` |
-| Deep operational detail (deploy steps, exact phase-by-phase design rationale, access-control setup) | `SVMI_Project/DEPLOY.md` — long-form, still authoritative for *how to deploy* and for the detailed reasoning behind each phase; the files above summarize it, they don't replace it |
-| Exact PostgreSQL schema/mapping/environment rules | `database/docs/01-architecture.md` through `06-migration-source-manifest.md` |
-| Review history | `reviews/` |
+| Project context / orientation | `PROJECT_MEMORY.md` (this file) |
+| Current state, immediate next step | `PROJECT_STATUS.md` |
+| Requirements | `REQUIREMENTS.md` |
+| Architecture | `ARCHITECTURE.md` |
+| Data model / storage | `DATA_MODEL.md` |
+| Decisions (durable, do-not-reverse) | `DECISIONS.md` |
+| Implementation history | `IMPLEMENTATION_LOG.md` |
+| Testing history / current test baseline | `TESTING_LOG.md` |
+| Reviews | `reviews/` (numbered, oldest first) |
+| Apps Script deployment procedure (clasp, Web App publish, access-control setup) | `SVMI_Project/DEPLOY.md` — long-form; the root docs summarize it, they don't replace it |
+| PostgreSQL environment/deployment procedure (DEV/PROD isolation, roles, migrations, backup/restore) | `database/docs/01-architecture.md` through `06-migration-source-manifest.md` |
+| AI operating rules | `CLAUDE.md` (repo root) |
+
+`SVMI_Project/README.txt` and `database/dryrun/README.md` are
+**supporting**, not authoritative, documents — see the note below.
+
+## Legacy/supporting documentation — how to read it now
+
+- **`SVMI_Project/DEPLOY.md`** — still authoritative for *how to deploy*
+  and for detailed per-phase design rationale. Two of its sections (Store
+  & Roster Manager, and part of Navigation/Access-control) described
+  functionality later removed or changed; both now carry an explicit
+  `⚠ HISTORICAL` / `Partially superseded` banner at the point of the
+  stale claim, pointing to the current, correct fact in `ARCHITECTURE.md`/
+  `DECISIONS.md`. The rest of the file is current.
+- **`SVMI_Project/README.txt`** — a manual (no-`clasp`) paste-in setup
+  guide; still useful for that purpose. Its file count/list and tab
+  description were stale and have been corrected to point at
+  `ARCHITECTURE.md` rather than re-listing everything a second time.
+- **`database/dryrun/README.md`** — still the authoritative narrative for
+  *what the Phase 2 dry-run tooling does and why* (identity rules,
+  reconciliation modules, business decisions). Its one stale test count
+  was corrected to point at `TESTING_LOG.md` for the current number,
+  rather than hardcoding a figure that will drift again.
 
 ## The two-track architecture, in one paragraph
 

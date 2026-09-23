@@ -2,8 +2,14 @@ SVMI COMMAND CENTER — PROJECT FILES
 ====================================
 
 /Apps Script/
-  The actual Google Apps Script project — 10 .gs files, 1 .html file,
-  and appsscript.json (the project manifest). This is what runs inside
+  The actual Google Apps Script project — 24 .gs files, 1 .html file,
+  and appsscript.json (the project manifest). [Corrected — this said
+  "10 .gs files" as of early versions of this file; the project has
+  grown substantially since (Admin Configuration engine, versioned
+  Risk/Compliance/KPI/Store/Visitor/Purpose config, report snapshots).
+  See ../ARCHITECTURE.md section 4 for the complete, current file map
+  with a one-line description of each file — not repeated here to avoid
+  two lists that can drift out of sync again.] This is what runs inside
   Google Sheets. To use it for real:
     1. Open (or create) the target Google Sheet.
     2. Extensions -> Apps Script.
@@ -33,40 +39,30 @@ SVMI COMMAND CENTER — PROJECT FILES
        own script, so this is expected).
     10. Copy the Web app URL it gives you — that's your live link.
         Bookmark it / share it with your team; it works exactly like
-        the in-Sheet Command Center (same 4 tabs, same data), just
+        the in-Sheet Command Center (same nav sections, same data), just
         without needing the Sheet open.
   To ship an update after editing any file: Deploy -> Manage
   deployments -> pencil icon on your deployment -> New version ->
   Deploy. (Editing files alone does NOT update a live deployment —
   you must push a new version.)
 
-  Files:
-    INPUT_PORTAL.gs          Sidebar-era backend: read SETTINGS,
-                              write new visits, duplicate-visit check,
-                              visitor roster management.
-    SVMKPI_STORE_LOOKUP.gs   Store Intelligence module: per-store
-                              profile, health score, rule-based
-                              insight text, monthly coverage,
-                              category-based compliance gaps.
-    SVMKPI_CORE.gs           Shared constants/enums, MASTER_LOG
-                              reader, Executive Summary populate
-                              functions, validator, refresh engine.
-    SVMKPI_ADMIN.gs          Menu, the unified portal's entry point,
-                              and the portal_* functions the HTML
-                              calls into for System Tools.
-    SVMKPI_LAYOUT.gs         Executive Summary sheet layout,
-                              formatting, and live formulas.
-    SVMKPI_KPI_REBUILD.gs    Builds the KPI 2026 weekly tracker sheet
-                              with SUMPRODUCT formulas.
-    SVMKPI_MASTER_REBUILD.gs Rebuilds MASTER_LOG / SETTINGS headers
-                              and formatting.
-    SVMKPI_RISK.gs           Store Health risk-scoring engine.
-    SVMKPI_RISK_LAYOUT.gs    Store Health sheet presentation layer.
-    SVMKPI_STORE_MASTER.gs   Store Master Insight sheet builder.
-    SVMI_PORTAL.html         The 4-tab Command Center UI itself
-                              (Input Portal / Store Insights / Visits
-                              This Month / System Tools). Talks to the
-                              .gs files above via google.script.run.
+  Files: for the paste-in step above, create every .gs/.html file that
+  exists in this directory — do not stop at a partial list (an earlier
+  version of this README named only 10 representative files, which is
+  why step 3 above says "each file below," not "the 10 files below").
+  The current full file map with a one-line description of each is
+  ../ARCHITECTURE.md section 4.
+
+    SVMI_PORTAL.html         The Command Center UI itself — currently 5
+                              nav sections (Reports / Store Insights /
+                              Unvisited This Month / Input Portal /
+                              Admin, the last admin-only). Talks to the
+                              .gs files via google.script.run. [Corrected
+                              — this said "4-tab ... / System Tools" in
+                              earlier versions of this file; System
+                              Tools was folded into Admin -> Tools and
+                              an Admin tab was added. See
+                              ../ARCHITECTURE.md section 3.]
 
 /SVMI_Command_Center_Demo.html
   A stand-alone, interactive preview of SVMI_PORTAL.html that runs in

@@ -133,14 +133,18 @@ Command Center from a phone.
 
 ## Navigation
 
-The portal's five sections (Input Portal, Store Insights, Unvisited This
-Month, Reports, System Tools) live in a slide-out drawer, not a side-by-side
-tab bar. A single burger button (☰) in the tab bar shows the current
+> **Partially superseded (Phase 1G) — the drawer mechanics below are
+> still accurate; the section list is not.** There is no standalone
+> "System Tools" item anymore (folded into Admin → Tools), there is now a
+> 6th, admin-only "🛡 Admin" item (Configuration/Audit/Report
+> Snapshots/Tools sub-tabs), and **Reports**, not Input Portal, loads by
+> default. See `ARCHITECTURE.md` §3 for the current, authoritative list.
+
+The portal's sections live in a slide-out drawer, not a side-by-side tab
+bar. A single burger button (☰) in the tab bar shows the current
 section's name; clicking it slides the drawer in from the left with a
 dimming scrim behind it, and it closes on selecting an item, pressing
-Escape, or clicking the scrim. The drawer's menu order is Reports, Store
-Insights, Unvisited This Month, Input Portal, System Tools — Input Portal
-still loads by default when the app opens; only the list order changed.
+Escape, or clicking the scrim.
 
 ---
 
@@ -244,7 +248,17 @@ generates a random password into `SETTINGS!I2` and shows it once in a dialog;
 change it any time by editing that cell directly. Rotating it signs out every
 browser that had the old one remembered (they'll see the lock screen again).
 
-### 3. Admin list (all of System Tools)
+### 3. Admin list (all of the Admin tab)
+
+> **Partially superseded (Phase 1G).** "System Tools" is no longer a
+> standalone tab — its tools moved to Admin → Tools, alongside
+> Configuration/Audit/Report Snapshots, all behind the single "🛡 Admin"
+> nav item. The admin-gating *mechanism* described below (`SETTINGS!G2:G`,
+> `sl_isAdmin()`, server-side re-check, first-admin bootstrap) is
+> unchanged and still accurate — only "System Tools is the only tab
+> gated by the admin list" is now wrong: the whole Admin tab is gated,
+> and there are more than six tools under it today. See `ARCHITECTURE.md`
+> §3 for the current tab list.
 
 `SETTINGS!G2:G` holds one admin email per row. `sl_isAdmin()` checks the
 signed-in email (from layer 1) against that list. **Every** System Tool —
@@ -296,6 +310,28 @@ naming which System Tool to run first.
 ---
 
 ## Store & Roster Manager
+
+> **⚠ HISTORICAL — NO LONGER CURRENT (superseded by Phase 1G).** The
+> "Store & Roster Manager" System Tools card described below **has been
+> removed from the application.** As of Phase 1G, Admin → Configuration
+> (`CONFIG_STORES`/`CONFIG_VISITORS`/`CONFIG_PURPOSES`) is the **sole**
+> authoritative place a Store, Visitor, or Purpose is created, renamed,
+> activated, or deactivated — see `DECISIONS.md` D-005 and D-006, and
+> `ARCHITECTURE.md` §5. Do not re-add a Store & Roster Manager card, and
+> do not instruct a developer or AI session to use one. The section below
+> is preserved only for its historical rationale (why the KPI 2026/Store
+> Health auto-refresh triggers exist, why `SETTINGS` cols F/H behave the
+> way they do) — the mechanics it describes (a dedicated card,
+> `portal_saveStore()`/`manageVisitor()`/`managePurpose()` as
+> admin-facing entry points) no longer exist as a UI surface. Those four
+> functions still exist in `INPUT_PORTAL.gs`, but only as internal
+> plumbing called by the Configuration engine's own sync hooks — never
+> reachable from any client-side path. **Also stale independent of Phase
+> 1G:** the "Purpose List" note below, that Executive Summary/Store
+> Health stay keyed to the fixed four `APPROVED_PURPOSES`, was superseded
+> by Phase 2C (`ed646c3`/`80ca615`) — both are purpose-dynamic now, with
+> no top-4 limit. See `DATA_MODEL.md` §3 and `DECISIONS.md` D-004 for the
+> current purpose-configuration model.
 
 A 7th System Tools card (admin-only, same as the other six) for editing
 `SETTINGS` directly from the Web App instead of opening the spreadsheet by
