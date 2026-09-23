@@ -71,7 +71,7 @@ body{font-family:Arial,sans-serif;font-size:12px;background:var(--bg);color:var(
 .fg{margin-bottom:9px}
 .fg label{display:block;font-size:10px;font-weight:700;color:var(--muted);margin-bottom:3px;
   text-transform:uppercase;letter-spacing:.4px}
-.fg label .req{color:var(--red);margin-left:2px}
+.fg label .req,.admin-form-row label .req{color:var(--red);margin-left:2px}
 .fi{width:100%;padding:6px 8px;font-size:12px;border:1px solid #cbd5e0;border-radius:4px;
   background:var(--card);color:var(--text);outline:none;font-family:Arial}
 .fi:focus{border-color:var(--tld);box-shadow:0 0 0 2px rgba(46,139,61,.14)}
@@ -118,14 +118,9 @@ textarea.fi{resize:vertical;min-height:50px}
 .store-info.visible{display:block}
 .store-info span{font-weight:700}
 
-/* ── Visitor manager (Store & Roster Manager, System Tools — admin-only) ── */
-.vm-row{display:flex;gap:5px;margin-bottom:5px}
-.vm-input{flex:1;padding:5px 7px;font-size:11px;border:1px solid #cbd5e0;border-radius:4px;background:var(--card);font-family:Arial;outline:none}
+/* ── Admin Configuration history-row action buttons (Activate/Deactivate/Rollback) ── */
 .vm-btn{padding:5px 9px;font-size:11px;font-weight:700;border:none;border-radius:4px;cursor:pointer;white-space:nowrap;font-family:Arial}
 .vm-add{background:#EAF4E1;color:var(--tld-d)}
-.vm-rem{background:#fff5f5;color:#c53030}
-.vm-msg{font-size:10px;margin-top:4px}
-.vm-msg.ok{color:#276749}.vm-msg.err{color:#c53030}
 
 /* ── Queue ── */
 .queue-hdr{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;
@@ -400,11 +395,9 @@ textarea.fi{padding-right:28px}
   background:var(--bg);color:var(--muted);font-style:italic;text-align:center}
 .tool-lock[hidden]{display:none}
 
-/* ── System Tools: Store & Roster Manager ── */
-.srm-section{margin-bottom:12px}
+/* ── Tools sub-tab group headers (Rebuild/Refresh, Validation & Repair, Legacy Data Setup) ── */
 .srm-hdr{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;
   letter-spacing:.4px;margin-bottom:6px}
-.srm-list{font-size:10px;color:var(--muted);margin-top:5px;line-height:1.5}
 
 /* ── Wide tables scroll inside their own box, never the page ── */
 .tbl-scroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -449,7 +442,7 @@ textarea.fi{padding-right:28px}
   .burger-btn{padding:12px 16px;min-height:42px}
   .nav-item{padding:15px 18px;font-size:13px;min-height:42px}
   /* 16px inputs stop iOS from auto-zooming on focus; 42px = comfortable tap target */
-  .fi,.ss-input,.si-search,.sel-dark,.vm-input{font-size:16px;min-height:42px}
+  .fi,.ss-input,.si-search,.sel-dark{font-size:16px;min-height:42px}
   textarea.fi{min-height:72px}
   .btn-primary,.btn-clear,.tool-run,.btn-gold,.btn-navy,.cf-btn,.vm-btn,
   .dup-cancel,.dup-submit{min-height:42px}
@@ -767,6 +760,7 @@ textarea.fi{padding-right:28px}
   <!-- CONFIGURATION -->
   <div class="admin-sub active" id="adminPane-config">
     <div class="admin-area-bar" id="adminAreaBar"></div>
+    <div class="admin-note" id="adminAreaNote" style="margin-bottom:12px"></div>
     <div class="admin-config-layout">
       <div class="admin-entity-col">
         <div class="admin-entity-hdr" id="adminEntityHdr">Stores</div>
@@ -918,79 +912,19 @@ textarea.fi{padding-right:28px}
         </div>
       </div>
 
-      <div class="srm-hdr" style="grid-column:1/-1;margin-top:4px">🗄️ Store, Visitor &amp; Purpose List Management</div>
+      <div class="srm-hdr" style="grid-column:1/-1;margin-top:4px">🗄️ Legacy Data Setup</div>
 
-      <div class="tool-card primary" data-admin-only="true" style="grid-column:1/-1">
+      <div class="tool-card" data-admin-only="true" style="grid-column:1/-1">
         <div class="tool-hdr"><span class="tool-icon">🗄️</span>
-          <div><div class="tool-title">Store & Roster Manager</div>
-          <div class="tool-desc-hdr">Add/edit stores · visitor roster · purpose list</div></div></div>
+          <div><div class="tool-title">Migrate Legacy SETTINGS Data</div>
+          <div class="tool-desc-hdr">One-time import into Configuration</div></div></div>
         <div class="tool-body">
-          <span class="risk-badge safe">✓ Writes straight to SETTINGS — no rebuild needed</span>
-          <p>Add a new store or edit an existing one's brand/region/category, and manage the Visitor Roster and Purpose List — the same SETTINGS columns Input Portal reads from.</p>
-          <p class="hint">This list feeds the Input Portal's Store/Visitor/Purpose dropdowns and the live report formulas (Executive Summary, KPI 2026). It is separate from the versioned entities under <b>Admin → Configuration → Stores/Visitors/Purposes</b> — that area is the governance/history record (effective-dated, audited); this tool is the fast day-to-day list editor. Use Configuration when you need an effective date, a reason, or an audit trail; use this when you just need the dropdown/list updated right away.</p>
-          <button class="tool-run" onclick="toggleStoreManager()">🗄️ Open Store & Roster Manager</button>
-          <div class="tool-lock" id="lock-SRM" hidden>🔒 Admin access required to run this tool.</div>
-
-          <div id="srmPanel" hidden style="margin-top:12px">
-            <div class="srm-section">
-              <div class="srm-hdr">Store</div>
-              <div class="fg">
-                <label>Store Name <span class="req">*</span></label>
-                <div class="ss-wrap">
-                  <input type="text" id="srmStoreSearch" class="ss-input"
-                    placeholder="Search an existing store, or type a new name…"
-                    oninput="srmFilterStores()" onfocus="srmFilterStores()"
-                    onblur="setTimeout(function(){ document.getElementById('srmStoreDrop').classList.remove('open'); }, 200)"
-                    autocomplete="off">
-                  <div class="ss-drop" id="srmStoreDrop"></div>
-                </div>
-                <div class="hint">Required. Type an existing store name to edit it, or a new name to create it — matching is case-insensitive (names are stored in ALL CAPS). Example: <b>ACME MALL - MAIN</b>.</div>
-              </div>
-              <div class="fg"><label>Brand <span class="req">*</span></label><select class="fi" id="srmBrand"></select>
-                <div class="hint">Required. Pick the brand this store belongs to from the list (e.g., <b>APEX</b>).</div>
-              </div>
-              <div class="fg"><label>Region <span class="req">*</span></label><select class="fi" id="srmRegion"></select>
-                <div class="hint">Required. Pick the store's region (e.g., <b>NCR</b>).</div>
-              </div>
-              <div class="fg"><label>Category <span class="req">*</span></label><select class="fi" id="srmCategory"></select>
-                <div class="hint">Required. Pick the store's visit-frequency category (e.g., <b>FAR PROVINCIAL</b>) — this drives how often Store Health expects the store to be visited.</div>
-              </div>
-              <div class="hint">⚠ Saving updates the live store list immediately — no separate rebuild step is needed, and Store Health refreshes automatically.</div>
-              <button class="btn-gold" onclick="srmSaveStore()">💾 Save Store</button>
-              <button class="vm-btn vm-rem" onclick="srmRemoveStore()">🗑️ Remove Store</button>
-              <div class="hint">Removing a store clears it from the active list (Input Portal dropdown) but keeps all of its past visits in Store Health.</div>
-              <div class="tool-stat idle" id="srmStoreStat">Ready</div>
-            </div>
-
-            <hr class="divider">
-
-            <div class="srm-section">
-              <div class="srm-hdr">Visitor Roster</div>
-              <div class="hint">Add or remove a name from the Visitor Roster that Input Portal's "Visited By" field lists. Required, free text (any non-blank name), auto-uppercased. Example: <b>JUAN DELA CRUZ</b>. Adding a name refreshes KPI 2026 automatically so it appears without a manual rebuild.</div>
-              <div class="vm-row">
-                <input type="text" id="srmVisitorInput" class="vm-input" placeholder="Visitor name…"
-                  onkeydown="if(event.key==='Enter')srmManageVisitor('add')" autocomplete="off">
-                <button class="vm-btn vm-add" onclick="srmManageVisitor('add')">+ Add</button>
-                <button class="vm-btn vm-rem" onclick="srmManageVisitor('remove')">− Remove</button>
-              </div>
-              <div class="vm-msg" id="srmVisitorMsg"></div>
-            </div>
-
-            <hr class="divider">
-
-            <div class="srm-section">
-              <div class="srm-hdr">Purpose List</div>
-              <div class="hint">Add or remove an entry from the Purpose List that Input Portal's "Purpose" field lists. Required, free text (any non-blank name), auto-uppercased. Example: <b>STORE VISIT</b>.</div>
-              <div class="vm-row">
-                <input type="text" id="srmPurposeInput" class="vm-input" placeholder="Purpose name…"
-                  onkeydown="if(event.key==='Enter')srmManagePurpose('add')" autocomplete="off">
-                <button class="vm-btn vm-add" onclick="srmManagePurpose('add')">+ Add</button>
-                <button class="vm-btn vm-rem" onclick="srmManagePurpose('remove')">− Remove</button>
-              </div>
-              <div class="vm-msg" id="srmPurposeMsg"></div>
-              <div class="srm-list">Current: <span id="srmPurposeList">—</span></div>
-            </div>
-          </div>
+          <span class="risk-badge safe">✓ Additive only — never edits or deletes SETTINGS/MASTER_LOG; safe to re-run</span>
+          <p>Stores, Visitors, and Purposes are now created and edited in one place: <b>Admin → Configuration → Stores / Visitors / Purposes</b>. The old "Store & Roster Manager" card that used to write directly to the legacy SETTINGS sheet has been removed.</p>
+          <p class="hint">Anything already sitting in the legacy SETTINGS sheet from before this change (an existing store, visitor, or purpose that was never entered through Configuration) needs to be imported once so Configuration knows about it too. This tool reads the current SETTINGS sheet and MASTER_LOG, and creates a matching Configuration entry for anything not already there — entries that already exist are skipped, so running this more than once (e.g. after fixing a typo in SETTINGS by hand) only imports what's new. Nothing in SETTINGS or MASTER_LOG is changed by this action.</p>
+          <button class="tool-run" onclick="runSettingsMigration()">📥 Migrate Legacy Data</button>
+          <div class="tool-stat idle" id="stat-MIGRATE">Ready</div>
+          <div class="tool-lock" id="lock-MIGRATE" hidden>🔒 Admin access required to run this tool.</div>
         </div>
       </div>
 
@@ -2605,180 +2539,39 @@ function clearLog() {
 }
 
 // ═══════════════════════════════════════
-// SYSTEM TOOLS — STORE & ROSTER MANAGER
-// Writes straight into SETTINGS (A/B/C/E for stores, F for the visitor
-// roster, H for the purpose list) — no sheet rebuild involved. Admin-only
-// server-side (portal_saveStore()/managePurpose() both call sl_isAdmin()
-// themselves), same as every other System Tool.
+// SYSTEM TOOLS — MIGRATE LEGACY DATA
+// One-time import of whatever the legacy SETTINGS sheet already held
+// (Stores/Visitors/Purposes) into Admin Configuration's versioned
+// CONFIG_STORES/CONFIG_VISITORS/CONFIG_PURPOSES — see
+// SVMKPI_SETTINGS_MIGRATION.gs. The "Store & Roster Manager" card that
+// used to write straight into SETTINGS is gone; Admin → Configuration is
+// now the only place a Store/Visitor/Purpose is created or edited.
 // ═══════════════════════════════════════
-var srmOpen = false;
-
-function toggleStoreManager() {
-  srmOpen = !srmOpen;
-  document.getElementById('srmPanel').hidden = !srmOpen;
-  if (srmOpen) srmInit();
-}
-
-function srmInit() {
-  google.script.run
-    .withSuccessHandler(function(opts) {
-      srmFillSelect('srmBrand', opts.brands);
-      srmFillSelect('srmRegion', opts.regions);
-      srmFillSelect('srmCategory', opts.categories);
-    })
-    .withFailureHandler(function(){})
-    .sl_getStoreFormOptions();
-  srmShowPurposeList();
-}
-
-function srmFillSelect(id, values) {
-  document.getElementById(id).innerHTML = '<option value="">Select…</option>'
-    + (values || []).map(function(v){ return '<option value="'+esc(v)+'">'+esc(v)+'</option>'; }).join('');
-}
-
-// Type-to-search over the same allStores/storeData loadPortalData() already
-// populates for Input Portal — picking a row auto-fills its current
-// brand/region/category; typing a name that doesn't match anything is a
-// brand-new store, left for the admin to fill in fresh.
-function srmFilterStores() {
-  var q = document.getElementById('srmStoreSearch').value.trim().toUpperCase();
-  var drop = document.getElementById('srmStoreDrop');
-  var list = (allStores || []).filter(function(s) {
-    return !q || s.store.indexOf(q) !== -1;
-  }).slice(0, 40);
-  if (!list.length) { drop.classList.remove('open'); return; }
-  drop.innerHTML = list.map(function(s) {
-    return '<div class="ss-opt" data-v="'+esc(s.store)+'" onmousedown="srmPickStore(this)">'
-      + '<span class="opt-name">'+esc(s.store)+'</span>'
-      + (s.brand ? '<span class="opt-brand">'+esc(s.brand)+'</span>' : '')
-      + '</div>';
-  }).join('');
-  drop.classList.add('open');
-}
-
-function srmPickStore(el) {
-  var name = el.dataset.v;
-  document.getElementById('srmStoreSearch').value = name;
-  document.getElementById('srmStoreDrop').classList.remove('open');
-  var info = storeData[name];
-  if (info) {
-    document.getElementById('srmBrand').value    = info.brand    || '';
-    document.getElementById('srmRegion').value   = info.region   || '';
-    document.getElementById('srmCategory').value = info.category || '';
-  }
-}
-
-function srmSaveStore() {
-  var store    = document.getElementById('srmStoreSearch').value.trim();
-  var brand    = document.getElementById('srmBrand').value;
-  var region   = document.getElementById('srmRegion').value;
-  var category = document.getElementById('srmCategory').value;
-  var stat     = document.getElementById('srmStoreStat');
-
-  if (!store) { stat.textContent = 'Enter a store name.'; stat.className = 'tool-stat error'; return; }
-  if (!brand || !region || !category) {
-    stat.textContent = 'Brand, Region and Category are all required.';
-    stat.className = 'tool-stat error';
+function runSettingsMigration() {
+  var stat = document.getElementById('stat-MIGRATE');
+  if (!confirm('Import anything in the legacy SETTINGS sheet that is not yet in Configuration?\n\nThis only ADDS Configuration entries — it never edits or deletes SETTINGS or MASTER_LOG, and anything already migrated is skipped.')) {
     return;
   }
-
-  stat.textContent = '⏳ Saving…'; stat.className = 'tool-stat running';
+  stat.textContent = '⏳ Migrating…'; stat.className = 'tool-stat running';
   google.script.run
     .withSuccessHandler(function(r) {
-      if (r.success) {
-        stat.textContent = '✅ ' + r.message; stat.className = 'tool-stat success';
-        addLog('ok', '✅ Store & Roster Manager: ' + r.message);
-        loadPortalData();   // refresh allStores/storeData so the new/edited row shows up everywhere
+      if (r && r.success) {
+        var s = r.stores || {}, v = r.visitors || {}, p = r.purposes || {};
+        var summary = 'Stores: +' + ((s.createdStoreIds || []).length) + ' (already had ' + ((s.alreadyMigrated || []).length) + ') · '
+          + 'Visitors: +' + ((v.createdNames || []).length) + ' (already had ' + ((v.alreadyMigrated || []).length) + ') · '
+          + 'Purposes: +' + ((p.createdNames || []).length) + ' (already had ' + ((p.alreadyMigrated || []).length) + ')';
+        stat.textContent = '✅ Done — ' + summary; stat.className = 'tool-stat success';
+        addLog('ok', '✅ Migrate Legacy Data: ' + summary);
+        if (s.unmappedCount) addLog('warn', '⚠ ' + s.unmappedCount + ' MASTER_LOG store name(s) could not be confidently matched — see CONFIG_UNMAPPED_STORES.');
       } else {
-        stat.textContent = '❌ ' + r.message; stat.className = 'tool-stat error';
+        stat.textContent = '❌ ' + ((r && r.message) || 'Migration failed.'); stat.className = 'tool-stat error';
       }
     })
     .withFailureHandler(function(err) {
       var msg = err.message || String(err);
       stat.textContent = '❌ ' + msg; stat.className = 'tool-stat error';
     })
-    .portal_saveStore(store, brand, region, category);
-}
-
-// Removing a store only hides it from the active Store dropdowns/type-to-
-// search going forward — every historical visit stays in Store Health
-// (portal_removeStore() clears just the SETTINGS row, MASTER_LOG is never
-// touched). Confirms first since, unlike add/edit, this can't be undone
-// from the UI (re-adding the store is possible, but its old brand/region/
-// category have to be re-entered by hand).
-function srmRemoveStore() {
-  var store = document.getElementById('srmStoreSearch').value.trim();
-  var stat  = document.getElementById('srmStoreStat');
-  if (!store) { stat.textContent = 'Enter a store name.'; stat.className = 'tool-stat error'; return; }
-  if (!confirm('Remove "' + store.toUpperCase() + '" from the active store list?\n\nIts historical visits stay in Store Health — this only hides it from future selection.')) {
-    return;
-  }
-
-  stat.textContent = '⏳ Removing…'; stat.className = 'tool-stat running';
-  google.script.run
-    .withSuccessHandler(function(r) {
-      if (r.success) {
-        stat.textContent = '✅ ' + r.message; stat.className = 'tool-stat success';
-        addLog('ok', '✅ Store & Roster Manager: ' + r.message);
-        document.getElementById('srmStoreSearch').value = '';
-        document.getElementById('srmBrand').value = '';
-        document.getElementById('srmRegion').value = '';
-        document.getElementById('srmCategory').value = '';
-        loadPortalData();   // refresh allStores/storeData so it drops out of the dropdown
-      } else {
-        stat.textContent = '❌ ' + r.message; stat.className = 'tool-stat error';
-      }
-    })
-    .withFailureHandler(function(err) {
-      var msg = err.message || String(err);
-      stat.textContent = '❌ ' + msg; stat.className = 'tool-stat error';
-    })
-    .portal_removeStore(store);
-}
-
-function srmManageVisitor(action) {
-  var input = document.getElementById('srmVisitorInput');
-  var name  = input.value.trim();
-  var msg   = document.getElementById('srmVisitorMsg');
-  if (!name) { msg.textContent = 'Enter a visitor name.'; msg.className = 'vm-msg err'; return; }
-  google.script.run
-    .withSuccessHandler(function(r) {
-      if (r.success) {
-        allVisitors = (r.visitors || []).map(function(x, i) { return { name: x, color: VCOLS[i % VCOLS.length] }; });
-        input.value = '';
-        msg.textContent = '"' + name.toUpperCase() + '" ' + (action === 'add' ? 'added.' : 'removed.');
-        msg.className = 'vm-msg ok';
-      } else {
-        msg.textContent = r.message; msg.className = 'vm-msg err';
-      }
-    })
-    .withFailureHandler(function(e) { msg.textContent = e.message || String(e); msg.className = 'vm-msg err'; })
-    .manageVisitor(action, name);
-}
-
-function srmManagePurpose(action) {
-  var input = document.getElementById('srmPurposeInput');
-  var name  = input.value.trim();
-  var msg   = document.getElementById('srmPurposeMsg');
-  if (!name) { msg.textContent = 'Enter a purpose name.'; msg.className = 'vm-msg err'; return; }
-  google.script.run
-    .withSuccessHandler(function(r) {
-      if (r.success) {
-        allPurposes = r.purposes || [];
-        input.value = '';
-        msg.textContent = '"' + name.toUpperCase() + '" ' + (action === 'add' ? 'added.' : 'removed.');
-        msg.className = 'vm-msg ok';
-        srmShowPurposeList();
-      } else {
-        msg.textContent = r.message; msg.className = 'vm-msg err';
-      }
-    })
-    .withFailureHandler(function(e) { msg.textContent = e.message || String(e); msg.className = 'vm-msg err'; })
-    .managePurpose(action, name);
-}
-
-function srmShowPurposeList() {
-  document.getElementById('srmPurposeList').textContent = (allPurposes && allPurposes.length) ? allPurposes.join(', ') : '—';
+    .settingsMigration_run();
 }
 
 // ═══════════════════════════════════════
@@ -2879,6 +2672,64 @@ var ADMIN_AREAS = [
   { key: 'SYSTEM',     label: 'System' }
 ];
 
+// One-line, administrator-facing explanation of what each Configuration
+// area actually controls and how it reaches the rest of the app — shown
+// above the entity list. Grounded strictly in the existing implementation
+// (SVMKPI_CONFIG.gs's CFG_AREA_SCHEMAS, and each area's own *_CONFIG.gs
+// consumer wiring); never invents a setting or rule this area doesn't
+// already have.
+var ADMIN_AREA_NOTES = {
+  STORES: 'The one authoritative place to create or edit a store. A new or reactivated store appears in the Input Portal\'s Store picker immediately; deactivating one removes it from that picker while every past visit stays in Store Health.',
+  VISITORS: 'The one authoritative place to add or retire a name from the Visitor Roster. An active visitor appears in the Input Portal\'s "Visited By" picker; deactivating one removes it from that picker, without affecting any visit already recorded under their name.',
+  PURPOSES: 'The one authoritative place to add a visit Purpose beyond the 4 built-in ones (Store Visit, TLTC, Failed QA/MS, Curing/Support), and to give any purpose a deliberate Risk Weight. A purpose with no Risk Weight here simply scores 0 toward Store Health\'s risk total — it is never silently assigned another purpose\'s weight.',
+  RISK: 'Global thresholds and per-purpose risk weights Store Health\'s scoring engine reads. There is one active rule set for the whole system (no per-store variation exists in the underlying algorithm) — creating a new version replaces which thresholds/weights apply from its Effective From date onward.',
+  COMPLIANCE: 'Per-category visit-cadence rules (how many visits are expected, how often, with how much grace) that drive Store Health\'s compliance status and the Unvisited-This-Month view. Each category (NCR, Provincial, etc.) has its own independent rule set.',
+  KPI: 'Storage for a future KPI target/weight per named KPI. No KPI calculation in this app currently reads a target or weight — creating an entry here records the intent for later, it does not change any number on today\'s KPI 2026 sheet.',
+  SYSTEM: 'Reserved for a genuinely new business-configurable system setting. Nothing here today — settings that already work fine as code constants (timeouts, row limits) or that already live in SETTINGS (admin emails, guest password) were deliberately left where they are rather than moved here without being asked to.',
+};
+
+// Per-field, plain-language help shown under each Configuration form
+// field: what it controls, what to enter, and any save-time effect.
+// Keyed 'AREA.fieldKey'. Grounded in the exact validation/consumption
+// each field already has (SVMKPI_CONFIG.gs's cfg_validateConfiguration(),
+// and the area's own *_CONFIG.gs/engine file) — see this file's own
+// admin-note conventions elsewhere for the established tone/format.
+var ADMIN_FIELD_HELP = {
+  'STORES.storeName': 'The store\'s display name on reports and the Input Portal. Example: ACME MALL - MAIN. Editing this later adds a new version under the same store (its identity/history never changes) — the old name stops appearing anywhere current.',
+  'STORES.brand': 'Which brand this store belongs to — pick from the list. Drives Executive Summary/KPI 2026 brand grouping and the col D validation formula on the legacy SETTINGS mirror.',
+  'STORES.region': 'The store\'s region — pick from the list.',
+  'STORES.category': 'The store\'s visit-frequency category — pick from the list. Drives how many days Store Health allows between visits before marking the store overdue.',
+  'STORES.status': 'Store Status. Leave blank on a brand-new store (defaults to ACTIVE). Prefer the ⏸ Deactivate/▶ Reactivate button on an existing store\'s detail view instead of typing this directly — it fills in today\'s date and asks for a reason for you.',
+  'VISITORS.visitorName': 'The visitor\'s name as it should appear in the Input Portal\'s "Visited By" picker. Example: JUAN DELA CRUZ. Free text — there is no approved-names list to match against.',
+  'PURPOSES.riskWeight': 'Optional. A number added to a store\'s risk score each time a visit is logged with this purpose. Leave blank for a purpose that should contribute nothing to risk scoring (this is never inherited from another purpose). The 4 built-in purposes already have a working weight without needing an entry here — only set this to override one, or to give a brand-new purpose a weight.',
+  'RISK.lowThreshold': 'Stored for completeness; the current scoring algorithm does not compare against it (only Medium/High are actually used to assign a risk tier).',
+  'RISK.mediumThreshold': 'A store\'s total risk score at or above this value (and below High) is tier MEDIUM. Must be less than High Threshold. Example: 5.',
+  'RISK.highThreshold': 'A store\'s total risk score at or above this value is tier HIGH. Example: 10.',
+  'RISK.weightFailedQaMs': 'Risk points added per visit logged with purpose "Failed QA/MS". Optional — leave blank to keep the built-in default.',
+  'RISK.weightStoreVisit': 'Risk points added per visit logged with purpose "Store Visit". Optional — leave blank to keep the built-in default.',
+  'RISK.weightCuringSupport': 'Risk points added per visit logged with purpose "Curing/Support". Optional — leave blank to keep the built-in default.',
+  'RISK.weightTltc': 'Risk points added per visit logged with purpose "TLTC". Optional — leave blank to keep the built-in default.',
+  'COMPLIANCE.cadenceType': 'How often a visit is expected for this category. Must be exactly one of: MONTHLY, QUARTERLY, SEMI_ANNUAL.',
+  'COMPLIANCE.cadenceDays': 'The rolling-day threshold Store Health\'s risk score uses for this category (e.g. 30). Must be a positive number.',
+  'COMPLIANCE.periodDefinition': 'The calendar-period family the period-to-date compliance view uses for this category. Must be one of the supported period families (e.g. MONTH, QUARTER, SEMI_ANNUAL) — leave blank if unsure.',
+  'COMPLIANCE.requiredCount': 'Optional. How many visits are required per period for this category. Leave blank for the default of 1. Must be a positive whole number.',
+  'COMPLIANCE.graceDays': 'Optional. Extra days of grace added after a period ends before a missed visit counts against compliance.',
+  'KPI.targetValue': 'Optional. The numeric target this KPI is meant to hit. Not read by any calculation yet — recorded for a future feature.',
+  'KPI.targetType': 'Optional. NUMERIC, PERCENTAGE, or COUNT — describes how to interpret Target Value (a PERCENTAGE must be 0–100).',
+  'KPI.weight': 'Optional. Must be numeric if set. Not read by any calculation yet.',
+  'KPI.purposeRef': 'Optional. A Purpose name this KPI relates to, for your own reference only — not validated against the Purpose list.',
+  'SYSTEM.settingKey': 'A fixed, code-recognized identifier — not free text. Only meaningful once a specific setting is actually added to the app; there is nothing to enter here today.',
+  'SYSTEM.settingValue': 'The value for the Setting Key above.',
+  'SYSTEM.settingLabel': 'Optional. A human-readable label for the setting above.',
+};
+
+// Cached once per session — the same brand list ("in use", not the full
+// approved list) plus the fixed region/category enums the removed Store
+// & Roster Manager card used to show, reused here so the Admin
+// Configuration Store form offers the exact same guided choices instead
+// of unvalidated free text.
+var adminStoreFormOptions = null;
+
 // ── Generic helpers ─────────────────────────────────────────────────
 function callServer(fnName, args, onSuccess, onError) {
   var runner = google.script.run
@@ -2955,6 +2806,7 @@ function loadAdminArea(area) {
   adminSelectedEntity = null;
   renderAdminAreaBar();
   document.getElementById('adminEntityHdr').textContent = ADMIN_AREAS.filter(function(a){ return a.key === area; })[0].label;
+  document.getElementById('adminAreaNote').textContent = ADMIN_AREA_NOTES[area] || '';
   document.getElementById('adminNewEntityBtn').hidden = (area === 'RISK' || area === 'SYSTEM');
   document.getElementById('adminDetailCol').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
   document.getElementById('adminEntityList').innerHTML = '<div class="state-msg" style="padding:10px 0"><div class="spinner"></div></div>';
@@ -3098,6 +2950,18 @@ function renderAdminDetail(area, entityId, detail) {
 // never offers a field those backend functions can't accept.
 function areaSupportsEffectiveTo(area) { return area === 'VISITORS'; }
 
+// STORES' brand/region/category are closed lists in the underlying data
+// (APPROVED_REGIONS/APPROVED_CATEGORIES, plus whichever brands are
+// actually in use) — rendered as <select> here, same guided-choice
+// fidelity the removed Store & Roster Manager card's own dropdowns gave,
+// rather than free text a typo could silently slip past.
+var ADMIN_SELECT_FIELDS = {
+  'STORES.brand': function() { return (adminStoreFormOptions && adminStoreFormOptions.brands) || []; },
+  'STORES.region': function() { return (adminStoreFormOptions && adminStoreFormOptions.regions) || []; },
+  'STORES.category': function() { return (adminStoreFormOptions && adminStoreFormOptions.categories) || []; },
+  'STORES.status': function() { return ['ACTIVE', 'INACTIVE']; },
+};
+
 function renderAdminCreateForm(area, entityId, isNewEntity) {
   if (!adminSchema) return '';
   var needsEntityIdField = (area !== 'STORES' && area !== 'RISK');
@@ -3105,23 +2969,42 @@ function renderAdminCreateForm(area, entityId, isNewEntity) {
     .filter(function(f) { return !(area === 'PURPOSES' && f.key === 'purposeName') && !(area === 'KPI' && f.key === 'kpiName'); })
     .map(function(f) {
       var required = adminSchema.required.indexOf(f.key) !== -1;
-      return '<div class="admin-form-row"><label>' + esc(f.header) + (required ? ' *' : '') + '</label>'
-        + '<input type="text" class="fi" id="af_' + f.key + '" placeholder="' + esc(f.header) + '"></div>';
+      var help = ADMIN_FIELD_HELP[area + '.' + f.key];
+      var selectOptions = ADMIN_SELECT_FIELDS[area + '.' + f.key];
+      var input = selectOptions
+        ? '<select class="fi" id="af_' + f.key + '"><option value="">Select…</option>'
+          + selectOptions().map(function(v) { return '<option value="' + esc(v) + '">' + esc(v) + '</option>'; }).join('')
+          + '</select>'
+        : '<input type="text" class="fi" id="af_' + f.key + '" placeholder="' + esc(f.header) + '">';
+      return '<div class="admin-form-row"><label>' + esc(f.header) + (required ? ' <span class="req">*</span>' : '') + '</label>'
+        + input
+        + (help ? '<div class="hint">' + help + '</div>' : '')
+        + '</div>';
     }).join('');
 
   var entityIdField = needsEntityIdField
-    ? '<div class="admin-form-row"><label>Entity ID' + (isNewEntity ? '' : ' (existing — versions accumulate under this ID)') + ' *</label>'
-      + '<input type="text" class="fi" id="af_entityId" value="' + esc(isNewEntity ? '' : (entityId || '')) + '"' + (isNewEntity ? '' : ' readonly') + '></div>'
+    ? '<div class="admin-form-row"><label>Entity ID' + (isNewEntity ? '' : ' (existing — versions accumulate under this ID)') + ' <span class="req">*</span></label>'
+      + '<input type="text" class="fi" id="af_entityId" value="' + esc(isNewEntity ? '' : (entityId || '')) + '"' + (isNewEntity ? '' : ' readonly') + '>'
+      + (isNewEntity ? '<div class="hint">' + (area === 'VISITORS' ? 'The visitor\'s name — this IS their identity, so it can never be changed later (add a new one instead of trying to rename).' : area === 'PURPOSES' ? 'The purpose name — this IS its identity, so it can never be changed later.' : 'A unique identifier for this entity — cannot be changed later.') + '</div>' : '')
+      + '</div>'
     : '';
+
+  if (area === 'STORES' && !adminStoreFormOptions) {
+    callServer('sl_getStoreFormOptions', [], function(opts) {
+      adminStoreFormOptions = opts;
+      if (adminArea === 'STORES') { if (isNewEntity) adminOpenCreateForm(); else selectAdminEntity(entityId); }
+    }, function() {});
+  }
 
   return '<div class="p-card" style="margin-top:14px"><div class="p-card-hdr">' + (isNewEntity ? '➕ Create New ' + esc(ADMIN_AREAS.filter(function(a){return a.key===area;})[0].label) : '📝 Add New Version') + '</div>'
     + '<div class="p-card-body">'
     + '<div class="admin-note">Creating this does not rewrite any existing version — it always adds a new one. Historical versions are never edited or deleted.</div>'
     + entityIdField
     + fieldsHtml
-    + '<div class="admin-form-row"><label>Effective From *</label><input type="date" class="fi" id="af_effFrom" value="' + todayDateStr() + '"></div>'
-    + (areaSupportsEffectiveTo(area) ? '<div class="admin-form-row"><label>Effective To (optional)</label><input type="date" class="fi" id="af_effTo"></div>' : '')
-    + '<div class="admin-form-row"><label>Reason</label><textarea class="fi" id="af_reason" placeholder="Why is this change being made?"></textarea></div>'
+    + '<div class="admin-form-row"><label>Effective From <span class="req">*</span></label><input type="date" class="fi" id="af_effFrom" value="' + todayDateStr() + '">'
+    + '<div class="hint">The date this version takes effect. Today is pre-filled. A past date requires an explicit confirmation and a reason (never applied silently).</div></div>'
+    + (areaSupportsEffectiveTo(area) ? '<div class="admin-form-row"><label>Effective To (optional)</label><input type="date" class="fi" id="af_effTo"><div class="hint">Leave blank for open-ended (the normal case). Only set this for a rule that should deliberately stop applying on a known date before anything else replaces it.</div></div>' : '')
+    + '<div class="admin-form-row"><label>Reason</label><textarea class="fi" id="af_reason" placeholder="Why is this change being made?"></textarea><div class="hint">Optional unless this change is backdated, in which case it\'s required. Always shown in the Audit log either way.</div></div>'
     + '<div class="status-line" id="af_error"></div>'
     + '<button class="btn-primary" id="af_submitBtn" onclick="adminSubmitCreate(\'' + area + '\', ' + (isNewEntity ? 'true' : 'false') + ')">' + (isNewEntity ? 'Create' : 'Save New Version') + '</button>'
     + '</div></div>';

@@ -262,6 +262,57 @@ function store_resolveIdByCurrentName(storeName) {
   return null;
 }
 
+/**
+ * _storeSync_toSettings(storeId)
+ * Phase 1G — called by SVMKPI_CONFIG.gs's _cfg_syncLegacyMirror() after
+ * every successful CONFIG_STORES mutation for this Store ID (create,
+ * update, activate, deactivate, or rollback). Keeps the legacy SETTINGS
+ * sheet's store row (cols A/B/C/D/E) looking like a correct, derived
+ * snapshot of this store's CURRENT resolved attributes — SETTINGS is no
+ * longer independently editable (Store & Roster Manager is gone; Admin →
+ * Configuration → Stores is the only place a store is created or
+ * changed), so this is the one thing that writes to it now, and only ever
+ * to mirror what CONFIG_STORES already says.
+ *
+ * Reuses portal_saveStore()/portal_removeStore() (INPUT_PORTAL.gs) as the
+ * actual cell-level writers rather than re-implementing that logic here —
+ * both are already tested, admin-gated, and already trigger Store
+ * Health's own auto-refresh. typeof-guarded so a test sandbox that loads
+ * this file without INPUT_PORTAL.gs (e.g. store-identity.test.js) never
+ * hits a ReferenceError.
+ *
+ * Renamed stores: a store's Store ID never changes, but its storeName
+ * CAN across versions — every distinct name this entity has EVER had
+ * (from cfg_getConfiguration()'s full history) is reconciled here: any
+ * name that isn't the current, operationally-active one is removed from
+ * SETTINGS, and the current one (if operationally active) is written —
+ * so an old name never lingers as a stale, orphaned SETTINGS row.
+ */
+function _storeSync_toSettings(storeId) {
+  if (typeof portal_saveStore !== 'function' || typeof portal_removeStore !== 'function') return;
+
+  const id = _store_normalizeId(storeId);
+  const history = cfg_getConfiguration(CFG_AREA.STORES, id);
+  const everyName = {};
+  history.forEach(v => {
+    const n = String((v.fields && v.fields.storeName) || '').trim().toUpperCase();
+    if (n) everyName[n] = true;
+  });
+
+  const current = store_getById(id); // resolved as of today, or null
+  const currentName = current ? String((current.fields && current.fields.storeName) || '').trim().toUpperCase() : null;
+  const isOperational = !!current && String((current.fields && current.fields.status) || CFG_STATUS.ACTIVE).toUpperCase() !== CFG_STATUS.INACTIVE;
+
+  Object.keys(everyName).forEach(name => {
+    if (isOperational && name === currentName) return; // written below instead of removed
+    portal_removeStore(name); // harmless no-op if this name has no SETTINGS row
+  });
+
+  if (isOperational && currentName) {
+    portal_saveStore(currentName, current.fields.brand, current.fields.region, current.fields.category);
+  }
+}
+
 
 // ═══════════════════════════════════════════════════════════════
 // SECTION 4: MIGRATION — SETTINGS store roster -> Store ID, plus
@@ -421,17 +472,18 @@ function store_reconcileUnmapped(unmappedId, resolvedStoreId, notes) {
  * data shows any activity. A store with no MASTER_LOG history at all
  * gets an initial version effective today.
  *
- * Admin-gated. Idempotent-ish in spirit but not dedup-guarded across
- * repeated runs — this is a one-time operational script, not something
- * designed to be run repeatedly against the same data; running it twice
- * against a spreadsheet that already has Store IDs would create
- * duplicate-name entities. (Never run against the live spreadsheet
- * without a fresh backup regardless — see DEPLOY.md.)
+ * Admin-gated. Phase 1G: now safe to re-run — a name that already
+ * resolves to a Store ID today (store_resolveIdByCurrentName()) is
+ * treated as already migrated and skipped, so running this again after
+ * new stores have been added to SETTINGS only migrates the new ones,
+ * never creating a duplicate-name entity for one already migrated. (Still
+ * never run against the live spreadsheet without a fresh backup — see
+ * DEPLOY.md.)
  *
  * @param {{store:string, brand:string, region:string, category:string}[]} settingsStores
  * @param {{store:string, date:(Date|string)}[]} masterLogRows - only the
  *   fields this function needs, not a full MASTER_LOG row shape
- * @returns {{success:boolean, message?:string, createdStoreIds?:string[], mapping?:object, unmappedCount?:number}}
+ * @returns {{success:boolean, message?:string, createdStoreIds?:string[], mapping?:object, unmappedCount?:number, alreadyMigrated?:string[]}}
  */
 function store_migrateFromSettings(settingsStores, masterLogRows) {
   if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
@@ -439,10 +491,18 @@ function store_migrateFromSettings(settingsStores, masterLogRows) {
   const rows = masterLogRows || [];
   const mapping = {};   // normalized name -> storeId
   const created = [];
+  const alreadyMigrated = [];
 
   (settingsStores || []).forEach(s => {
     const name = String(s.store || s.name || '').trim().toUpperCase();
     if (!name || mapping[name]) return;
+
+    const existingId = store_resolveIdByCurrentName(name);
+    if (existingId) {
+      mapping[name] = existingId;
+      alreadyMigrated.push(name);
+      return;
+    }
 
     let earliest = null;
     rows.forEach(row => {
@@ -487,5 +547,6 @@ function store_migrateFromSettings(settingsStores, masterLogRows) {
     createdStoreIds: created,
     mapping,
     unmappedCount: Object.keys(unmappedStats).length,
+    alreadyMigrated,
   };
 }

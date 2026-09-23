@@ -109,3 +109,66 @@ function purpose_getConfigurationStatus(purposeName, dateStr) {
     incomplete: exists && !(hasKpiConfig && hasRiskConfig),
   };
 }
+
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 3: LEGACY SETTINGS MIRROR (Phase 1G)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * _purposeSync_toSettings(purposeName)
+ * Called by SVMKPI_CONFIG.gs's _cfg_syncLegacyMirror() after every
+ * successful CONFIG_PURPOSES mutation for this name. Uses
+ * purpose_getConfigurationStatus()'s own `active` — NOT a raw
+ * cfg_resolveConfigurationAsOf() check — so that deactivating a
+ * CONFIG_PURPOSES row for one of the 4 legacy APPROVED_PURPOSES (which
+ * are always usable regardless of any CONFIG_PURPOSES version, per that
+ * function's own documented legacy fallback) never removes it from the
+ * SETTINGS!H list it has always belonged to.
+ * Reuses managePurpose() (INPUT_PORTAL.gs), typeof-guarded for sandboxes
+ * that load this file alone.
+ */
+function _purposeSync_toSettings(purposeName) {
+  if (typeof managePurpose !== 'function') return;
+  const status = purpose_getConfigurationStatus(purposeName);
+  managePurpose(status.active ? 'add' : 'remove', purposeName);
+}
+
+/**
+ * purpose_migrateFromSettings(settingsPurposeNames)
+ * One-time (per environment) migration companion to
+ * store_migrateFromSettings()/visitor_migrateFromSettings() — creates a
+ * CONFIG_PURPOSES version for every name in `settingsPurposeNames` that
+ * isn't already "active" per purpose_getConfigurationStatus() (which
+ * already covers the 4 legacy APPROVED_PURPOSES without needing a row —
+ * those are correctly skipped here, not re-created). Effective from
+ * today, same honest-boundary reasoning as the Visitor/Store migrations.
+ * Safe to re-run. Admin-gated.
+ * @param {string[]} settingsPurposeNames
+ * @returns {{success:boolean, message?:string, createdNames?:string[], alreadyMigrated?:string[]}}
+ */
+function purpose_migrateFromSettings(settingsPurposeNames) {
+  if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
+
+  const today = new Date();
+  const todayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+  const created = [];
+  const alreadyMigrated = [];
+  const seen = {};
+
+  (settingsPurposeNames || []).forEach(raw => {
+    const name = String(raw || '').trim().toUpperCase();
+    if (!name || seen[name]) return;
+    seen[name] = true;
+
+    if (purpose_getConfigurationStatus(name).active) {
+      alreadyMigrated.push(name);
+      return;
+    }
+
+    const result = purpose_create(name, {}, todayStr, 'Migrated from SETTINGS', {});
+    if (result.success) created.push(name);
+  });
+
+  return { success: true, createdNames: created, alreadyMigrated };
+}
