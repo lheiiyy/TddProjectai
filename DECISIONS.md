@@ -171,3 +171,23 @@ deliberately not attempted opportunistically.
 change and redeploy. Flagged in the System Peripherals audit
 (`reviews/`) as a candidate for a future phase, in dependency order after
 the admin-access gap (D-007).
+
+### D-014 — One authoritative document per category; no duplicate authorities
+**Status:** Settled (governance)
+**Decision:** Each documentation category (context, status, requirements,
+architecture, data model, decisions, implementation history, testing
+history, reviews, AI operating rules, and the two deployment-procedure
+authorities) has exactly one authoritative document. When an older
+supporting document disagrees with its category's authority, the older
+document is corrected or explicitly marked historical — never left to
+stand as a second, conflicting source.
+**Rationale:** A future AI session must be able to determine project
+state from the repository alone; two documents claiming the same
+authority (or one silently going stale while another is updated) breaks
+that guarantee.
+**Impact:** The full authority table lives in `PROJECT_MEMORY.md` — not
+repeated here. Do not create a new root document that duplicates an
+existing category's role; update the existing authority instead. See
+`CLAUDE.md` for the operating rules this decision implies (read
+`PROJECT_STATUS.md` first, consult only the relevant document, record
+meaningful changes where they belong).

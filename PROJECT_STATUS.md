@@ -1,8 +1,9 @@
 # SVMI — Project Status
 
-Last updated: 2026-09-23, by this documentation-compliance pass. See
-`PROJECT_MEMORY.md` for orientation and `IMPLEMENTATION_LOG.md` for the
-full phase-by-phase history behind this summary.
+Last updated: 2026-09-24, by the workflow-readiness gap-fix pass (see
+`reviews/002-documentation-reconciliation.md`). See `PROJECT_MEMORY.md`
+for orientation and `IMPLEMENTATION_LOG.md` for the full phase-by-phase
+history behind this summary.
 
 ## What is SVMI?
 
@@ -29,7 +30,31 @@ identity → Phase 1C reporting-year abstraction → Phase 1D Risk/Compliance/KP
 configuration → Phase 1E report snapshots → Phase 1F Admin/Snapshot UI →
 **Phase 1G: Admin Configuration made the sole authoritative path for
 Stores/Visitors/Purposes; "Store & Roster Manager" removed** → a read-only
-System Peripherals architectural audit (findings below).
+System Peripherals architectural audit (findings below). **The application
+itself has not changed since Phase 1G** — everything below this point is
+documentation-only work.
+
+**Documentation track** (also complete, both passes pushed):
+1. **Documentation foundation** (commit `a84074b`) — created the 8 root
+   docs (`PROJECT_MEMORY.md` through `TESTING_LOG.md`) plus
+   `reviews/001-workflow-documentation-compliance.md`, none of which
+   existed before.
+2. **Documentation reconciliation** (commit `f96b2d8`) — created
+   `CLAUDE.md`; established the Documentation Authority Model in
+   `PROJECT_MEMORY.md`; reconciled the three legacy docs the first pass
+   had flagged but not fixed (`SVMI_Project/DEPLOY.md`,
+   `SVMI_Project/README.txt`, `database/dryrun/README.md`).
+3. **Workflow-readiness gap-fix** (this pass) — a follow-up audit found
+   `PROJECT_STATUS.md` and `IMPLEMENTATION_LOG.md` had not been updated
+   after pass 2 landed, producing a real conflicting-source-of-truth
+   gap; this pass corrects both and adds
+   `reviews/002-documentation-reconciliation.md`, the review artifact
+   pass 2 itself should have produced. See that review and
+   `reviews/001-...md` (preserved unedited as the historical record of
+   the first pass) for full detail.
+
+**Documentation foundation and reconciliation are both complete.**
+`CLAUDE.md` now exists at the repo root.
 
 **Database track**: PostgreSQL DEV schema (13 migrations + rollback
 scripts), proven against a local ephemeral instance, including verified
@@ -40,9 +65,9 @@ synthetic data — **158/158 passing** as of this check.
 
 ## What is currently being worked on
 
-Nothing is mid-implementation. The most recent unit of work (Phase 1G)
-is complete, tested, and pushed. This documentation-compliance pass is
-itself the current task.
+Nothing is mid-implementation, and nothing documentation-related is
+in-flight either. The most recent application work (Phase 1G) and all
+three documentation passes above are complete, verified, and pushed.
 
 ## What remains unresolved (System Peripherals gaps — see `reviews/`)
 
@@ -78,8 +103,14 @@ itself the current task.
 
 ## Immediate next task
 
-**This documentation/workflow-compliance checkpoint.** No implementation
-work should begin until this checkpoint is reviewed and accepted. The
-recommended next *implementation* phase (for after acceptance) is listed
-in the review artifact (`reviews/001-workflow-documentation-compliance.md`),
-in dependency order, starting with the admin-access Configuration screen.
+**The documentation checkpoint is done — this is no longer the next
+task.** With the documentation foundation and reconciliation both
+complete and `CLAUDE.md` in place, the next task is the first
+*implementation* item from the dependency-ordered list both
+`reviews/001-workflow-documentation-compliance.md` and
+`reviews/002-documentation-reconciliation.md` recommend: **an Admin
+Configuration screen for admin access** (guest password + admin email
+list, currently only editable by direct `SETTINGS` cell edit — see
+`DECISIONS.md` D-007 and "What remains unresolved" above). This is not a
+new phase invented here — it is the same next step already established
+in those review artifacts; no application work has begun on it.

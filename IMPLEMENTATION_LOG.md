@@ -23,7 +23,18 @@ this file is the durable index, not a replacement. Commit hashes are from
 | 2026-09-19 | `a12820a`–`ed646c3` | Phase 2C | Purpose operational readiness (CAPAR → inactive-not-selectable, D-004); Executive Summary + Store Insights made purpose-dynamic; Purpose Breakdown's old top-4 limit removed |
 | 2026-09-19/23 | (this session) | Phase 1G | Removed "Store & Roster Manager"; Admin → Configuration made the sole authoritative path for Stores/Visitors/Purposes; `SVMKPI_VISITOR_CONFIG.gs` and `SVMKPI_SETTINGS_MIGRATION.gs` added; `_cfg_syncLegacyMirror()` keeps `SETTINGS` A–E/F/H in sync; `getSidebarData()` reads `CONFIG_*` directly; Admin Configuration UI gained per-field explanations and guided Store dropdowns (see `DECISIONS.md` D-005/D-006) |
 | 2026-09-23 | (this session) | Audit | Read-only System Peripherals architectural audit — findings recorded in `PROJECT_STATUS.md` and `reviews/` |
-| 2026-09-23 | (this session) | Compliance | This documentation-compliance pass (no application code changed) |
+
+**The application itself has not changed since Phase 1G.** The three
+rows above (Audit onward) and the Documentation track below are all
+documentation-only work — no `.gs`/`.html` file was touched by any of them.
+
+## Documentation track (spans `SVMI_Project/`, `database/`, and the repo root)
+
+| Date | Commit | Pass | Summary |
+|---|---|---|---|
+| 2026-09-23 | `a84074b` | Documentation foundation | Created the 8 root docs (`PROJECT_MEMORY.md` through `TESTING_LOG.md`) and `reviews/001-workflow-documentation-compliance.md` — none existed before. Flagged, but did not fix, staleness in `SVMI_Project/DEPLOY.md`, `SVMI_Project/README.txt`, and `database/dryrun/README.md`. |
+| 2026-09-23 | `f96b2d8` | Documentation reconciliation | Created `CLAUDE.md`; established the Documentation Authority Model in `PROJECT_MEMORY.md`; **fixed** the three files pass 1 had only flagged — added historical/superseded banners to `SVMI_Project/DEPLOY.md`'s Store & Roster Manager/Navigation/Admin-list sections, corrected `SVMI_Project/README.txt`'s file count and tab description, corrected `database/dryrun/README.md`'s test count. |
+| 2026-09-24 | (this session) | Workflow-readiness gap-fix | A follow-up readiness audit found this file's own "What is superseded" section (since retitled "Legacy-documentation staleness — found, then resolved," below) and `PROJECT_STATUS.md` had not been updated after pass 2 landed, so both still claimed the pass-1 files were "not corrected" — a real conflicting-source-of-truth defect. Corrected both, and added `reviews/002-documentation-reconciliation.md` (the review artifact pass 2 should have produced). |
 
 ## Database track (`database/`)
 
@@ -42,12 +53,27 @@ no production Postgres instance exists (D-011). Next step on this track
 is a real data export from the project owner — not something an AI
 session should attempt to obtain itself.
 
-## What is superseded / no longer accurate in older docs
+## Legacy-documentation staleness — found, then resolved
 
-- `SVMI_Project/DEPLOY.md`'s "Store & Roster Manager" section (line ~298)
-  describes a tool that **no longer exists** as of Phase 1G — superseded
-  by `DECISIONS.md` D-005. `DEPLOY.md` was not edited as part of Phase 1G
-  or this documentation pass; treat that section as historical, not current.
-- `SVMI_Project/README.txt` still lists "10 .gs files" — there are 24 as
-  of Phase 1G. Not corrected as part of this pass (out of the 8-file scope
-  given); flagged in `reviews/001-workflow-documentation-compliance.md`.
+Both items below were **found** during the Documentation foundation pass
+(`a84074b`) and **fixed** during the Documentation reconciliation pass
+(`f96b2d8`), two separate commits — see the Documentation track table
+above. Current state (verified, not carried over from either pass's own
+notes):
+
+- `SVMI_Project/DEPLOY.md`'s "Store & Roster Manager" section described a
+  tool that no longer exists as of Phase 1G (superseded by `DECISIONS.md`
+  D-005). It now carries an explicit `⚠ HISTORICAL — NO LONGER CURRENT`
+  banner pointing to `DECISIONS.md` D-005/D-006 and `ARCHITECTURE.md` §5;
+  the section's rationale is preserved underneath the banner, not deleted.
+  The same pass added equivalent correction banners to that file's
+  Navigation and Admin-list sections, which had the same problem.
+- `SVMI_Project/README.txt` said "10 .gs files"; there are 24 as of
+  Phase 1G. It now states 24, with a note explaining the correction, and
+  points to `ARCHITECTURE.md` §4 instead of re-listing every file.
+
+`database/dryrun/README.md`'s stale "37/37" test-count claim (found in
+the same first pass, not listed above since it isn't an Apps Script doc)
+was corrected the same way in `f96b2d8` — see `TESTING_LOG.md` for the
+current, verified count (158/158) rather than trusting any one doc's own
+inline figure.
