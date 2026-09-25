@@ -23,10 +23,12 @@ this file is the durable index, not a replacement. Commit hashes are from
 | 2026-09-19 | `a12820a`–`ed646c3` | Phase 2C | Purpose operational readiness (CAPAR → inactive-not-selectable, D-004); Executive Summary + Store Insights made purpose-dynamic; Purpose Breakdown's old top-4 limit removed |
 | 2026-09-19/23 | (this session) | Phase 1G | Removed "Store & Roster Manager"; Admin → Configuration made the sole authoritative path for Stores/Visitors/Purposes; `SVMKPI_VISITOR_CONFIG.gs` and `SVMKPI_SETTINGS_MIGRATION.gs` added; `_cfg_syncLegacyMirror()` keeps `SETTINGS` A–E/F/H in sync; `getSidebarData()` reads `CONFIG_*` directly; Admin Configuration UI gained per-field explanations and guided Store dropdowns (see `DECISIONS.md` D-005/D-006) |
 | 2026-09-23 | (this session) | Audit | Read-only System Peripherals architectural audit — findings recorded in `PROJECT_STATUS.md` and `reviews/` |
+| 2026-09-25 | (this session) | Phase 1H-A | Read-only authentication/identity/authorization audit — traced login/session/authorization flow, inventoried all 45 server-gated privileged functions plus every function found NOT gated, the guest-password/admin-email secret lifecycle, and mapped current concepts against a future Identity-Provider/role/permission model. Findings recorded in `reviews/003-phase-1h-security-identity-audit.md`. **Audit only — no finding was fixed; Phase 1H-B (enterprise identity design) has not started.** |
 
-**The application itself has not changed since Phase 1G.** The three
+**The application itself has not changed since Phase 1G.** The four
 rows above (Audit onward) and the Documentation track below are all
-documentation-only work — no `.gs`/`.html` file was touched by any of them.
+documentation/audit-only work — no `.gs`/`.html` file was touched by any
+of them.
 
 ## Documentation track (spans `SVMI_Project/`, `database/`, and the repo root)
 
