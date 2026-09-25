@@ -191,3 +191,144 @@ existing category's role; update the existing authority instead. See
 `CLAUDE.md` for the operating rules this decision implies (read
 `PROJECT_STATUS.md` first, consult only the relevant document, record
 meaningful changes where they belong).
+
+---
+
+## Phase 1H-B — Enterprise identity & access architecture (target, not yet implemented)
+
+The following decisions (D-015–D-023) record the **approved target**
+identity/access architecture per the project owner's Phase 1H-B
+direction. None of them describe the current pilot — see
+`reviews/003-phase-1h-security-identity-audit.md` for that — and none of
+them has been implemented. They govern a future Phase 1H-C implementation
+task, not yet started or scoped. Full narrative:
+`reviews/004-phase-1h-enterprise-identity-architecture.md`.
+
+### D-015 — Future authentication is delegated to an external identity provider
+**Status:** Settled (target architecture — Phase 1H-B; not yet implemented)
+**Decision:** Production SVMI authentication will be delegated to an
+external, standards-based identity provider. Target protocols: OIDC
+(primary), SAML where a specific integration requires it. SVMI will not
+build or maintain its own primary password database.
+**Rationale:** Removes SVMI from directly storing/verifying user
+passwords; closes the class of risk the pilot's single shared plaintext
+guest password represents (`reviews/003` §E).
+**Impact:** No SVMI-specific password field belongs in any future schema.
+Which specific provider is used is **PENDING DECISION** — do not select
+or integrate one without a new decision recording that choice.
+
+### D-016 — Authentication is distinct from SVMI authorization
+**Status:** Settled (target architecture)
+**Decision:** Successful authentication (the IdP proving who someone is)
+does not by itself grant SVMI access. SVMI independently controls account
+status, role, permissions, application access, and approval.
+**Rationale:** Keeps "is this really the person" (an IdP concern)
+separate from "should this SVMI account be allowed to do X right now" (an
+SVMI concern) — the same single-authoritative-path discipline as
+D-005/D-006, applied to identity/access.
+**Impact:** A future backend must not treat "IdP login succeeded" as
+equivalent to "user is `ACTIVE` and permitted." Every privileged
+operation still needs its own SVMI-side authorization check, not just a
+valid IdP session — carrying forward, not replacing, the defense-in-depth
+pattern already used for `CONFIG_*` mutations (`sl_isAdmin()`).
+
+### D-017 — Immutable internal User ID as the identity key, not email
+**Status:** Settled (target architecture)
+**Decision:** Future logical user identity requires: an immutable
+internal User ID, an external Identity Provider subject/identifier,
+current email, display name, account status, and role assignment. Email
+is not the permanent identity key.
+**Rationale:** Email can change; the pilot's `sl_isAdmin()` looks up
+admin status by raw email string on every call, with no immutable ID
+behind it — flagged as an enterprise-migration gap in `reviews/003` §I.
+**Impact:** Any future schema/migration introducing real user accounts
+must include an immutable internal ID distinct from email, with the
+external IdP subject as a separate field. The existing DEV-only
+`users`/`user_roles`/`roles` tables (`database/migrations/002_users_roles.sql`)
+are unwired infrastructure that has not yet been audited against this
+specific requirement — see `DATA_MODEL.md` §7.
+
+### D-018 — Access request/approval workflow required before ACTIVE
+**Status:** Settled (target architecture)
+**Decision:** Target flow: Authenticate → Identity verified → Request
+SVMI access → `PENDING_APPROVAL` → Administrator review → `APPROVED`/
+`REJECTED` → `ACTIVE`. No self-service SVMI password; no automatic
+activation on first successful IdP login.
+**Rationale:** Extends the "no self-service escalation" principle
+already implicit in the pilot's admin-email-list model into a
+documented, auditable workflow.
+**Impact:** A future implementation must not grant `ACTIVE` status
+automatically on first IdP login. This directly supersedes the pilot's
+current behavior (any guest-password holder gets full non-admin access
+immediately, no approval step) — see `reviews/004` §11 for this named as
+a candidate future fix, not yet scheduled or approved for implementation.
+
+### D-019 — Account lifecycle states
+**Status:** Settled (target architecture)
+**Decision:** Target account statuses: `REQUESTED`, `VERIFIED`,
+`PENDING_APPROVAL`, `ACTIVE`, `SUSPENDED`, `DISABLED`, `REJECTED`.
+Historical business records must remain intact when an account becomes
+inactive.
+**Rationale:** Mirrors D-004 (historical fact vs. current operational
+status are separate questions), applied to user accounts instead of
+Purposes.
+**Impact:** A future deactivation feature must never delete or
+reattribute historical records (e.g. `MASTER_LOG` attribution) tied to
+that user. Do not collapse `SUSPENDED`/`DISABLED`/`REJECTED` into one
+"inactive" flag — they are distinct states with distinct meaning.
+
+### D-020 — Extensible RBAC; current roles remain ADMIN/USER
+**Status:** Settled (target architecture)
+**Decision:** Current roles stay `ADMIN` and `USER`. The architecture
+must allow additional roles later without redesigning authentication.
+**Rationale:** Follows from D-016 — decoupling authentication from
+authorization means role granularity can grow independently of how
+people sign in.
+**Impact:** Do not hardcode a binary admin/non-admin assumption into any
+new identity-layer design; role is a data attribute checked at
+authorization time. Specific roles beyond `ADMIN`/`USER` are **PENDING
+DECISION**.
+
+### D-021 — MFA is an identity-provider responsibility; mandatory for future Admin accounts
+**Status:** Settled (target architecture), partially open
+**Decision:** MFA enforcement belongs to the identity provider, not to
+SVMI's own code. Future production policy: Admin accounts require MFA.
+User-role MFA policy is an explicit, separate future decision.
+**Rationale:** Consistent with D-015 — SVMI does not implement its own
+second-factor verification.
+**Impact:** Do not build SVMI-specific OTP/MFA code. Admin MFA
+enforcement must be verified as achievable through the chosen provider's
+own policy features once one is selected. Non-admin MFA policy is
+**PENDING DECISION**.
+
+### D-022 — Credential separation: no IdP credentials, MFA secrets, or OTPs in SVMI
+**Status:** Settled (target architecture)
+**Decision:** SVMI must not store identity-provider passwords, MFA
+secrets, or OTP values. Provider refresh tokens may be stored only if a
+future backend architecture explicitly requires it and can manage them
+securely — never in Sheets or ordinary application configuration.
+**Rationale:** Directly closes the risk class `reviews/003` documented
+for the pilot (plaintext guest password in `SETTINGS!I2` and in browser
+`localStorage`) — the target architecture does not carry that pattern
+forward.
+**Impact:** Reject any future design that stores a password, secret, or
+OTP in Sheets, `CONFIG_SYSTEM`, Script Properties, or an unreviewed
+database table. Refresh-token storage mechanism, if ever needed, is
+**PENDING DECISION** — not authorized by this entry alone.
+
+### D-023 — Identity/access audit domain is separate from CONFIG_AUDIT
+**Status:** Settled (target architecture)
+**Decision:** Future identity/access auditing (access requested/verified/
+approved/rejected, login success/failure, logout, account suspended/
+reactivated/disabled, role assigned/changed, administrator added/removed,
+MFA state changes, privileged operation allowed/denied) is a distinct
+audit domain from `CONFIG_AUDIT`, which stays scoped to `CONFIG_*`
+configuration mutations only (`DATA_MODEL.md` §3). Secrets must never be
+written to either audit log.
+**Rationale:** `CONFIG_AUDIT`'s schema and purpose are specific to
+versioned configuration changes (D-009's supersede model); identity/access
+events are a different domain with different actors and sensitivity —
+`reviews/003` already found zero auth events logged anywhere today.
+**Impact:** A future implementation must not bolt identity/access events
+onto the existing `CONFIG_AUDIT` sheet/table. Exact storage mechanism is
+**PENDING DECISION**.

@@ -155,3 +155,47 @@ the DEV/PROD isolation model and `DATA_MODEL.md` for the schema summary.
   exercised by this repository's own automated test run.
 
 See `TESTING_LOG.md` for current pass counts.
+
+## 9. Target enterprise identity & access architecture (Phase 1H-B — approved, not implemented)
+
+**Nothing in this section is live.** It records the approved target for a
+future enterprise identity system, per `DECISIONS.md` D-015–D-023 and
+`reviews/004-phase-1h-enterprise-identity-architecture.md`. Sections 1–8
+above describe the current, unchanged pilot; this section describes what
+it is expected to eventually grow into, once a separate Phase 1H-C
+implementation task is scoped and approved.
+
+Target system boundary (provider-neutral by design, so the identity
+provider can change without redesigning SVMI's business modules):
+
+```
+Web Frontend
+      ↓
+Identity Provider     (OIDC primary, SAML where required — which provider is PENDING DECISION)
+      ↓
+Authentication
+      ↓
+API / Backend
+      ↓
+SVMI User Identity    (immutable internal User ID + IdP subject — D-017)
+      ↓
+Account Status        (REQUESTED/VERIFIED/PENDING_APPROVAL/ACTIVE/SUSPENDED/DISABLED/REJECTED — D-019)
+      ↓
+RBAC / Permissions    (ADMIN/USER today, extensible — D-020)
+      ↓
+PostgreSQL / Business Data
+```
+
+Key structural rule (D-016): authentication (the IdP layer, proving
+identity) and authorization (everything from "SVMI User Identity" down,
+owned by SVMI) are independent — a verified IdP identity with no
+`ACTIVE` SVMI account still has no access. This is the same
+defense-in-depth principle the current pilot already applies via
+`sl_isAdmin()` (§2 above), intended to carry forward rather than be
+replaced.
+
+See `reviews/003-phase-1h-security-identity-audit.md` for the pilot's
+current, as-built model this replaces, and `reviews/004-...md` §12 for
+the full list of items left `PENDING DECISION` (provider choice, token
+format, role list beyond ADMIN/USER, MFA policy for non-admin users,
+exact schema, migration timing).

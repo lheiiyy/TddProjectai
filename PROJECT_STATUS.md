@@ -1,9 +1,11 @@
 # SVMI — Project Status
 
-Last updated: 2026-09-25, recording the Phase 1H-A security/identity
-audit (see `reviews/003-phase-1h-security-identity-audit.md`). See
-`PROJECT_MEMORY.md` for orientation and `IMPLEMENTATION_LOG.md` for the
-full phase-by-phase history behind this summary.
+Last updated: 2026-09-25, recording Phase 1H-B — the approved target
+enterprise identity/access architecture (see
+`reviews/004-phase-1h-enterprise-identity-architecture.md`, building on
+the Phase 1H-A audit in `reviews/003-phase-1h-security-identity-audit.md`).
+See `PROJECT_MEMORY.md` for orientation and `IMPLEMENTATION_LOG.md` for
+the full phase-by-phase history behind this summary.
 
 ## What is SVMI?
 
@@ -33,9 +35,12 @@ Stores/Visitors/Purposes; "Store & Roster Manager" removed** → a read-only
 System Peripherals architectural audit → **Phase 1H-A: a read-only
 authentication/identity/authorization audit** (see
 `reviews/003-phase-1h-security-identity-audit.md` — full findings in
-"What remains unresolved" below). **The application itself has not
-changed since Phase 1G** — everything below this point, including
-Phase 1H-A, is documentation/audit-only work; no code was touched.
+"What remains unresolved" below) → **Phase 1H-B: the approved target
+enterprise identity/access architecture recorded** (see
+`reviews/004-phase-1h-enterprise-identity-architecture.md`). **The
+application itself has not changed since Phase 1G** — everything below
+this point, including Phase 1H-A and 1H-B, is documentation/audit/
+architecture-only work; no code was touched.
 
 **Documentation track** (also complete, both passes pushed):
 1. **Documentation foundation** (commit `a84074b`) — created the 8 root
@@ -59,7 +64,7 @@ Phase 1H-A, is documentation/audit-only work; no code was touched.
 **Documentation foundation and reconciliation are both complete.**
 `CLAUDE.md` now exists at the repo root.
 
-**Security/identity track** (read-only audit, no code changed):
+**Security/identity track** (audit and architecture only, no code changed):
 1. **Phase 1H-A — Authentication/Identity/Authorization audit**
    (`reviews/003-phase-1h-security-identity-audit.md`) — traced the full
    login → session → authorization flow, inventoried all 45
@@ -70,9 +75,20 @@ Phase 1H-A, is documentation/audit-only work; no code was touched.
    functions that return the guest password and the full admin email
    list have no access check of their own), 4 Recommended, 3 Future, and
    3 Unknown/Not-Verifiable-From-Repository items — see that review for
-   full detail. **Audit only — nothing was fixed.** Phase 1H-B
-   (designing the enterprise identity architecture) has explicitly not
-   started and awaits review of this audit.
+   full detail. **Audit only — nothing was fixed.**
+2. **Phase 1H-B — Enterprise identity & access architecture (approved
+   target, not implemented)**
+   (`reviews/004-phase-1h-enterprise-identity-architecture.md`) — records
+   the project owner's approved target architecture: authentication
+   delegated to an external OIDC/SAML identity provider, authorization
+   kept independent and SVMI-owned, an immutable internal User ID as the
+   identity key, a request/approval workflow with a 7-state account
+   lifecycle, extensible RBAC beyond today's ADMIN/USER, MFA as an
+   IdP-layer responsibility (mandatory for Admins), strict credential
+   separation, and a dedicated identity/access audit domain. Recorded as
+   `DECISIONS.md` D-015–D-023. **Architecture recorded only — nothing was
+   implemented, no identity provider was chosen, and Phase 1H-C has not
+   started.**
 
 **Database track**: PostgreSQL DEV schema (13 migrations + rollback
 scripts), proven against a local ephemeral instance, including verified
@@ -85,10 +101,11 @@ synthetic data — **158/158 passing** as of this check.
 
 Nothing is mid-implementation, and nothing documentation- or audit-related
 is in-flight either. The most recent application work (Phase 1G), all
-three documentation passes, and the Phase 1H-A security audit above are
-complete, verified, and pushed. Phase 1H-B (enterprise identity design)
-has not been started — it explicitly awaits review and decisions on the
-Phase 1H-A findings.
+three documentation passes, the Phase 1H-A security audit, and the
+Phase 1H-B target-architecture record above are complete, verified, and
+pushed. Phase 1H-C (implementing any part of the Phase 1H-B architecture)
+has not been started — it explicitly awaits project-owner review and
+scoping decisions.
 
 ## What remains unresolved
 
@@ -130,13 +147,18 @@ for full detail — Required findings):**
 
 ## What is explicitly deferred
 
-- **Phase 1H-B — designing the enterprise identity architecture**
-  (Identity Provider, real user IDs, roles/permissions, sessions,
-  registration/approval) — explicitly not started; awaits project-owner
-  review of `reviews/003-phase-1h-security-identity-audit.md` per that
-  review's own stop condition.
+- **Phase 1H-C — implementing the Phase 1H-B enterprise identity
+  architecture** (choosing an identity provider, building
+  registration/login/approval UI, real user IDs, roles/permissions,
+  sessions, an identity/access audit trail) — explicitly not started;
+  awaits project-owner review of
+  `reviews/004-phase-1h-enterprise-identity-architecture.md` and its
+  `PENDING DECISION` list (§12) per that review's own stop condition.
+- Deciding which Phase 1H-A Required findings, if any, must be fixed
+  before the pilot safely continues — named as candidate scope in
+  `reviews/004` §11, not scheduled or approved.
 - Fixing any of the Phase 1H-A Required findings themselves — this was
-  an audit only; nothing was remediated (see that review, Section J).
+  an audit only; nothing was remediated (see `reviews/003`, Section J).
 - Moving admin access into `CONFIG_SYSTEM` (D-007).
 - Making Brand/Region/Category admin-configurable (D-013) — deferred
   until after the admin-access gap, given Brand's larger blast radius.
@@ -147,13 +169,17 @@ for full detail — Required findings):**
 
 ## Immediate next task
 
-**Project-owner review of `reviews/003-phase-1h-security-identity-audit.md`.**
-That review's own stop condition governs: Phase 1H-B (enterprise
-identity design) is deliberately not started until this audit is
-reviewed and its direction decided. This supersedes the previously-stated
-next step (an Admin Configuration screen for admin access,
-`reviews/001`/`002`, `DECISIONS.md` D-007) only in sequencing — that item
-remains valid and relevant, and the security audit's findings on the
-same guest-password/admin-email mechanism (Section H, Required items 1
-and 4) may inform its eventual scope. No application work has begun on
-either.
+**Project-owner review of
+`reviews/004-phase-1h-enterprise-identity-architecture.md`.** That
+review's own stop condition governs: Phase 1H-C (implementing any part of
+the enterprise identity architecture) is deliberately not started until
+this architecture record is reviewed and its `PENDING DECISION` items
+(§12 — identity provider choice, token format, additional roles, non-admin
+MFA policy, exact schema, and which Phase 1H-A findings must be fixed
+before the pilot continues) are decided. This supersedes the
+previously-stated next step (an Admin Configuration screen for admin
+access, `reviews/001`/`002`, `DECISIONS.md` D-007) only in sequencing —
+that item remains valid and relevant, and both the Phase 1H-A audit
+(Section H, Required items 1 and 4) and the Phase 1H-B architecture
+(D-015–D-023) may inform its eventual scope. No application work has
+begun on any of this.

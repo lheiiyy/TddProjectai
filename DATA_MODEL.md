@@ -139,3 +139,29 @@ Exact column-level DDL: `database/migrations/*.sql`, each with an inline
 comment tracing it back to the `.gs` file/function it mirrors. Exact
 spreadsheet→table mapping: `database/docs/03-migration-mapping.md`.
 **No row of real SVMI data has been migrated into this schema.**
+
+## 7. Target identity/access logical model (Phase 1H-B — approved, not implemented)
+
+**Not a live schema.** Records the logical shape of the future enterprise
+identity/access model per `DECISIONS.md` D-015–D-023 and
+`reviews/004-phase-1h-enterprise-identity-architecture.md`. Nothing below
+has been built; the pilot's actual identity mechanism (Google sign-in +
+`SETTINGS!G2:G`/`SETTINGS!I2`) is unchanged — see §2 above and
+`reviews/003-phase-1h-security-identity-audit.md`.
+
+Target logical entities:
+
+| Entity | Key fields (logical, not final DDL) |
+|---|---|
+| User | Immutable internal User ID (identity key, D-017); external IdP subject; current email; display name; account status (D-019); role assignment (D-020) |
+| Identity/access audit event | Event type (access requested/verified/approved/rejected, login/logout, role or status change, MFA state change, privileged-operation allow/deny — D-023); actor; timestamp; **never a secret value** |
+
+**Relationship to the existing DEV-only `users`/`user_roles`/`roles`
+tables** (`database/migrations/002_users_roles.sql`, listed in §6 above):
+those tables are unwired, forward-looking infrastructure built before
+this target model was recorded. They are a *possible* physical starting
+point, not a confirmed match — whether they already satisfy D-017's
+immutable-ID-plus-IdP-subject requirement, and whether they need new
+columns for account-lifecycle state (D-019) or an identity/access audit
+table (D-023), has not been audited. Exact schema changes, if any, are
+**PENDING DECISION** — see `reviews/004-...md` §12.
