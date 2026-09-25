@@ -555,6 +555,10 @@ textarea.fi{padding-right:28px}
     <div class="nav-item"        id="tab-Insights" onclick="switchTab('Insights')">🔍 Store Insights</div>
     <div class="nav-item"        id="tab-Visits"   onclick="switchTab('Visits')">📅 Unvisited This Month</div>
     <div class="nav-item"        id="tab-Input"   onclick="switchTab('Input')">📋 Input Portal</div>
+    <!-- Phase 1H-C: always visible (not admin-gated) — registration is
+         exactly what a not-yet-approved person needs to reach. See
+         SVMKPI_IDENTITY_*.gs / reviews/006-phase-1h-c-planning.md. -->
+    <div class="nav-item"        id="tab-Account"  onclick="switchTab('Account')">👤 Account</div>
     <!-- System Tools moved into the Admin tab (Configuration / Audit /
          Report Snapshots / Tools sub-tabs) — a single admin-only home for
          all admin functionality instead of two separate nav entries. -->
@@ -741,6 +745,23 @@ textarea.fi{padding-right:28px}
 
 <!-- System Tools relocated into the Admin tab's "Tools" sub-tab — see #adminPane-tools below. -->
 
+<!-- TAB: ACCOUNT (Phase 1H-C) — registration / email verification / MFA
+     enrollment, reachable by anyone past the pilot's existing Google
+     sign-in + guest-password gate (SVMKPI_ACCESS.gs, unchanged — see
+     DECISIONS.md D-025). Every button here calls a named
+     SVMKPI_IDENTITY_*.gs service function, never touches a Sheet/row
+     directly. All server-side mutations re-check authorization
+     themselves; this tab's own gating is convenience only, same
+     disclosure as the rest of this portal. -->
+<div class="tab-content" id="content-Account">
+  <div class="toolbar">
+    <div class="toolbar-title">Account —</div>
+  </div>
+  <div class="scroll-panel" id="accountPanel" style="max-width:480px">
+    <div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>
+  </div>
+</div>
+
 <!-- TAB: ADMIN (Phase 1F) — exposes Phase 1A/1B/1D configuration
      versioning + Phase 1E report snapshots through the existing portal
      shell. Admin-only: hidden via applyAdminGating() for convenience,
@@ -755,6 +776,7 @@ textarea.fi{padding-right:28px}
     <button class="rep-btn"        id="adminSub-audit"  onclick="switchAdminSub('audit')">Audit</button>
     <button class="rep-btn"        id="adminSub-snap"   onclick="switchAdminSub('snap')">Report Snapshots</button>
     <button class="rep-btn"        id="adminSub-tools"  onclick="switchAdminSub('tools')">Tools</button>
+    <button class="rep-btn"        id="adminSub-identity" onclick="switchAdminSub('identity')">Identity</button>
   </div>
 
   <!-- CONFIGURATION -->
@@ -939,6 +961,31 @@ textarea.fi{padding-right:28px}
       </div>
     </div>
   </div>
+
+  <!-- IDENTITY (Phase 1H-C) — registration approval + role/permission/
+       scope assignment. Visible to anyone who can see the Admin tab
+       (existing sl_isAdmin() convenience gate), but every action below
+       is independently re-checked server-side against the NEW,
+       separate permission system (SVMKPI_IDENTITY_CORE.gs) — being an
+       existing SETTINGS!G admin does not, by itself, grant any
+       identity-admin permission; see DECISIONS.md D-026. -->
+  <div class="admin-sub" id="adminPane-identity">
+    <div class="admin-config-layout">
+      <div class="admin-entity-col">
+        <div class="admin-entity-hdr">Pending Registrations</div>
+        <div class="admin-entity-list" id="identityPendingList"></div>
+        <button class="btn-navy" onclick="loadPendingRegistrations()" style="margin-top:8px">↻ Refresh</button>
+        <hr class="divider">
+        <div class="admin-entity-hdr">Look Up a User</div>
+        <input type="text" class="fi" id="identityLookupInput" placeholder="Email or User ID" style="min-height:32px">
+        <button class="btn-gold" onclick="identityLookup()" style="margin-top:6px">🔍 Look Up</button>
+      </div>
+      <div class="admin-detail-col" id="identityDetailCol">
+        <div class="state-msg"><span class="icon">👤</span><div class="title">Identity Administration</div>
+          <div>Approve or reject a pending registration on the left, or look up an existing user to manage their role, permissions, and access scope.</div></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Duplicate overlay -->
@@ -1098,6 +1145,7 @@ function switchTab(name) {
   closeNavDrawer();
   if (name === 'Visits') loadCompliance();
   if (name === 'Reports' && !reportsLoadedOnce) { reportsLoadedOnce = true; loadCurrentReport(); }
+  if (name === 'Account') loadAccountPanel();
 }
 
 // ═══════════════════════════════════════
@@ -2787,11 +2835,279 @@ function initAdminTabOnce() {
   loadAdminArea('STORES');
   loadReportingYearsForAdmin();
 }
+var identityTabLoadedOnce = false;
 function switchAdminSub(name) {
   document.querySelectorAll('#content-Admin .toolbar .rep-btn').forEach(function(b){ b.classList.remove('active'); });
   document.getElementById('adminSub-' + name).classList.add('active');
   document.querySelectorAll('#content-Admin .admin-sub').forEach(function(p){ p.classList.remove('active'); });
   document.getElementById('adminPane-' + name).classList.add('active');
+  if (name === 'identity' && !identityTabLoadedOnce) {
+    identityTabLoadedOnce = true;
+    loadPendingRegistrations();
+  }
+}
+
+// ═══════════════════════════════════════
+// IDENTITY (Phase 1H-C) — Account tab (self-service) + Admin > Identity
+// sub-tab (approval / role / permission / scope). Every function below
+// calls exactly one named SVMKPI_IDENTITY_*.gs service via callServer()
+// — no Sheet/row/column name ever appears here, per the frontend/
+// service boundary rule (reviews/006-phase-1h-c-planning.md).
+// ═══════════════════════════════════════
+
+// ── Account tab (self-service) ──────────────────────────────────────
+function loadAccountPanel() {
+  document.getElementById('accountPanel').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
+  callServer('getCurrentUser', [], function(info) {
+    if (!info.linked) { renderAccountRegister(info.googleEmail); return; }
+    renderAccountForStatus(info.user);
+  }, function(msg) { adminShowError('accountPanel', msg); });
+}
+
+function renderAccountRegister(googleEmail) {
+  document.getElementById('accountPanel').innerHTML =
+    '<div class="fg"><div class="fg-head"><label>Full Name <span class="req">*</span></label></div>'
+    + '<input type="text" class="fi" id="regName" placeholder="Your full name"></div>'
+    + '<div class="fg"><div class="fg-head"><label>Email <span class="req">*</span></label></div>'
+    + '<input type="email" class="fi" id="regEmail" placeholder="you@example.com" value="' + esc(googleEmail || '') + '"></div>'
+    + '<div class="fg"><div class="fg-head"><label>Department <span class="req">*</span></label></div>'
+    + '<input type="text" class="fi" id="regDept" placeholder="e.g. Training &amp; Development"></div>'
+    + '<button class="btn-primary" id="regSubmitBtn" onclick="identityRegisterSubmit()">Register</button>'
+    + '<div class="status-line" id="regStatus"></div>';
+}
+
+function identityRegisterSubmit() {
+  var btn = document.getElementById('regSubmitBtn');
+  withButtonLoading(btn, 'Registering…', function(restore) {
+    var name = document.getElementById('regName').value;
+    var email = document.getElementById('regEmail').value;
+    var dept = document.getElementById('regDept').value;
+    callServer('registerUser', [name, email, dept], function(result) {
+      restore();
+      if (!result.success) { document.getElementById('regStatus').textContent = result.message; return; }
+      renderAccountVerify(email);
+    }, function(msg) { restore(); document.getElementById('regStatus').textContent = msg; });
+  });
+}
+
+function renderAccountVerify(email) {
+  document.getElementById('accountPanel').innerHTML =
+    '<div class="state-msg" style="padding:10px 0"><div class="title">Check your email</div>'
+    + '<div>Enter the 6-digit code sent to ' + esc(email) + '.</div></div>'
+    + '<input type="hidden" id="verifyEmail" value="' + esc(email) + '">'
+    + '<div class="fg"><div class="fg-head"><label>Verification Code</label></div>'
+    + '<input type="text" class="fi" id="verifyCode" placeholder="000000" maxlength="6"></div>'
+    + '<button class="btn-primary" id="verifySubmitBtn" onclick="identityVerifySubmit()">Verify</button>'
+    + '<div class="status-line" id="verifyStatus"></div>';
+}
+
+function identityVerifySubmit() {
+  var btn = document.getElementById('verifySubmitBtn');
+  withButtonLoading(btn, 'Verifying…', function(restore) {
+    var email = document.getElementById('verifyEmail').value;
+    var code = document.getElementById('verifyCode').value;
+    callServer('verifyRegistrationEmail', [email, code], function(result) {
+      restore();
+      document.getElementById('verifyStatus').textContent = result.message;
+      if (result.success) setTimeout(loadAccountPanel, 1200);
+    }, function(msg) { restore(); document.getElementById('verifyStatus').textContent = msg; });
+  });
+}
+
+function renderAccountForStatus(user) {
+  var panel = document.getElementById('accountPanel');
+  var head = '<div class="state-msg" style="padding:10px 0;text-align:left">'
+    + '<div class="title">' + esc(user.fullName) + '</div>'
+    + '<div>' + esc(user.email) + ' &middot; ' + esc(user.department) + '</div>'
+    + '<div style="margin-top:6px">Status: <b>' + esc(user.accountStatus) + '</b></div></div>';
+
+  if (user.accountStatus === 'PENDING_APPROVAL') {
+    panel.innerHTML = head + '<div class="hint">Your registration is verified and waiting for an administrator to approve it.</div>';
+    return;
+  }
+  if (user.accountStatus === 'REJECTED' || user.accountStatus === 'DISABLED') {
+    panel.innerHTML = head + '<div class="hint">Contact an administrator for details.</div>';
+    return;
+  }
+  if (user.accountStatus === 'SUSPENDED') {
+    panel.innerHTML = head + '<div class="hint">Your account is suspended. Contact an administrator to reactivate it.</div>';
+    return;
+  }
+  if (user.accountStatus === 'ACTIVE') {
+    panel.innerHTML = head + '<div id="mfaArea"><div class="spinner"></div></div>';
+    callServer('getAccessState', [], function(state) {
+      renderMfaArea(state.mfaEnrolled);
+    }, function() { renderMfaArea(false); });
+    return;
+  }
+  panel.innerHTML = head;
+}
+
+function renderMfaArea(enrolled) {
+  var area = document.getElementById('mfaArea');
+  if (!area) return;
+  if (enrolled) {
+    area.innerHTML = '<div class="risk-badge safe">✓ Multi-factor authentication enrolled</div>'
+      + '<button class="btn-navy" style="margin-top:8px" onclick="identityEnrollMfa()">↻ Reset MFA</button>';
+    return;
+  }
+  area.innerHTML = '<div class="risk-badge warn">⚠ Multi-factor authentication required — not yet enrolled</div>'
+    + '<button class="btn-gold" style="margin-top:8px" onclick="identityEnrollMfa()">🔐 Enroll MFA</button>';
+}
+
+function identityEnrollMfa() {
+  callServer('enrollMfa', [], function(result) {
+    if (!result.success) { adminToast(result.message); return; }
+    var area = document.getElementById('mfaArea');
+    area.innerHTML = '<div class="hint">Scan this into your authenticator app (Google Authenticator, Authy, etc.), or enter the secret manually:</div>'
+      + '<div class="status-line" style="word-break:break-all">' + esc(result.secret) + '</div>'
+      + '<div class="fg"><div class="fg-head"><label>Enter the 6-digit code from your app</label></div>'
+      + '<input type="text" class="fi" id="mfaVerifyCode" placeholder="000000" maxlength="6"></div>'
+      + '<button class="btn-primary" id="mfaVerifyBtn" onclick="identityVerifyMfaSubmit()">Confirm</button>'
+      + '<div class="status-line" id="mfaVerifyStatus"></div>';
+  }, function(msg) { adminToast(msg); });
+}
+
+function identityVerifyMfaSubmit() {
+  var btn = document.getElementById('mfaVerifyBtn');
+  withButtonLoading(btn, 'Verifying…', function(restore) {
+    var code = document.getElementById('mfaVerifyCode').value;
+    callServer('verifyMfa', [code], function(result) {
+      restore();
+      document.getElementById('mfaVerifyStatus').textContent = result.message;
+      if (result.success) setTimeout(loadAccountPanel, 1000);
+    }, function(msg) { restore(); document.getElementById('mfaVerifyStatus').textContent = msg; });
+  });
+}
+
+// ── Admin > Identity sub-tab ─────────────────────────────────────────
+function loadPendingRegistrations() {
+  var listEl = document.getElementById('identityPendingList');
+  listEl.innerHTML = '<div class="state-msg" style="padding:10px 0"><div class="spinner"></div></div>';
+  callServer('listPendingRegistrations', [], function(result) {
+    if (!result.success) { listEl.innerHTML = '<div class="hint">' + esc(result.message) + '</div>'; return; }
+    if (!result.registrations.length) { listEl.innerHTML = '<div class="hint">No pending registrations.</div>'; return; }
+    listEl.innerHTML = result.registrations.map(function(r) {
+      return adminEntityRowHtml(r.userId, r.fullName, r.email + ' · ' + r.department, 'admin-badge-active');
+    }).join('');
+    listEl.querySelectorAll('.admin-entity-row').forEach(function(row, i) {
+      row.onclick = function() { renderPendingRegistrationDetail(result.registrations[i]); };
+    });
+  }, function(msg) { listEl.innerHTML = '<div class="hint">' + esc(msg) + '</div>'; });
+}
+
+function renderPendingRegistrationDetail(reg) {
+  document.getElementById('identityDetailCol').innerHTML =
+    '<div class="admin-detail-hdr">' + esc(reg.fullName) + '</div>'
+    + '<div class="hint">' + esc(reg.email) + ' &middot; ' + esc(reg.department) + '</div>'
+    + '<button class="btn-gold" style="margin-top:10px" onclick="identityApprove(\'' + esc(reg.userId) + '\')">✓ Approve</button>'
+    + '<button class="btn-navy" style="margin-top:8px" onclick="identityReject(\'' + esc(reg.userId) + '\')">✗ Reject</button>'
+    + '<div class="status-line" id="identityActionStatus"></div>';
+}
+
+function identityApprove(userId) {
+  callServer('approveRegistration', [userId], function(result) {
+    document.getElementById('identityActionStatus').textContent = result.message;
+    if (result.success) { adminToast('Registration approved.'); loadPendingRegistrations(); identityLookupById(userId); }
+  }, function(msg) { document.getElementById('identityActionStatus').textContent = msg; });
+}
+
+function identityReject(userId) {
+  var reason = window.prompt('Reason for rejecting this registration (optional):', '') || '';
+  callServer('rejectRegistration', [userId, reason], function(result) {
+    document.getElementById('identityActionStatus').textContent = result.message;
+    if (result.success) { adminToast('Registration rejected.'); loadPendingRegistrations(); }
+  }, function(msg) { document.getElementById('identityActionStatus').textContent = msg; });
+}
+
+function identityLookup() {
+  var q = document.getElementById('identityLookupInput').value;
+  identityLookupById(q);
+}
+
+function identityLookupById(userIdOrEmail) {
+  var col = document.getElementById('identityDetailCol');
+  col.innerHTML = '<div class="state-msg"><div class="spinner"></div></div>';
+  callServer('identityAdmin_getUserDetail', [userIdOrEmail], function(result) {
+    if (!result.success) { adminShowError('identityDetailCol', result.message); return; }
+    renderIdentityUserDetail(result);
+  }, function(msg) { adminShowError('identityDetailCol', msg); });
+}
+
+function renderIdentityUserDetail(detail) {
+  var u = detail.user;
+  var html = '<div class="admin-detail-hdr">' + esc(u.fullName) + '</div>'
+    + '<div class="hint">' + esc(u.email) + ' &middot; ' + esc(u.department) + ' &middot; ' + esc(u.accountStatus) + '</div>';
+
+  html += '<div class="admin-note" style="margin-top:10px">Roles</div>';
+  ['ADMIN', 'USER'].forEach(function(r) {
+    var has = detail.roles.indexOf(r) !== -1;
+    html += '<label class="colf-opt"><input type="checkbox" ' + (has ? 'checked' : '')
+      + ' onchange="identityAssignRole(\'' + esc(u.userId) + '\',\'' + r + '\',this.checked)"><span>' + r + '</span></label>';
+  });
+
+  html += '<div class="admin-note" style="margin-top:10px">Direct Permissions (beyond role)</div>';
+  ['REGISTRATION_APPROVE', 'USER_MANAGE', 'ROLE_ASSIGN', 'PERMISSION_ASSIGN', 'SCOPE_ASSIGN', 'IDENTITY_AUDIT_VIEW'].forEach(function(p) {
+    var has = detail.directPermissions.indexOf(p) !== -1;
+    html += '<label class="colf-opt"><input type="checkbox" ' + (has ? 'checked' : '')
+      + ' onchange="identityAssignPermission(\'' + esc(u.userId) + '\',\'' + p + '\',this.checked)"><span>' + p + '</span></label>';
+  });
+
+  html += '<div class="admin-note" style="margin-top:10px">Access Scope</div>'
+    + '<div id="identityScopeList">' + (detail.scope.length
+        ? detail.scope.map(function(s) { return '<div class="hint">' + esc(s.scopeType) + (s.scopeValue ? ': ' + esc(s.scopeValue) : '') + '</div>'; }).join('')
+        : '<div class="hint">No scope grants — SYSTEM-wide by role default.</div>') + '</div>'
+    + '<select class="sel-dark" id="scopeTypeSel" style="margin-top:6px"><option value="SYSTEM">SYSTEM</option><option value="REGION">REGION</option><option value="STORE">STORE</option></select>'
+    + '<input type="text" class="fi" id="scopeValueInput" placeholder="Region name or Store ID (blank for SYSTEM)" style="min-height:32px;margin-top:6px">'
+    + '<button class="btn-navy" style="margin-top:6px" onclick="identityGrantScope(\'' + esc(u.userId) + '\')">+ Grant Scope</button>';
+
+  html += '<div class="admin-note" style="margin-top:10px">MFA: ' + esc(detail.mfaStatus) + '</div>';
+
+  html += '<div class="admin-note" style="margin-top:10px">Account</div>';
+  if (u.accountStatus === 'ACTIVE') {
+    html += '<button class="btn-navy" onclick="identitySuspend(\'' + esc(u.userId) + '\')">Suspend</button>';
+  } else if (u.accountStatus === 'SUSPENDED') {
+    html += '<button class="btn-gold" onclick="identityReactivate(\'' + esc(u.userId) + '\')">Reactivate</button>';
+  }
+  if (u.accountStatus === 'ACTIVE' || u.accountStatus === 'SUSPENDED') {
+    html += '<button class="btn-navy" onclick="identityDisable(\'' + esc(u.userId) + '\')">Disable</button>';
+  }
+  html += '<div class="status-line" id="identityActionStatus"></div>';
+
+  document.getElementById('identityDetailCol').innerHTML = html;
+}
+
+function identityAssignRole(userId, roleId, grant) {
+  callServer('assignRole', [userId, roleId, grant], function(result) {
+    adminToast(result.message);
+    if (result.success) identityLookupById(userId);
+  }, function(msg) { adminToast(msg); });
+}
+function identityAssignPermission(userId, key, grant) {
+  callServer('assignPermissions', [userId, key, grant], function(result) {
+    adminToast(result.message);
+    if (result.success) identityLookupById(userId);
+  }, function(msg) { adminToast(msg); });
+}
+function identityGrantScope(userId) {
+  var type = document.getElementById('scopeTypeSel').value;
+  var value = document.getElementById('scopeValueInput').value;
+  callServer('assignScope', [userId, type, value, true], function(result) {
+    adminToast(result.message);
+    if (result.success) identityLookupById(userId);
+  }, function(msg) { adminToast(msg); });
+}
+function identitySuspend(userId) {
+  var reason = window.prompt('Reason for suspending this account (optional):', '') || '';
+  callServer('suspendAccount', [userId, reason], function(result) { adminToast(result.message); if (result.success) identityLookupById(userId); }, function(msg) { adminToast(msg); });
+}
+function identityReactivate(userId) {
+  callServer('reactivateAccount', [userId, ''], function(result) { adminToast(result.message); if (result.success) identityLookupById(userId); }, function(msg) { adminToast(msg); });
+}
+function identityDisable(userId) {
+  var reason = window.prompt('Reason for disabling this account:', '') || '';
+  if (!window.confirm('Disable this account? This cannot be undone from this screen.')) return;
+  callServer('disableAccount', [userId, reason], function(result) { adminToast(result.message); if (result.success) identityLookupById(userId); }, function(msg) { adminToast(msg); });
 }
 
 // ── CONFIGURATION ────────────────────────────────────────────────────

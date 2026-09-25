@@ -7,10 +7,10 @@ demo; dry-run tooling is pure-function/synthetic-data only).
 
 ## Apps Script track — `SVMI_Project/tests/`
 
-**Verified this session: 24 files, 1129 assertions, 0 failures** (Phase
-1H-B.1 added `security-remediation.test.js`, 34 assertions; the other 23
-files/1095 assertions are the unchanged pre-existing baseline, re-run as
-regression).
+**Verified this session: 25 files, 1191 assertions, 0 failures** (Phase
+1H-C added `identity.test.js`, 62 assertions; the other 24 files/1129
+assertions — including Phase 1H-B.1's `security-remediation.test.js` — are
+the unchanged pre-existing baseline, re-run as regression).
 
 Per-file counts below are as documented in `SVMI_Project/DEPLOY.md`'s own
 "Checks before you push" section (attributed to that source, not
@@ -26,6 +26,7 @@ touched or added in Phase 1G are from today's direct run.
 | `config-service.test.js` | `SVMKPI_CONFIG.gs` end-to-end: validation, effective-dating, versioning, audit, security, backdating, rollback, portability | 71 |
 | `date-parsing.test.js` | `_parseDateCell()` + duplicate-check integration | — |
 | `duplicate-prevention.test.js` | Exact-duplicate-visit blocking under concurrent submission | — |
+| `identity.test.js` | **Phase 1H-C** — registration/email-OTP verification (incl. attempt lockout), approval/rejection (permission-gated, fails closed, no self-escalation), account-lifecycle transition validity, role/direct-permission/scope assignment, suspend/reactivate/disable, the external-disablement offboarding hook, MFA TOTP enrollment/verification (real RFC 6238 round-trip + clock-drift tolerance), and confirms no secret value ever appears in `IDENTITY_AUDIT` | 62 (added this session) |
 | `kpi-purpose-config.test.js` | Versioned KPI config (infra-only) + deliberate Purpose KPI/risk config, no inheritance | 44 |
 | `kpi-roster-history.test.js` | KPI 2026 roster-removal history retention | — |
 | `purpose-generic-reporting.test.js` | No source file re-adds a hardcoded CAPAR-style purpose branch | — |
@@ -52,12 +53,21 @@ it, tripping the (correctly-working) backdate-confirmation check it wasn't
 testing. Fixed by deferring to the function's own "today" default instead
 of a literal string.
 
-## Database track — `database/dryrun/`
+## Database track — `database/dryrun/` and `database/migrations/`
 
-**Verified this session: `dryrun.test.js` — 158/158 passing.** Pure-function
-unit tests against synthetic fixtures; no database connection, no real
-SVMI data. (`database/dryrun/README.md` cites an older "37/37" figure from
-an earlier point in that file's own history — superseded; 158 is current.)
+**Verified this session: `dryrun.test.js` — 158/158 passing** (unaffected —
+Phase 1H-C did not touch this tooling). Pure-function unit tests against
+synthetic fixtures; no real SVMI data. (`database/dryrun/README.md` cites
+an older "37/37" figure from an earlier point in that file's own history
+— superseded; 158 is current.)
+
+**Phase 1H-C:** `database/migrations/013_identity_extension.sql` (and its
+rollback) was applied end-to-end with `000`-`012` against a local
+ephemeral Postgres 16 instance, verified via `\d` inspection of the
+resulting schema, rolled back cleanly, and the throwaway database
+dropped — the same "proven locally, not deployed anywhere" standard the
+original `000`-`012` migrations were held to. See the migration file's
+own header comment and `reviews/006`/`reviews/007` for detail.
 
 `database/validation/*.js` (field checks, row counts, ad-hoc psql queries)
 require a live PostgreSQL connection and were not run as part of this
@@ -70,8 +80,10 @@ environment.
   own — `portal-ui.test.js`/`responsive-check.js` drive the separate
   `SVMI_Command_Center_Demo.html` preview only. Playwright checks against
   the real portal (Admin tab scroll behavior, Configuration form
-  rendering, Tools sub-tab) were run ad hoc during Phase 1G's own work but
-  are not part of the committed, repeatable test suite.
+  rendering, Tools sub-tab; Phase 1H-C's Account tab and Admin > Identity
+  sub-tab at phone/tablet/desktop widths) were run ad hoc during Phase 1G's
+  and Phase 1H-C's own work but are not part of the committed, repeatable
+  test suite — same disclosed limitation, unchanged by this phase.
 - `.gs` syntax validity (`new Function()` extraction) and the portal's
   `<script>` block are checked manually before each push, per
   `DEPLOY.md`'s "Checks before you push" — not wired into an automated

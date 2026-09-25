@@ -140,28 +140,53 @@ comment tracing it back to the `.gs` file/function it mirrors. Exact
 spreadsheet→table mapping: `database/docs/03-migration-mapping.md`.
 **No row of real SVMI data has been migrated into this schema.**
 
-## 7. Target identity/access logical model (Phase 1H-B — approved, not implemented)
+## 7. Identity/access logical model — target (Phase 1H-B) and Phase 1H-C's implemented foundation
 
-**Not a live schema.** Records the logical shape of the future enterprise
-identity/access model per `DECISIONS.md` D-015–D-023 and
-`reviews/004-phase-1h-enterprise-identity-architecture.md`. Nothing below
-has been built; the pilot's actual identity mechanism (Google sign-in +
-`SETTINGS!G2:G`/`SETTINGS!I2`) is unchanged — see §2 above and
-`reviews/003-phase-1h-security-identity-audit.md`.
+Records the logical shape of the identity/access model per
+`DECISIONS.md` D-015–D-030 and `reviews/004`/`reviews/006`/`reviews/007`.
+The pilot's outer access gate (Google sign-in + `SETTINGS!G2:G`/
+`SETTINGS!I2`) is unchanged — see §2 above and
+`reviews/003-phase-1h-security-identity-audit.md` — this section is
+layered on top of it, not a replacement (D-025).
 
-Target logical entities:
+Target logical entities (D-015–D-023):
 
 | Entity | Key fields (logical, not final DDL) |
 |---|---|
 | User | Immutable internal User ID (identity key, D-017); external IdP subject; current email; display name; account status (D-019); role assignment (D-020) |
 | Identity/access audit event | Event type (access requested/verified/approved/rejected, login/logout, role or status change, MFA state change, privileged-operation allow/deny — D-023); actor; timestamp; **never a secret value** |
 
+**Implemented as of Phase 1H-C** (D-024–D-030) — pilot storage (Google
+Sheets, one sheet per entity, same discipline as `CONFIG_*`) plus a
+mirrored Postgres extension:
+
+| Sheet (pilot) / table (`013_identity_extension.sql`) | Purpose |
+|---|---|
+| `IDENTITY_USERS` / `users` (extended) | User ID, full name, email, department, account status (D-027's 6-state list), auth provider/subject, email-verified-at |
+| `IDENTITY_VERIFICATIONS` / `identity_verifications` | Pending email-OTP: hashed code (never plaintext), expiry, attempt count |
+| `IDENTITY_ROLES` / `roles` (extended) | `ADMIN`, `USER` — extensible by adding a row |
+| `IDENTITY_PERMISSIONS` / `permissions` | Named capabilities (`REGISTRATION_APPROVE`, `USER_MANAGE`, `ROLE_ASSIGN`, `PERMISSION_ASSIGN`, `SCOPE_ASSIGN`, `IDENTITY_AUDIT_VIEW`) |
+| `IDENTITY_ROLE_PERMISSIONS` / `role_permissions` | Which permissions a role grants — `ADMIN` seeded with all, `USER` with none |
+| `IDENTITY_USER_ROLES` / `user_roles` (existing table, now populated) | Role membership |
+| `IDENTITY_USER_PERMISSIONS` / `user_permissions` | Direct per-user permission grants, additive to role |
+| `IDENTITY_USER_SCOPE` / `user_scope` | `SYSTEM`/`REGION`/`STORE` access grants |
+| `IDENTITY_MFA` / `identity_mfa` | TOTP status/secret (D-028 — see below) — its own sheet/table, never joined into a general user listing |
+| `IDENTITY_AUDIT` / `identity_audit_log` | Append-only; implements the "Identity/access audit event" row above (D-023/D-029) |
+
 **Relationship to the existing DEV-only `users`/`user_roles`/`roles`
 tables** (`database/migrations/002_users_roles.sql`, listed in §6 above):
-those tables are unwired, forward-looking infrastructure built before
-this target model was recorded. They are a *possible* physical starting
-point, not a confirmed match — whether they already satisfy D-017's
-immutable-ID-plus-IdP-subject requirement, and whether they need new
-columns for account-lifecycle state (D-019) or an identity/access audit
-table (D-023), has not been audited. Exact schema changes, if any, are
-**PENDING DECISION** — see `reviews/004-...md` §12.
+confirmed and extended, not replaced, by `013_identity_extension.sql`
+(D-030) — `002` is left exactly as originally written (its header
+comment corrected with a pointer to `013`, not a rewrite). `013` was
+verified end-to-end against a local ephemeral Postgres instance
+(applied, inspected, rolled back) as part of Phase 1H-C.
+
+**MFA secret storage (D-028):** `IDENTITY_MFA.secret` /
+`identity_mfa.secret` is a documented, temporary exception to D-022 ("SVMI
+must not store MFA secrets") — no external IdP is selected yet (D-024) to
+own it instead. Isolated in its own sheet/table specifically so it is
+never an incidental part of a broader `SELECT`/read.
+
+Which identity provider, exact token format, additional roles beyond
+`ADMIN`/`USER`, and non-admin MFA policy remain **PENDING DECISION** —
+see `reviews/004-...md` §12 and `reviews/006-...md` §12.

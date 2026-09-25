@@ -26,13 +26,15 @@ this file is the durable index, not a replacement. Commit hashes are from
 | 2026-09-25 | (this session) | Phase 1H-A | Read-only authentication/identity/authorization audit — traced login/session/authorization flow, inventoried all 45 server-gated privileged functions plus every function found NOT gated, the guest-password/admin-email secret lifecycle, and mapped current concepts against a future Identity-Provider/role/permission model. Findings recorded in `reviews/003-phase-1h-security-identity-audit.md`. Audit only — no finding was fixed at the time. |
 | 2026-09-25 | (this session) | Phase 1H-B | Recorded the project owner's approved target enterprise identity/access architecture: external OIDC/SAML authentication delegated to an identity provider, authorization kept independent and SVMI-owned, an immutable internal User ID as identity key, a request/approval workflow with a 7-state account lifecycle, extensible RBAC beyond ADMIN/USER, MFA as an IdP-layer responsibility, strict credential separation, and a dedicated identity/access audit domain. Recorded in `reviews/004-phase-1h-enterprise-identity-architecture.md` and `DECISIONS.md` D-015–D-023. Architecture record only — nothing was implemented; no identity provider was chosen; Phase 1H-C has not started. |
 | 2026-09-25 | (this session) | Phase 1H-B.1 | **Fixed the 3 Phase 1H-A Required security findings** — the first application-code change since Phase 1G. `_getAdminEmails()`/`_getGuestPassword()` (`SVMKPI_ACCESS.gs`) are no longer top-level functions, closing the `google.script.run` secret-exposure path. `buildExecutiveSummaryLayout`, `buildKPI2026`, `rebuildDataSheetHeaders`, `rebuildStoreMasterInsight`, and `refreshRiskEngine` each now re-check `sl_isAdmin()` directly, independent of their `portal_*` wrapper (`refreshRiskEngine` also gets a capability-token exception for the unattended daily trigger). The 5 Sheets-menu rebuild/validate handlers (`SVMKPI_ADMIN.gs`) now require `sl_isAdmin()` too, closing the second privilege boundary. No authentication, session, or RBAC redesign; the Phase 1H-B enterprise architecture was not implemented. 34 new tests (`security-remediation.test.js`) plus the full existing suite, all passing. Findings recorded in `reviews/005-phase-1h-required-security-remediation.md`. |
+| 2026-09-25 | (this session) | Phase 1H-C | **Implemented the approved registration/approval/RBAC/scope/MFA identity foundation** (`DECISIONS.md` D-024–D-030, `reviews/006-phase-1h-c-planning.md`). New: `SVMKPI_IDENTITY_CORE.gs` (schema/sheet-access/permission-resolution/audit), `SVMKPI_IDENTITY_REGISTRATION.gs` (`registerUser()`/`verifyRegistrationEmail()`, email OTP via `MailApp`), `SVMKPI_IDENTITY_ADMIN.gs` (`approveRegistration()`/`rejectRegistration()`/`assignRole()`/`assignPermissions()`/`assignScope()`/suspend/reactivate/disable/`handleExternalIdentityDisabled()`), `SVMKPI_IDENTITY_ACCESS.gs` (`getCurrentUser()`/`getAccessState()`), `SVMKPI_IDENTITY_MFA.gs` (native TOTP `enrollMfa()`/`verifyMfa()`, a documented temporary exception to D-022 — see D-028). New IDENTITY_* pilot sheets, mirrored by `database/migrations/013_identity_extension.sql` (verified end-to-end against a local ephemeral Postgres instance, then rolled back). `SVMI_PORTAL.html` gained an always-visible "Account" tab (registration/verification/MFA self-service) and an Admin → Identity sub-tab (approval, role/permission/scope assignment) — both call only the named service functions, never a Sheet/row directly; the new permission system is additive and does not touch `sl_isAdmin()` or the 45+ existing gated call sites (D-026). External IdP selection, OIDC/SAML, and PostgreSQL production cutover remain deferred, per the approved scope. 62 new tests (`identity.test.js`, incl. a real TOTP round-trip and a check that no secret ever appears in `IDENTITY_AUDIT`) plus the full existing suite, all passing — 1191 assertions across 25 files. Recorded in `reviews/007-phase-1h-c-implementation.md`. |
 
 **The application did not change between Phase 1G and Phase 1H-B.1.** The
-System Peripherals audit, Phase 1H-A, and Phase 1H-B (three of the six
+System Peripherals audit, Phase 1H-A, and Phase 1H-B (three of the seven
 rows above) were documentation/audit/architecture-only work — no
-`.gs`/`.html` file was touched by any of them. **Phase 1H-B.1 is the
-first code change since Phase 1G** — see that row above and
-`reviews/005-...md` for exactly which files and why.
+`.gs`/`.html` file was touched by any of them. **Phase 1H-B.1 and Phase
+1H-C are the two code changes since Phase 1G** — see those rows above
+and `reviews/005-...md`/`reviews/007-...md` for exactly which files and
+why.
 
 ## Documentation track (spans `SVMI_Project/`, `database/`, and the repo root)
 
@@ -52,8 +54,11 @@ first code change since Phase 1G** — see that row above and
 | 2026-09-19 | `eb8ba93`–`82af2b1` | Phase 2A.3–2A.5 — EXISTING/NEW/HUMAN_REVIEW classification, operational status, administratively-confirmed merges |
 | 2026-09-19 | `f7cb12d` | Visitor identity reconciliation, mirroring the Store pattern |
 | 2026-09-19 | `9adff00`–`ed646c3` | Cross-source Purpose reconciliation (CAPAR) + operational readiness |
+| 2026-09-25 | (this session) | Phase 1H-C — `013_identity_extension.sql` (+ rollback): account-lifecycle/email-verification/MFA columns on `users`; `permissions`, `role_permissions`, `user_permissions`, `user_scope`, `identity_audit_log` tables; `roles` seeded with `USER` alongside `002`'s `ADMIN`. Applied end-to-end with `000`-`012` against a local ephemeral instance, then rolled back — same "proven locally" standard as the original migrations. No PostgreSQL production cutover. |
 
-**Status: paused.** The dry-run tooling is complete and unit-tested
+**Status: paused** (real-data migration track only — the identity schema
+above is DEV-only forward architecture, same as `002`-`012`). The dry-run
+tooling is complete and unit-tested
 against synthetic data; it has not been run against real SVMI data, and
 no production Postgres instance exists (D-011). Next step on this track
 is a real data export from the project owner — not something an AI

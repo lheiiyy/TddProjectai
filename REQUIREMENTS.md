@@ -60,15 +60,18 @@ not already implemented.
   track never touches real data without an explicit, deliberate export
   (D-011).
 
-## 3. Future enterprise identity/access requirements (approved target — Phase 1H-B, not yet implemented)
+## 3. Enterprise identity/access requirements (target — Phase 1H-B; Phase 1H-C implements the foundation now)
 
-**Not implemented today.** These are the approved target requirements for
-SVMI's future enterprise identity system, recorded per the project
-owner's Phase 1H-B direction (`DECISIONS.md` D-015–D-023,
-`reviews/004-phase-1h-enterprise-identity-architecture.md`). They
-describe what SVMI's identity/access model is meant to become, not
-current behavior — see Section 1 above ("Gate access") for what exists
-today.
+These are the project owner's approved requirements for SVMI's identity/
+access model, recorded per Phase 1H-B (`DECISIONS.md` D-015–D-023,
+`reviews/004-phase-1h-enterprise-identity-architecture.md`). **As of
+Phase 1H-C, the registration/approval/RBAC/scope/MFA/audit foundation
+below is implemented** (`DECISIONS.md` D-024–D-030,
+`reviews/006-phase-1h-c-planning.md`/`reviews/007-phase-1h-c-implementation.md`)
+— see §3a below for exactly what's live. External IdP
+selection/integration and a production Postgres cutover remain
+not-yet-implemented target items; see Section 1 above ("Gate access")
+for what the pilot's outer access gate still is (unchanged, D-025).
 
 - **Delegate authentication to an external, standards-based identity
   provider** (OIDC primary, SAML where required) — SVMI does not
@@ -97,9 +100,45 @@ today.
   privileged-operation allow/deny), distinct from `CONFIG_AUDIT`, and
   never logging secret values (D-023).
 
-Which identity provider, exact token format, additional roles, non-admin
-MFA policy, and exact schema are explicitly **not** decided by this list
-— see `reviews/004-...md` §12 for the full PENDING DECISION set.
+Which identity provider, exact token format, additional roles beyond
+`ADMIN`/`USER`, and non-admin MFA policy are explicitly **not** decided
+by this list — see `reviews/004-...md` §12 and `reviews/006-...md` §12
+for the current PENDING DECISION set.
+
+## 3a. Implemented now (Phase 1H-C) — registration/approval/RBAC/scope/MFA foundation
+
+- **Registration**: any syntactically valid email may register (full
+  name, email, department); no Google Workspace requirement (D-024).
+- **Email verification**: a one-time code, sent by `MailApp`, hashed at
+  rest, rate-limited (5 attempts), time-limited (15 minutes).
+- **Mandatory admin approval**: `PENDING_VERIFICATION` →
+  `PENDING_APPROVAL` → `ACTIVE`/`REJECTED`, enforced server-side —
+  `IDENTITY_VALID_TRANSITIONS` (`SVMKPI_IDENTITY_CORE.gs`) refuses any
+  other transition, regardless of caller.
+- **Account lifecycle** (D-027's binding 6-state list):
+  `PENDING_VERIFICATION`/`PENDING_APPROVAL`/`ACTIVE`/`SUSPENDED`/
+  `DISABLED`/`REJECTED`.
+- **RBAC**: `ADMIN`/`USER` seeded, extensible by adding a row, never a
+  code change (D-026). Permissions are resolved server-side as the union
+  of role-derived and direct per-user grants — never trusted from the
+  client.
+- **Configurable scope**: `SYSTEM`/`REGION`/`STORE` grants
+  (`assignScope()`), a user may hold several.
+- **MFA foundation**: native TOTP, required for all `ACTIVE` users,
+  self-service enroll/verify — a documented, temporary exception to
+  D-022 pending external IdP adoption (D-028).
+- **Identity/access audit**: `IDENTITY_AUDIT`, separate from
+  `CONFIG_AUDIT`, covering every event named in D-023 that this phase's
+  functions can produce; never logs a secret value (verified by test).
+- **Offboarding**: SVMI-side disable/suspend, plus a documented (not yet
+  connected) hook, `handleExternalIdentityDisabled()`, for a future
+  external IdP integration to call.
+
+Not implemented: any specific external identity provider, OIDC/SAML,
+provider-specific token/claims handling, a session mechanism (MFA here
+is enrollment-time proof of possession, not a per-request re-check — see
+`SVMKPI_IDENTITY_MFA.gs`'s own header comment), and a PostgreSQL
+production cutover.
 
 ## 4. Explicitly out of scope / deferred (see `PROJECT_STATUS.md` for the full current list)
 

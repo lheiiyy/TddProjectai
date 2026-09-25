@@ -264,7 +264,10 @@ immediately, no approval step) — see `reviews/004` §11 for this named as
 a candidate future fix, not yet scheduled or approved for implementation.
 
 ### D-019 — Account lifecycle states
-**Status:** Settled (target architecture)
+**Status:** Settled (target architecture) — **the specific 7-state list
+below is superseded by D-027's binding Phase 1H-C list; the underlying
+principle (distinct, non-collapsed states; historical records survive
+status change) is unchanged.**
 **Decision:** Target account statuses: `REQUESTED`, `VERIFIED`,
 `PENDING_APPROVAL`, `ACTIVE`, `SUSPENDED`, `DISABLED`, `REJECTED`.
 Historical business records must remain intact when an account becomes
@@ -275,7 +278,8 @@ Purposes.
 **Impact:** A future deactivation feature must never delete or
 reattribute historical records (e.g. `MASTER_LOG` attribution) tied to
 that user. Do not collapse `SUSPENDED`/`DISABLED`/`REJECTED` into one
-"inactive" flag — they are distinct states with distinct meaning.
+"inactive" flag — they are distinct states with distinct meaning. **See
+D-027 for the exact state list Phase 1H-C implements.**
 
 ### D-020 — Extensible RBAC; current roles remain ADMIN/USER
 **Status:** Settled (target architecture)
@@ -332,3 +336,156 @@ events are a different domain with different actors and sensitivity —
 **Impact:** A future implementation must not bolt identity/access events
 onto the existing `CONFIG_AUDIT` sheet/table. Exact storage mechanism is
 **PENDING DECISION**.
+
+---
+
+## Phase 1H-C — Approved implementation scope
+
+The following decisions (D-024–D-030) record the project owner's approved
+Phase 1H-C scope: implementing the registration/approval/RBAC/scope/MFA
+identity foundation now, while explicitly deferring external-IdP
+selection. Full narrative and implementation plan:
+`reviews/006-phase-1h-c-planning.md`.
+
+### D-024 — SVMI-native registration is the bridge identity provider until an external IdP is selected
+**Status:** Settled (Phase 1H-C)
+**Decision:** For Phase 1H-C, SVMI implements its own registration/
+email-verification mechanism (full name, email, department; one-time
+email verification code) as the active occupant of the "Identity
+Provider" slot behind the provider-neutral authentication boundary
+(D-015). No external OIDC/SAML provider is selected or integrated. Any
+syntactically valid email address may register — SVMI does not require a
+Google Workspace account or restrict registration to Google-authenticated
+identities.
+**Rationale:** D-015 deferred the specific IdP choice; this implements
+the authentication-vs-authorization boundary (D-016) now, using SVMI's
+own registration flow as a real, working (if temporary) identity source,
+so accounts/roles/approval discipline exist before a real IdP is chosen.
+**Impact:** A user's `auth_provider` value of `native` (or equivalent) is
+a legitimate, first-class state, not a placeholder to special-case away.
+A future IdP integration replaces the authentication mechanism behind
+this boundary; it does not require redesigning the account/role/
+permission/scope model built in this phase.
+
+### D-025 — Pilot hosting layer: Google sign-in remains the outer Web-App access gate, decoupled from SVMI identity
+**Status:** Settled (Phase 1H-C), disclosed limitation
+**Decision:** The Apps Script Web App's platform-level Google sign-in
+requirement (`appsscript.json` `access:"ANYONE"`) is not removed or
+reconfigured by Phase 1H-C — it remains the outer "can this browser reach
+the app at all" gate, unchanged since before Phase 1H-B.1. SVMI's own
+registration/account system is layered on top of it, not a replacement
+for it, exactly as the approved scope authorizes keeping the guest
+password "as a documented transitional mechanism."
+**Rationale:** Changing the Web App's `access`/`executeAs` deployment
+mode is a deployment-configuration decision outside this phase's approved
+scope, and would break every existing `Session.getActiveUser()`-based
+admin check (Phase 1H-B.1 and earlier) as a side effect.
+**Impact — disclosed limitation:** `getCurrentUser()`/`getAccessState()`
+resolve "who is this" by matching `Session.getActiveUser().getEmail()`
+(the Google account that reached this deployment) against
+`IDENTITY_USERS.email`. Someone who registers with a different email than
+the Google account they use to reach this specific pilot deployment will
+not resolve to their SVMI identity here, even though neither the data
+model nor the registration form restrict which email they may register
+with. This is a pilot-hosting-layer constraint, not an SVMI identity-model
+constraint, and is expected to disappear once SVMI runs behind a real
+API/frontend not bound to Apps Script Web App hosting rules.
+
+### D-026 — Logical identity model: seven distinct, independently extensible concepts
+**Status:** Settled (Phase 1H-C)
+**Decision:** The identity model separates: User (immutable ID + email +
+profile + account status), Role (a named label), Permission (a named
+capability), Role↔Permission (which permissions a role grants),
+User↔Role (which roles a user holds), User↔Scope (system/region/store
+access grants), and MFA state — each its own table/sheet, never collapsed
+into a user record with an `isAdmin` boolean.
+**Rationale:** Directly implements the approved scope's "User → Role →
+Permissions → Access Scope" separation and "must not be hard-coded around
+only ADMIN/USER" requirement — a new role is new rows in `IDENTITY_ROLES`/
+`IDENTITY_ROLE_PERMISSIONS`, never a code change.
+**Impact:** New identity/registration/approval surface authorizes by
+resolving permissions, not roles, wherever practical. `sl_isAdmin()` and
+the 45+ existing `CONFIG_*`/rebuild-engine call sites (Phase 1H-B.1 and
+earlier) are **not** retroactively rewired onto the new permission model
+in this phase — that would be unrelated refactoring, explicitly out of
+scope. The two systems coexist: `sl_isAdmin()` continues gating existing
+pilot operations; the new permission model gates the new identity surface.
+
+### D-027 — Account lifecycle: the binding Phase 1H-C state list
+**Status:** Settled (Phase 1H-C) — supersedes D-019's illustrative 7-state list
+**Decision:** `PENDING_VERIFICATION` → `PENDING_APPROVAL` → `ACTIVE` →
+(`SUSPENDED` | `DISABLED`), plus `REJECTED` as a terminal non-approval
+outcome. Six states, not D-019's original seven (`REQUESTED`/`VERIFIED`
+collapse into `PENDING_VERIFICATION`, covering both "just registered" and
+"verifying now").
+**Rationale:** The Phase 1H-C approval message defines this list
+directly as binding; reconciling it with D-019's earlier, more
+provisional list avoids two documents each claiming to be "the"
+lifecycle (D-014 governance).
+**Impact:** Implementation uses exactly this six-state list. A
+non-`ACTIVE` account must not receive normal protected application
+access — enforced server-side in `getAccessState()`, never inferred
+client-side. Valid transitions are enforced server-side (e.g. `ACTIVE`
+cannot be reached except via `PENDING_APPROVAL` → admin-approve, or
+`SUSPENDED` → admin-reactivate).
+
+### D-028 — MFA implemented natively now (TOTP) — a documented, temporary exception to D-022
+**Status:** Settled (Phase 1H-C), documented temporary exception
+**Decision:** Phase 1H-C implements authenticator-app TOTP (RFC
+6238-style, via `Utilities.computeHmacSha1Signature`) as SVMI's own
+second factor, required for all `ACTIVE` users. SVMI necessarily stores
+each user's TOTP shared secret itself, in a dedicated sheet never
+included in any general user-listing read path, because no external IdP
+exists yet to own it.
+**Rationale:** D-022 ("SVMI must not store... MFA secrets") was written
+for the target state where an external IdP owns authentication entirely
+(D-021: "MFA belongs to the identity provider"). With no IdP selected
+(D-024), honoring the approved scope's "MFA is required for all Active
+users" requires either not implementing MFA at all, or storing the secret
+natively for now. The approval message's own instruction — "do not invent
+an insecure custom MFA implementation if the pilot platform cannot safely
+support it" — is honored by using a standard, reviewed algorithm rather
+than a bespoke scheme, and by isolating the secret from every general
+read path.
+**Impact:** Same category of disclosed, temporary limitation as the
+guest password remaining plaintext in `SETTINGS!I2` (`reviews/003`) — not
+hidden, not treated as final. D-022 remains the rule for the target
+state; once an external IdP is adopted (D-015), MFA responsibility
+transfers to it and this native TOTP storage is retired. Do not add
+further native-secret features beyond this one, narrowly-scoped exception
+without a new decision.
+
+### D-029 — Identity/access audit implemented as `IDENTITY_AUDIT`
+**Status:** Settled (Phase 1H-C) — implements D-023
+**Decision:** `IDENTITY_AUDIT` (new, append-only sheet; the pilot-storage
+analog of a future `identity_audit_log` Postgres table) records
+registration submitted/email verified/registration approved/rejected,
+account activated/suspended/disabled, role/permission/scope changed, MFA
+enrolled/reset, and other administrative identity actions. It stays
+separate from `CONFIG_AUDIT`, never merged into it.
+**Rationale:** Directly implements D-023 now that a concrete identity
+system exists to generate these events.
+**Impact:** Every identity-service mutation writes an `IDENTITY_AUDIT`
+row before returning success. No secret value (verification code, MFA
+secret, or equivalent) is ever written to this log — enforced by
+construction, via a shared audit-writer helper that only accepts a fixed
+set of non-secret fields.
+
+### D-030 — Postgres identity schema extended via a new migration, not an edit to `002_users_roles.sql`
+**Status:** Settled (Phase 1H-C)
+**Decision:** `database/migrations/002_users_roles.sql` is left as
+originally written (its header comment corrected with a pointer, not a
+rewrite). A new migration, `013_identity_extension.sql`, adds
+account-status/email-verification/MFA columns to `users`, seeds `roles`
+with `USER` alongside `ADMIN`, and adds `permissions`, `role_permissions`,
+`user_scope`, and `identity_audit_log` tables.
+**Rationale:** Applies this codebase's append-only-correction discipline
+(D-009) to schema evolution. `002` was never applied to any real database
+(`DATA_MODEL.md` §6 — no real SVMI data has ever been migrated into this
+schema), so there is no live-data risk either way, but extending forward
+keeps the migration sequence an honest, ordered history rather than
+rewriting an already-numbered file.
+**Impact:** `002`'s header comment gets a pointer to `013` (the same
+"historical, corrected via a pointer" pattern used for `DEPLOY.md`/
+`README.txt` in the documentation-reconciliation pass), not a rewrite. No
+production Postgres cutover occurs in Phase 1H-C — unchanged from D-011.
