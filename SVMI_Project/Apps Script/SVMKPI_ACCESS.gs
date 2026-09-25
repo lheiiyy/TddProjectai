@@ -36,30 +36,47 @@ const ACCESS_COL = {
   GUEST_PASSWORD:  9,  // I — single value in I2
 };
 
-/**
- * _getAdminEmails()
- * @returns {string[]} lowercased, trimmed admin emails from SETTINGS!G2:G
- */
-function _getAdminEmails() {
-  const settings = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('SETTINGS');
-  if (!settings || settings.getLastRow() < 2) return [];
-  const values = settings.getRange(2, ACCESS_COL.ADMIN_EMAILS, settings.getLastRow() - 1, 1).getValues();
-  return values
-    .map(row => String(row[0] || '').trim().toLowerCase())
-    .filter(Boolean);
-}
+// ── Phase 1H-B.1 (Required finding 1, reviews/003 §H) ──────────────────
+// _getAdminEmails()/_getGuestPassword() used to be top-level functions.
+// google.script.run exposes EVERY top-level function in an Apps Script
+// project by name, regardless of underscore-prefix convention — so any
+// signed-in user who had loaded the real portal page could call either
+// directly and receive the raw admin email list or the guest password,
+// bypassing sl_isAdmin() entirely (neither function has, or can safely
+// have, its own sl_isAdmin() check — sl_isAdmin() itself depends on
+// reading the admin list, and _getGuestPassword() must be readable
+// BEFORE a visitor has proven anything, since it IS the password check).
+// The fix: these two now live as properties of a plain object instead of
+// top-level function declarations. google.script.run's RPC bridge can
+// only dispatch to top-level functions, so `_SL_SECRET_.adminEmails()`/
+// `_SL_SECRET_.guestPassword()` are no longer callable from any client —
+// they remain reachable only by ordinary in-script function calls from
+// sl_isAdmin() and _handleWebAppRequest_() below, exactly as before.
+// No shipped UI ever called `_getAdminEmails`/`_getGuestPassword` via
+// google.script.run (confirmed in reviews/003) — RPC access to the raw
+// values was never a legitimate use case, so removing it costs nothing.
+var _SL_SECRET_ = {
+  /** @returns {string[]} lowercased, trimmed admin emails from SETTINGS!G2:G */
+  adminEmails: function () {
+    const settings = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('SETTINGS');
+    if (!settings || settings.getLastRow() < 2) return [];
+    const values = settings.getRange(2, ACCESS_COL.ADMIN_EMAILS, settings.getLastRow() - 1, 1).getValues();
+    return values
+      .map(row => String(row[0] || '').trim().toLowerCase())
+      .filter(Boolean);
+  },
 
-/**
- * _getGuestPassword()
- * @returns {string} the configured password (trimmed), or '' if not set up
- *   yet — treated as "no password required" so the app never locks itself
- *   out before menuSetupAccessControl() has run.
- */
-function _getGuestPassword() {
-  const settings = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('SETTINGS');
-  if (!settings) return '';
-  return String(settings.getRange(2, ACCESS_COL.GUEST_PASSWORD).getValue() || '').trim();
-}
+  /**
+   * @returns {string} the configured password (trimmed), or '' if not set
+   *   up yet — treated as "no password required" so the app never locks
+   *   itself out before menuSetupAccessControl() has run.
+   */
+  guestPassword: function () {
+    const settings = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('SETTINGS');
+    if (!settings) return '';
+    return String(settings.getRange(2, ACCESS_COL.GUEST_PASSWORD).getValue() || '').trim();
+  },
+};
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -102,7 +119,7 @@ function sl_getCurrentUser() {
 function sl_isAdmin() {
   const email = String(sl_getCurrentUser() || '').trim().toLowerCase();
   if (!email) return false;
-  return _getAdminEmails().indexOf(email) !== -1;
+  return _SL_SECRET_.adminEmails().indexOf(email) !== -1;
 }
 
 
@@ -127,7 +144,7 @@ function sl_isAdmin() {
  */
 function _handleWebAppRequest_(e) {
   const pw       = String((e && e.parameter && e.parameter.pw) || '');
-  const required = _getGuestPassword();
+  const required = _SL_SECRET_.guestPassword();
 
   if (!required || pw.trim() === required) {
     const tmpl = HtmlService.createTemplateFromFile('SVMI_PORTAL');

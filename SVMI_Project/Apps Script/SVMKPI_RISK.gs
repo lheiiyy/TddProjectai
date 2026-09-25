@@ -649,15 +649,34 @@ function populateRiskEngine(sheet, data, year) {
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * refreshRiskEngine(year)
+ * refreshRiskEngine(year, __systemToken)
  * Sole externally-called entry point. Builds the sheet (if needed)
  * and repopulates it from MASTER_LOG via CORE.gs's _getData().
+ *
+ * Phase 1H-B.1 (Required finding 2, reviews/003 §H): same
+ * unwrapped-engine gap as buildExecutiveSummaryLayout() etc.
+ * (SVMKPI_LAYOUT.gs), but this one has a legitimate unattended caller —
+ * the daily `triggerRefreshDashboard()` time trigger (SVMKPI_ADMIN.gs),
+ * which runs with no interactive Google sign-in to check sl_isAdmin()
+ * against. `__systemToken` lets ONLY that trigger bypass the check: it's
+ * an unguessable value generated fresh per script execution
+ * (`_SYSTEM_TRIGGER_TOKEN_`, SVMKPI_ADMIN.gs), never sent to any client
+ * and never accepted as a plain "isAdmin"-style flag — a caller has to
+ * already know the exact live value to pass it, which no RPC caller can,
+ * so this is not the "trust a client-supplied role flag" pattern the
+ * remediation task explicitly forbids.
  * @param {number} [year] - Reporting year (Phase 1C); omit for
  *   getDefaultReportingYear() (SVMKPI_REPORTING_YEAR.gs) — the latest
  *   year actually present in MASTER_LOG, never a hardcoded literal.
- * @returns {{ success: boolean, rows: number }}
+ * @param {string} [__systemToken] - internal use only; see above.
+ * @returns {{ success: boolean, rows: number, message?: string }}
  */
-function refreshRiskEngine(year) {
+function refreshRiskEngine(year, __systemToken) {
+  const isSystemTrigger = (typeof _SYSTEM_TRIGGER_TOKEN_ !== 'undefined') &&
+    !!__systemToken && __systemToken === _SYSTEM_TRIGGER_TOKEN_;
+  if (!isSystemTrigger && typeof sl_isAdmin === 'function' && !sl_isAdmin()) {
+    return { success: false, rows: 0, message: 'Admin access required.' };
+  }
   const masterLog = _getSheet(SHEET.MASTER_LOG);
   const data      = _getData(masterLog);
   const sheet     = buildRiskEngineSheet();

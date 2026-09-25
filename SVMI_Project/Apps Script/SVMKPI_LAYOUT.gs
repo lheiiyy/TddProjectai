@@ -84,6 +84,17 @@ const ROW_HEIGHTS = {
  * @param {number} [year]
  */
 function buildExecutiveSummaryLayout(year) {
+  // Phase 1H-B.1 (Required finding 2, reviews/003 §H): this engine has no
+  // wrapper-independent check of its own — google.script.run can call it
+  // directly, bypassing portal_rebuildExecutiveSummary()'s sl_isAdmin()
+  // check. The `typeof sl_isAdmin === 'function'` guard makes this a
+  // no-op when SVMKPI_ACCESS.gs isn't loaded (e.g. a test sandbox that
+  // never intended to exercise auth) — in the real deployed app all
+  // files share one project, so sl_isAdmin is always present and this
+  // check always applies.
+  if (typeof sl_isAdmin === 'function' && !sl_isAdmin()) {
+    throw new Error('Admin access required.');
+  }
   const reportYear = (year != null && !isNaN(Number(year))) ? Number(year) : getDefaultReportingYear();
   const ss    = SpreadsheetApp.getActiveSpreadsheet();
   let   sheet = ss.getSheetByName('EXECUTIVE SUMMARY');

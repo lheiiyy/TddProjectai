@@ -141,6 +141,12 @@ function _visitorWeekFormula(ref, year, month, s, e) {
  *   year actually present in MASTER_LOG, never a hardcoded literal.
  */
 function buildKPI2026(year) {
+  // Phase 1H-B.1 (Required finding 2, reviews/003 §H) — see
+  // buildExecutiveSummaryLayout() in SVMKPI_LAYOUT.gs for the full
+  // rationale; same fix, same typeof-guard, applied here.
+  if (typeof sl_isAdmin === 'function' && !sl_isAdmin()) {
+    throw new Error('Admin access required.');
+  }
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
   const KPI_YEAR = (year != null && !isNaN(Number(year))) ? Number(year) : getDefaultReportingYear();

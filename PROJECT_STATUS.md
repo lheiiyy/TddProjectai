@@ -1,9 +1,10 @@
 # SVMI — Project Status
 
-Last updated: 2026-09-25, recording Phase 1H-B — the approved target
-enterprise identity/access architecture (see
-`reviews/004-phase-1h-enterprise-identity-architecture.md`, building on
-the Phase 1H-A audit in `reviews/003-phase-1h-security-identity-audit.md`).
+Last updated: 2026-09-25, recording Phase 1H-B.1 — the fix for the 3
+Required pilot security findings from Phase 1H-A (see
+`reviews/005-phase-1h-required-security-remediation.md`). This is the
+first application-code change since Phase 1G; everything from the System
+Peripherals audit through Phase 1H-B was documentation/architecture only.
 See `PROJECT_MEMORY.md` for orientation and `IMPLEMENTATION_LOG.md` for
 the full phase-by-phase history behind this summary.
 
@@ -34,13 +35,17 @@ configuration → Phase 1E report snapshots → Phase 1F Admin/Snapshot UI →
 Stores/Visitors/Purposes; "Store & Roster Manager" removed** → a read-only
 System Peripherals architectural audit → **Phase 1H-A: a read-only
 authentication/identity/authorization audit** (see
-`reviews/003-phase-1h-security-identity-audit.md` — full findings in
-"What remains unresolved" below) → **Phase 1H-B: the approved target
-enterprise identity/access architecture recorded** (see
-`reviews/004-phase-1h-enterprise-identity-architecture.md`). **The
-application itself has not changed since Phase 1G** — everything below
-this point, including Phase 1H-A and 1H-B, is documentation/audit/
-architecture-only work; no code was touched.
+`reviews/003-phase-1h-security-identity-audit.md`) → **Phase 1H-B: the
+approved target enterprise identity/access architecture recorded** (see
+`reviews/004-phase-1h-enterprise-identity-architecture.md`) →
+**Phase 1H-B.1: the 3 Required pilot security findings from Phase 1H-A
+fixed** (see `reviews/005-phase-1h-required-security-remediation.md` —
+full detail in "What has been completed" → Security/identity track,
+below). **The application did not change between Phase 1G and Phase
+1H-B.1** — the System Peripherals audit, Phase 1H-A, and Phase 1H-B were
+documentation/audit/architecture-only; Phase 1H-B.1 is the first code
+change since Phase 1G, and it is a scoped pilot-hardening fix, not the
+Phase 1H-B enterprise architecture itself.
 
 **Documentation track** (also complete, both passes pushed):
 1. **Documentation foundation** (commit `a84074b`) — created the 8 root
@@ -64,18 +69,16 @@ architecture-only work; no code was touched.
 **Documentation foundation and reconciliation are both complete.**
 `CLAUDE.md` now exists at the repo root.
 
-**Security/identity track** (audit and architecture only, no code changed):
+**Security/identity track:**
 1. **Phase 1H-A — Authentication/Identity/Authorization audit**
    (`reviews/003-phase-1h-security-identity-audit.md`) — traced the full
    login → session → authorization flow, inventoried all 45
    server-gated privileged functions plus every function found NOT
    gated, the guest-password/admin-email secret lifecycle, and mapped
    current concepts against a future Identity-Provider/role/permission
-   model. Found 3 Required findings (most notably: two "private" helper
-   functions that return the guest password and the full admin email
-   list have no access check of their own), 4 Recommended, 3 Future, and
-   3 Unknown/Not-Verifiable-From-Repository items — see that review for
-   full detail. **Audit only — nothing was fixed.**
+   model. Found 3 Required findings, 4 Recommended, 3 Future, and 3
+   Unknown/Not-Verifiable-From-Repository items — see that review for
+   full detail. Audit only — nothing was fixed at the time.
 2. **Phase 1H-B — Enterprise identity & access architecture (approved
    target, not implemented)**
    (`reviews/004-phase-1h-enterprise-identity-architecture.md`) — records
@@ -86,9 +89,26 @@ architecture-only work; no code was touched.
    lifecycle, extensible RBAC beyond today's ADMIN/USER, MFA as an
    IdP-layer responsibility (mandatory for Admins), strict credential
    separation, and a dedicated identity/access audit domain. Recorded as
-   `DECISIONS.md` D-015–D-023. **Architecture recorded only — nothing was
+   `DECISIONS.md` D-015–D-023. Architecture recorded only — nothing was
    implemented, no identity provider was chosen, and Phase 1H-C has not
-   started.**
+   started.
+3. **Phase 1H-B.1 — Required pilot security remediation** (code change;
+   `reviews/005-phase-1h-required-security-remediation.md`) — fixed all 3
+   Phase 1H-A Required findings without touching authentication, sessions,
+   or the enterprise architecture: `_getAdminEmails()`/`_getGuestPassword()`
+   are no longer top-level functions (`google.script.run` can no longer
+   reach them at all, closing the secret-exposure path — `SVMKPI_ACCESS.gs`);
+   the 5 report-rebuild engines (`buildExecutiveSummaryLayout`,
+   `buildKPI2026`, `rebuildDataSheetHeaders`, `rebuildStoreMasterInsight`,
+   `refreshRiskEngine`) now each re-check `sl_isAdmin()` themselves,
+   independent of their `portal_*` wrapper, with a capability-token
+   exception for the one legitimate unattended caller (the daily Store
+   Health trigger); the 5 Sheets-menu rebuild/validate handlers now
+   require `sl_isAdmin()` too, closing the second privilege boundary.
+   34 new focused tests (`security-remediation.test.js`) plus the full
+   existing 1095-assertion suite, all passing — **1129 assertions across
+   24 files, 0 failures.** See that review for the finding-by-finding
+   mapping, remaining limitations, and full regression result.
 
 **Database track**: PostgreSQL DEV schema (13 migrations + rollback
 scripts), proven against a local ephemeral instance, including verified
@@ -99,30 +119,39 @@ synthetic data — **158/158 passing** as of this check.
 
 ## What is currently being worked on
 
-Nothing is mid-implementation, and nothing documentation- or audit-related
-is in-flight either. The most recent application work (Phase 1G), all
-three documentation passes, the Phase 1H-A security audit, and the
-Phase 1H-B target-architecture record above are complete, verified, and
-pushed. Phase 1H-C (implementing any part of the Phase 1H-B architecture)
-has not been started — it explicitly awaits project-owner review and
-scoping decisions.
+Nothing is mid-implementation. Phase 1G, all three documentation passes,
+the Phase 1H-A security audit, the Phase 1H-B target-architecture record,
+and the Phase 1H-B.1 pilot-hardening fix above are all complete, verified,
+and pushed. Phase 1H-C (implementing any part of the Phase 1H-B
+enterprise architecture) has not been started — it explicitly awaits
+project-owner review and scoping decisions.
 
 ## What remains unresolved
 
-**Security/identity (Phase 1H-A, see `reviews/003-phase-1h-security-identity-audit.md`
-for full detail — Required findings):**
-- `_getAdminEmails()` and `_getGuestPassword()` have no access check of
-  their own; either is directly callable by any signed-in user who has
-  loaded the real portal page, exposing the guest password and the full
-  admin email list.
-- Five report-rebuild engine functions (`buildExecutiveSummaryLayout`,
-  `refreshRiskEngine`, `buildKPI2026`, `rebuildDataSheetHeaders`,
-  `rebuildStoreMasterInsight`) have no admin check of their own — only
-  their `portal_*` wrappers do; directly callable, bypassing the check.
-- The Sheets-menu rebuild handlers reach the same engine functions,
-  gated only by Google Sheet Editor/Viewer sharing, never by
-  `SETTINGS!G` — a second, independent privilege boundary for the same
-  operations.
+**Security/identity — the 3 Phase 1H-A Required findings are fixed**
+(Phase 1H-B.1, `reviews/005-phase-1h-required-security-remediation.md`).
+What remains, per that review's own "remaining limitations" for each
+finding, and the Recommended/Future/Unknown items `reviews/003` §H never
+asked this task to fix:
+- The guest password and admin email list remain plaintext in `SETTINGS`
+  (readable by anyone with Sheet access) and the guest password remains
+  cached in browser `localStorage` by design — closing the RPC path
+  (Phase 1H-B.1) did not change this.
+- `validateMasterLog()` still has no admin check of its own (it was Low
+  risk/read-only, not a Required finding); only its Sheets-menu path
+  (`menuValidateMasterLog`) is now gated.
+- `menuSetupAccessControl()` (the one-time admin-bootstrap menu item) is
+  still intentionally ungated — gating it would be self-defeating, since
+  it is how the first admin gets seeded.
+- No audit trail exists for authentication events, admin-list changes, or
+  password rotations (Recommended item 6, `reviews/003`).
+- The guest password is a single shared secret with no per-user binding,
+  rate limiting, or lockout (Recommended item 7).
+- Everything in `reviews/003`'s Future/Unknown-Verification sections
+  (real Identity Provider, server-side sessions, structured security
+  audit log, exact OAuth scopes/deployment facts) — unchanged, and
+  explicitly out of scope for both Phase 1H-B.1 and the still-pending
+  Phase 1H-C.
 
 **System Peripherals (Phase 1G follow-up, see `reviews/001`/`002`):**
 - **No Admin Configuration screen for admin access** — guest password
@@ -154,11 +183,6 @@ for full detail — Required findings):**
   awaits project-owner review of
   `reviews/004-phase-1h-enterprise-identity-architecture.md` and its
   `PENDING DECISION` list (§12) per that review's own stop condition.
-- Deciding which Phase 1H-A Required findings, if any, must be fixed
-  before the pilot safely continues — named as candidate scope in
-  `reviews/004` §11, not scheduled or approved.
-- Fixing any of the Phase 1H-A Required findings themselves — this was
-  an audit only; nothing was remediated (see `reviews/003`, Section J).
 - Moving admin access into `CONFIG_SYSTEM` (D-007).
 - Making Brand/Region/Category admin-configurable (D-013) — deferred
   until after the admin-access gap, given Brand's larger blast radius.
@@ -170,16 +194,14 @@ for full detail — Required findings):**
 ## Immediate next task
 
 **Project-owner review of
-`reviews/004-phase-1h-enterprise-identity-architecture.md`.** That
-review's own stop condition governs: Phase 1H-C (implementing any part of
-the enterprise identity architecture) is deliberately not started until
-this architecture record is reviewed and its `PENDING DECISION` items
-(§12 — identity provider choice, token format, additional roles, non-admin
-MFA policy, exact schema, and which Phase 1H-A findings must be fixed
-before the pilot continues) are decided. This supersedes the
-previously-stated next step (an Admin Configuration screen for admin
-access, `reviews/001`/`002`, `DECISIONS.md` D-007) only in sequencing —
-that item remains valid and relevant, and both the Phase 1H-A audit
-(Section H, Required items 1 and 4) and the Phase 1H-B architecture
-(D-015–D-023) may inform its eventual scope. No application work has
-begun on any of this.
+`reviews/004-phase-1h-enterprise-identity-architecture.md`.** The 3
+Required pilot security findings that were the one concrete blocker
+named in that review's §11 are now fixed (Phase 1H-B.1,
+`reviews/005-...md`) — Phase 1H-C (implementing any part of the
+enterprise identity architecture) still awaits project-owner review of
+`reviews/004`'s `PENDING DECISION` items (§12: identity provider choice,
+token format, additional roles, non-admin MFA policy, exact schema), per
+that review's own stop condition. This supersedes the previously-stated
+next step (an Admin Configuration screen for admin access,
+`reviews/001`/`002`, `DECISIONS.md` D-007) only in sequencing — that item
+remains valid and relevant. No Phase 1H-C application work has begun.

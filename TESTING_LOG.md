@@ -7,7 +7,10 @@ demo; dry-run tooling is pure-function/synthetic-data only).
 
 ## Apps Script track — `SVMI_Project/tests/`
 
-**Verified this session: 23 files, 1095 assertions, 0 failures.**
+**Verified this session: 24 files, 1129 assertions, 0 failures** (Phase
+1H-B.1 added `security-remediation.test.js`, 34 assertions; the other 23
+files/1095 assertions are the unchanged pre-existing baseline, re-run as
+regression).
 
 Per-file counts below are as documented in `SVMI_Project/DEPLOY.md`'s own
 "Checks before you push" section (attributed to that source, not
@@ -32,7 +35,8 @@ touched or added in Phase 1G are from today's direct run.
 | `risk-config.test.js` | Versioned risk configuration + purpose-weight fallback chain, backdating, rollback | 33 |
 | `risk-scoring.test.js` | Store Health scoring engine | — |
 | `roster-auto-refresh.test.js` | Adding a roster member auto-rebuilds KPI 2026 | — |
-| `settings-config-migration.test.js` | **Phase 1G** — CONFIG_* → SETTINGS mirror sync (create/deactivate/rename), legacy-purpose fallback, `getSidebarData()` sourcing from CONFIG_*, migration idempotency, no-SRM-reference check | 34 (added this session) |
+| `security-remediation.test.js` | **Phase 1H-B.1** — the 3 Required security findings: `_getAdminEmails`/`_getGuestPassword` no longer directly RPC-callable, the 5 rebuild engines + daily trigger, the 5 Sheets-menu handlers | 34 (added this session) |
+| `settings-config-migration.test.js` | **Phase 1G** — CONFIG_* → SETTINGS mirror sync (create/deactivate/rename), legacy-purpose fallback, `getSidebarData()` sourcing from CONFIG_*, migration idempotency, no-SRM-reference check | 34 |
 | `store-identity.test.js` | Store ID identity/immutability, historical resolution, migration + UNMAPPED tracking, security | 51 |
 | `store-lookup-date-handling.test.js` | Date-handling consistency across `SVMKPI_STORE_LOOKUP.gs` call sites | — |
 | `store-remove-history.test.js` | Remove Store preserves history, row isolation, admin gate | — |
