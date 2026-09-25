@@ -8,6 +8,12 @@
 //   2. Current-user / admin-check RPCs, callable from SVMI_PORTAL.html
 //   3. The guest-password gate shared by doGet()/doPost() (SVMKPI_ADMIN.gs)
 //   4. One-time setup menu item that bootstraps the two SETTINGS columns
+//   5. Security Fix R2 (D-032): the legacy-admin MFA bridge — makes
+//      sl_isAdmin() itself (the single choke point all 45+ pre-existing
+//      SETTINGS!G-gated functions already call) require a satisfied MFA
+//      credential too, closing the dual-authorization-path gap Security
+//      Fix R1 left open. See SECTION 5 below and
+//      reviews/009-phase-1h-c-security-fix-r2.md.
 // ------------------------------------------------------------
 // Two independent layers protect this Web App:
 //   - Google sign-in (appsscript.json access:"ANYONE") — real identity,
@@ -106,20 +112,58 @@ function sl_getCurrentUser() {
 }
 
 /**
- * sl_isAdmin()
- * Whether the current Google account is on the SETTINGS!G admin list.
- * Called by the portal to hide/disable the destructive System Tools
- * (Executive Summary, KPI 2026, Data Headers) for non-admins — but that's
- * a convenience, not the real gate: each portal_rebuild*() handler for
- * those three tools calls this again itself before doing anything, since
- * a client-side check alone can't stop a direct call to the function.
+ * _isOnLegacyAdminList_(email)
+ * The ORIGINAL sl_isAdmin() check, pre-Security-Fix-R2: whether `email`
+ * is on the SETTINGS!G admin list, with no MFA requirement. Kept as its
+ * own function for two reasons: (1) sl_isAdmin() itself now layers an
+ * MFA requirement on top of this (see below); (2) enrollAdminMfa()/
+ * verifyAdminMfa() (SECTION 5) must gate on list-membership ALONE, not
+ * on sl_isAdmin() — gating self-enrollment on "already MFA-satisfied"
+ * would make it impossible for any admin to ever complete their first
+ * enrollment (a circular bootstrap trap).
  * Fails closed: no email visible ⇒ not an admin, never the reverse.
  * @returns {boolean}
  */
+function _isOnLegacyAdminList_(email) {
+  const normalized = String(email || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return _SL_SECRET_.adminEmails().indexOf(normalized) !== -1;
+}
+
+/**
+ * sl_isAdmin()
+ * Whether the current Google account is on the SETTINGS!G admin list
+ * AND has a currently-satisfied MFA credential (Security Fix R2,
+ * DECISIONS.md D-032). Called by the portal to hide/disable the
+ * destructive System Tools (Executive Summary, KPI 2026, Data Headers)
+ * for non-admins — but that's a convenience, not the real gate: each
+ * portal_rebuild*() handler for those three tools calls this again
+ * itself before doing anything, since a client-side check alone can't
+ * stop a direct call to the function. This is the SAME single function
+ * all 45+ existing SETTINGS!G-gated call sites already call, so
+ * strengthening it here closes the MFA gap for all of them without
+ * editing any of those call sites (mirrors how Security Fix R1
+ * strengthened _identity_currentUserHasPermission_() for the new
+ * identity surface).
+ * Fails closed: no email visible, not on the admin list, or MFA not
+ * satisfied ⇒ not an admin, never the reverse. The MFA check is
+ * typeof-guarded so a test sandbox that never loads
+ * SVMKPI_IDENTITY_CORE.gs (this file's MFA dependency) degrades to the
+ * pre-R2 admin-list-only check instead of throwing — in the real
+ * deployed app all files share one project, so
+ * _identity_hasSatisfiedMfa_ is always present and this check always
+ * applies (same established precedent as the `typeof sl_isAdmin ===
+ * 'function'` guards elsewhere in this codebase, e.g. SVMKPI_LAYOUT.gs).
+ * @returns {boolean}
+ */
 function sl_isAdmin() {
-  const email = String(sl_getCurrentUser() || '').trim().toLowerCase();
-  if (!email) return false;
-  return _SL_SECRET_.adminEmails().indexOf(email) !== -1;
+  const email = sl_getCurrentUser();
+  if (!_isOnLegacyAdminList_(email)) return false;
+  if (typeof _identity_hasSatisfiedMfa_ === 'function' &&
+      !_identity_hasSatisfiedMfa_(_legacyAdminMfaKey_(email))) {
+    return false;
+  }
+  return true;
 }
 
 
@@ -231,4 +275,198 @@ function _generatePassword_() {
   let out = '';
   for (let i = 0; i < 8; i++) out += chars.charAt(Math.floor(Math.random() * chars.length));
   return out;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 5: LEGACY ADMIN MFA BRIDGE (Security Fix R2, D-032)
+// ------------------------------------------------------------
+// Phase 1H-C Security Fix R1 made MFA an enforced, server-authoritative
+// access requirement for the NEW identity/permission surface
+// (SVMKPI_IDENTITY_CORE.gs's _identity_authorizeCurrentUser_()). A
+// follow-up review found that left a second, independent authorization
+// path unaffected: sl_isAdmin() (the SETTINGS!G admin-email mechanism,
+// still the gate on 45+ pre-existing functions) could still be satisfied
+// with no MFA at all. This section closes that gap.
+//
+// Deliberately NOT unified with the new identity system's ACTIVE-status/
+// IDENTITY_USERS-based MFA gate: a SETTINGS!G admin is not necessarily
+// registered there, and no bootstrap path exists yet to create the very
+// first ACTIVE + role=ADMIN + MFA-satisfied identity in that system (its
+// own approveRegistration() itself requires an already-ACTIVE, already-
+// MFA-satisfied approver — see DECISIONS.md D-032 for the full
+// analysis). Gating sl_isAdmin() on that system instead of this bridge
+// would have risked permanently locking out every legacy admin with no
+// way back in — the opposite of a safe, minimal fix.
+//
+// Instead this reuses the SAME generic, provider-neutral primitives
+// Security Fix R1 already built — TOTP (SVMKPI_IDENTITY_MFA.gs) and the
+// PropertiesService-backed satisfaction gate
+// (SVMKPI_IDENTITY_CORE.gs §6.5) — under a distinct key namespace
+// ('LEGACY_ADMIN:<email>', see _legacyAdminMfaKey_() below) and reuses
+// the existing IDENTITY_MFA sheet (no new sheet needed) for secret
+// storage, with rows keyed by that same synthetic string instead of a
+// real IDENTITY_USERS 'USR-<uuid>' User ID — the two can never collide.
+// A legacy admin's MFA standing is therefore entirely independent of
+// whether that email has ever registered in the new identity system.
+//
+// Self-service only, exactly like enrollMfa()/verifyMfa(): always acts
+// on the calling browser's own linked Google identity, never a client-
+// supplied email. enrollAdminMfa()/verifyAdminMfa() gate on
+// _isOnLegacyAdminList_() (admin-list membership ALONE), never on
+// sl_isAdmin() itself — see _isOnLegacyAdminList_()'s own comment for
+// why that avoids a circular bootstrap trap.
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * _legacyAdminMfaKey_(email)
+ * The PropertiesService/IDENTITY_MFA-sheet key for a legacy admin's MFA
+ * standing — distinct from any real IDENTITY_USERS 'USR-<uuid>' User ID
+ * by construction (the 'LEGACY_ADMIN:' prefix can never be produced by
+ * _identity_newUserId_()).
+ */
+function _legacyAdminMfaKey_(email) {
+  return 'LEGACY_ADMIN:' + String(email || '').trim().toLowerCase();
+}
+
+/**
+ * _legacyAdminMfaRow_(email)
+ * Reuses the IDENTITY_MFA sheet/schema (SVMKPI_IDENTITY_CORE.gs /
+ * SVMKPI_IDENTITY_MFA.gs) rather than adding a new sheet.
+ * @returns {{sheet:object, rowNum:number, record:Array|null}} rowNum is
+ *   -1 (not yet enrolled) or the 1-based sheet row (incl. header).
+ */
+function _legacyAdminMfaRow_(email) {
+  const sheet = _identity_ensureSheet_(IDENTITY_SHEET.MFA, IDENTITY_HEADERS.MFA);
+  const key = _legacyAdminMfaKey_(email);
+  const rows = _identity_readAll_(sheet);
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][IDENTITY_MFA_COL.USER_ID - 1]) === key) {
+      return { sheet: sheet, rowNum: i + 2, record: rows[i] };
+    }
+  }
+  return { sheet: sheet, rowNum: -1, record: null };
+}
+
+/**
+ * enrollAdminMfa()
+ * Self-service legacy-admin equivalent of enrollMfa() (SVMKPI_IDENTITY_MFA.gs).
+ * Gated on SETTINGS!G list membership alone (_isOnLegacyAdminList_), NOT
+ * on sl_isAdmin() — see SECTION 5's header comment. Returns the shared
+ * secret ONCE, exactly like enrollMfa(); no read function ever returns
+ * it afterward.
+ * @returns {{success:boolean, message:string, secret?:string, otpauthUri?:string}}
+ */
+function enrollAdminMfa() {
+  const email = sl_getCurrentUser();
+  if (!_isOnLegacyAdminList_(email)) {
+    return { success: false, message: 'Admin access required.' };
+  }
+
+  const key = _legacyAdminMfaKey_(email);
+  const found = _legacyAdminMfaRow_(email);
+  const wasEnrolled = !!(found.record && found.record[IDENTITY_MFA_COL.STATUS - 1] === 'ENROLLED');
+
+  const secret = _identity_generateTotpSecret_();
+  if (found.rowNum === -1) {
+    found.sheet.appendRow([key, 'NOT_ENROLLED', 'TOTP', secret, '', '', '']);
+  } else {
+    found.sheet.getRange(found.rowNum, IDENTITY_MFA_COL.STATUS).setValue('NOT_ENROLLED');
+    found.sheet.getRange(found.rowNum, IDENTITY_MFA_COL.SECRET).setValue(secret);
+    found.sheet.getRange(found.rowNum, IDENTITY_MFA_COL.ENROLLED_AT).setValue('');
+    // A new secret has its own independent step-space (same anti-replay
+    // reasoning as enrollMfa()).
+    found.sheet.getRange(found.rowNum, IDENTITY_MFA_COL.LAST_USED_STEP).setValue('');
+  }
+  SpreadsheetApp.flush();
+
+  // A new/reset secret invalidates any standing satisfaction.
+  _identity_clearMfaSatisfaction_(key);
+
+  if (wasEnrolled) {
+    _identity_writeAudit_(IDENTITY_AUDIT_EVENT.MFA_RESET, key, key, 'legacy admin MFA re-enrollment started');
+  }
+
+  const otpauthUri = 'otpauth://totp/SVMI:' + encodeURIComponent(email) +
+    '?secret=' + secret + '&issuer=SVMI-Admin&digits=' + IDENTITY_TOTP_DIGITS + '&period=' + IDENTITY_TOTP_STEP_SECONDS;
+
+  return {
+    success: true,
+    message: 'Scan this into your authenticator app, then confirm with verifyAdminMfa().',
+    secret: secret,
+    otpauthUri: otpauthUri,
+  };
+}
+
+/**
+ * verifyAdminMfa(code)
+ * Self-service legacy-admin equivalent of verifyMfa()
+ * (SVMKPI_IDENTITY_MFA.gs) — same RFC 6238 anti-replay behavior (a given
+ * TOTP time-step satisfies at most one call). On success, marks the
+ * server-side satisfaction credential sl_isAdmin() requires from here on.
+ * Never reveals the correct code or the stored secret.
+ * @returns {{success:boolean, message:string}}
+ */
+function verifyAdminMfa(code) {
+  const email = sl_getCurrentUser();
+  if (!_isOnLegacyAdminList_(email)) {
+    return { success: false, message: 'Admin access required.' };
+  }
+
+  const key = _legacyAdminMfaKey_(email);
+  const found = _legacyAdminMfaRow_(email);
+  const secret = found.record ? found.record[IDENTITY_MFA_COL.SECRET - 1] : '';
+  if (!found.record || !secret) {
+    return { success: false, message: 'MFA not enrolled — call enrollAdminMfa() first.' };
+  }
+
+  const matchedStep = _identity_matchTotpStep_(secret, code, IDENTITY_TOTP_WINDOW_STEPS);
+  if (matchedStep === null) {
+    _identity_writeAudit_(IDENTITY_AUDIT_EVENT.MFA_VERIFY_FAILED, key, key, 'legacy admin: incorrect code');
+    return { success: false, message: 'Incorrect code.' };
+  }
+
+  const lastUsedStepRaw = found.record[IDENTITY_MFA_COL.LAST_USED_STEP - 1];
+  const lastUsedStep = lastUsedStepRaw === '' || lastUsedStepRaw == null ? null : Number(lastUsedStepRaw);
+  if (lastUsedStep !== null && matchedStep <= lastUsedStep) {
+    // Anti-replay — same reasoning as verifyMfa().
+    _identity_writeAudit_(IDENTITY_AUDIT_EVENT.MFA_VERIFY_FAILED, key, key, 'legacy admin: replayed code rejected');
+    return { success: false, message: 'This code has already been used. Wait for a new code.' };
+  }
+
+  const wasEnrolled = found.record[IDENTITY_MFA_COL.STATUS - 1] === 'ENROLLED';
+  const now = new Date();
+  found.sheet.getRange(found.rowNum, IDENTITY_MFA_COL.STATUS).setValue('ENROLLED');
+  if (!wasEnrolled) found.sheet.getRange(found.rowNum, IDENTITY_MFA_COL.ENROLLED_AT).setValue(now);
+  found.sheet.getRange(found.rowNum, IDENTITY_MFA_COL.LAST_VERIFIED_AT).setValue(now);
+  found.sheet.getRange(found.rowNum, IDENTITY_MFA_COL.LAST_USED_STEP).setValue(matchedStep);
+  SpreadsheetApp.flush();
+
+  _identity_markMfaSatisfied_(key);
+
+  if (!wasEnrolled) {
+    _identity_writeAudit_(IDENTITY_AUDIT_EVENT.MFA_ENROLLED, key, key, 'legacy admin');
+  }
+  return { success: true, message: 'Verified.' };
+}
+
+/**
+ * sl_getAdminMfaStatus()
+ * Read-only, for the portal's admin-MFA banner (SVMI_PORTAL.html).
+ * Reveals only the CALLER's own standing — never another user's, and
+ * never the underlying SETTINGS!G list itself (that stays unreachable
+ * via google.script.run, per Phase 1H-B.1). Safe to call whether or not
+ * the caller is on the admin list.
+ * @returns {{onAdminList:boolean, mfaEnrolled:boolean, mfaSatisfied:boolean}}
+ */
+function sl_getAdminMfaStatus() {
+  const email = sl_getCurrentUser();
+  const onAdminList = _isOnLegacyAdminList_(email);
+  if (!onAdminList) return { onAdminList: false, mfaEnrolled: false, mfaSatisfied: false };
+
+  const found = _legacyAdminMfaRow_(email);
+  const mfaEnrolled = !!(found.record && found.record[IDENTITY_MFA_COL.STATUS - 1] === 'ENROLLED');
+  const mfaSatisfied = typeof _identity_hasSatisfiedMfa_ === 'function' &&
+    _identity_hasSatisfiedMfa_(_legacyAdminMfaKey_(email));
+  return { onAdminList: true, mfaEnrolled: mfaEnrolled, mfaSatisfied: mfaSatisfied };
 }

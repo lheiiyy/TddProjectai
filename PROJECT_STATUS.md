@@ -1,18 +1,21 @@
 # SVMI — Project Status
 
-Last updated: 2026-09-25, recording **Phase 1H-C Security Fix R1: MFA is
-now an enforced, server-authoritative access requirement for `ACTIVE`
-users**, not enrollment-time proof alone — closing the gap
-`reviews/007-phase-1h-c-implementation.md` itself disclosed. See
-`reviews/008-phase-1h-c-security-fix-r1.md` (this fix) and
-`DECISIONS.md` D-031. Phase 1H-C's broader scope remains as recorded in
-`reviews/006`/`reviews/007` (`DECISIONS.md` D-024–D-030) — registration/
-email-verification, mandatory admin approval, ADMIN/USER-plus-extensible
-roles, permissions, system/region/store scope, native MFA, and a
-separate identity/access audit domain; external IdP selection and
-PostgreSQL cutover remain explicitly deferred. See `PROJECT_MEMORY.md`
-for orientation and `IMPLEMENTATION_LOG.md` for the full phase-by-phase
-history behind this summary.
+Last updated: 2026-09-25, recording **Phase 1H-C Security Fix R2: MFA now
+also applies to the pre-existing `sl_isAdmin()` legacy admin path**, not
+just the new identity/permission surface — closing the dual-
+authorization-path gap `reviews/008-phase-1h-c-security-fix-r1.md`
+itself disclosed as a remaining limitation. See
+`reviews/009-phase-1h-c-security-fix-r2.md` (this fix) and
+`DECISIONS.md` D-032. Security Fix R1 (MFA enforced for the new identity
+surface's `ACTIVE` users, `reviews/008`, `DECISIONS.md` D-031) and Phase
+1H-C's broader scope remain as recorded in `reviews/006`/`reviews/007`
+(`DECISIONS.md` D-024–D-030) — registration/email-verification,
+mandatory admin approval, ADMIN/USER-plus-extensible roles, permissions,
+system/region/store scope, native MFA, and a separate identity/access
+audit domain; external IdP selection and PostgreSQL cutover remain
+explicitly deferred. See `PROJECT_MEMORY.md` for orientation and
+`IMPLEMENTATION_LOG.md` for the full phase-by-phase history behind this
+summary.
 
 ## What is SVMI?
 
@@ -49,15 +52,19 @@ fixed** (see `reviews/005-phase-1h-required-security-remediation.md`) →
 **Phase 1H-C: the registration/approval/RBAC/scope/MFA identity
 foundation implemented** (see `reviews/007-phase-1h-c-implementation.md`)
 → **Phase 1H-C Security Fix R1: MFA enforced server-side as an actual
-access requirement** (see `reviews/008-phase-1h-c-security-fix-r1.md` —
-full detail in "What has been completed" → Security/identity track,
-below). The System Peripherals audit, Phase 1H-A, and Phase 1H-B were
-documentation/audit/architecture-only; **Phase 1H-B.1, Phase 1H-C, and
-this Security Fix R1 are the three application-code changes since Phase
-1G** — Phase 1H-B.1 a scoped pilot-hardening fix, Phase 1H-C new additive
+access requirement for the new identity surface** (see
+`reviews/008-phase-1h-c-security-fix-r1.md`) → **Phase 1H-C Security Fix
+R2: MFA also enforced on the pre-existing `sl_isAdmin()` legacy admin
+path** (see `reviews/009-phase-1h-c-security-fix-r2.md` — full detail in
+"What has been completed" → Security/identity track, below). The System
+Peripherals audit, Phase 1H-A, and Phase 1H-B were documentation/audit/
+architecture-only; **Phase 1H-B.1, Phase 1H-C, Security Fix R1, and
+Security Fix R2 are the four application-code changes since Phase 1G** —
+Phase 1H-B.1 a scoped pilot-hardening fix, Phase 1H-C new additive
 identity infrastructure alongside the unchanged pilot access gate
 (D-025), Security Fix R1 a scoped correction closing a gap Phase 1H-C's
-own review had disclosed.
+own review had disclosed, Security Fix R2 a scoped correction closing a
+gap Security Fix R1's own review had disclosed.
 
 **Documentation track** (also complete, both passes pushed):
 1. **Documentation foundation** (commit `a84074b`) — created the 8 root
@@ -159,8 +166,41 @@ own review had disclosed.
    (`identity.test.js`'s own count grew within the same file; no new
    test file was added this pass).
    Responsive checks re-run against the real portal, all passing (with a
-   disclosed caveat — see that review). See that review for full detail,
-   remaining transitional limitations, and regression results.
+   disclosed caveat — see that review). This pass's own review disclosed,
+   as a known limitation rather than an oversight, that the 45+
+   pre-existing `sl_isAdmin()`-gated call sites remained a second,
+   MFA-independent authorization path — closed by item 6 below.
+6. **Phase 1H-C Security Fix R2 — MFA now applies to the legacy
+   `sl_isAdmin()` path too** (code change;
+   `reviews/009-phase-1h-c-security-fix-r2.md`, `DECISIONS.md` D-032) —
+   `sl_isAdmin()` (`SVMKPI_ACCESS.gs`), the single function every one of
+   the 45+ pre-existing SETTINGS!G-gated call sites across 16 files
+   already calls, now requires BOTH admin-list membership AND a
+   currently satisfied MFA credential. Confirmed by full-codebase
+   inspection to be the ONLY legacy authorization mechanism in this
+   pilot — no second independent admin-check function exists anywhere —
+   so strengthening this one function closed the gap for all 45+ call
+   sites with zero edits to any of them. New self-service
+   `enrollAdminMfa()`/`verifyAdminMfa()` (reusing the same TOTP and
+   `PropertiesService`-backed satisfaction-gate primitives Security Fix
+   R1 built, under a distinct `'LEGACY_ADMIN:<email>'` key namespace, no
+   new sheet added) let a legacy admin complete this requirement WITHOUT
+   needing a record in the new identity system — deliberately NOT
+   unified with that system's own MFA gate, because no bootstrap path
+   exists yet to create its first `ACTIVE`+`ADMIN`+MFA-satisfied user,
+   and unifying them would have risked locking out every existing admin
+   permanently (see `DECISIONS.md` D-032 for the full analysis).
+   `refreshRiskEngine()`'s unattended-daily-trigger bypass is unaffected
+   (it never reaches `sl_isAdmin()` when the system-trigger token
+   matches). `SVMI_PORTAL.html` gained a minimal admin-MFA banner
+   (enroll/verify) so legacy admins have an actual way to satisfy the
+   requirement. 44 new tests (`identity-legacy-admin-mfa.test.js`, a new
+   file) covering all 6 required proof points against 4 representative
+   protected operations spanning 4 different categories (Store
+   configuration, Compliance configuration, Report snapshot admin,
+   System Tools) plus the full existing suite, all passing — **1273
+   assertions across 26 files, 0 failures**. See that review for full
+   detail, remaining transitional limitations, and regression results.
 
 **Database track**: PostgreSQL DEV schema (13 migrations + rollback
 scripts), proven against a local ephemeral instance, including verified
@@ -172,18 +212,21 @@ synthetic data — **158/158 passing** as of this check.
 ## What is currently being worked on
 
 Nothing is mid-implementation. Phase 1G, Phase 1H-A, Phase 1H-B, Phase
-1H-B.1, Phase 1H-C, and Phase 1H-C Security Fix R1 are all complete,
-tested, documented, and pushed. Phase 1H-D/whatever comes next (external
-IdP selection, or further identity-surface work) has not been scoped —
-see "Immediate next task."
+1H-B.1, Phase 1H-C, Phase 1H-C Security Fix R1, and Phase 1H-C Security
+Fix R2 are all complete, tested, documented, and pushed. Phase 1H-D/
+whatever comes next (external IdP selection, or further identity-surface
+work) has not been scoped — see "Immediate next task."
 
 ## What remains unresolved
 
 **Security/identity — the 3 Phase 1H-A Required findings are fixed**
 (Phase 1H-B.1), **the registration/approval/RBAC/scope/MFA foundation is
-implemented** (Phase 1H-C), **and MFA is now an enforced, server-side
-access requirement, not enrollment-time proof alone** (Security Fix R1,
-`reviews/008-phase-1h-c-security-fix-r1.md`). What remains, per that
+implemented** (Phase 1H-C), **MFA is now an enforced, server-side access
+requirement for the new identity surface** (Security Fix R1,
+`reviews/008-phase-1h-c-security-fix-r1.md`), **and that same MFA
+requirement now also applies to the pre-existing `sl_isAdmin()` legacy
+admin path** (Security Fix R2,
+`reviews/009-phase-1h-c-security-fix-r2.md`). What remains, per that
 review's own disclosed limitations and the Recommended/Future/Unknown
 items `reviews/003` §H never asked any of these tasks to fix:
 - The guest password and admin email list remain plaintext in `SETTINGS`
@@ -218,7 +261,17 @@ items `reviews/003` §H never asked any of these tasks to fix:
   in one browser is considered satisfied in a concurrent session on the
   same account. The 12-hour satisfaction window
   (`IDENTITY_MFA_GATE_TTL_MINUTES`) is a tunable policy choice, not
-  independently re-derived from any specific approved number.
+  independently re-derived from any specific approved number. MFA is
+  required to establish/renew authenticated access; it is not equivalent
+  to requiring a fresh TOTP code before every individual operation
+  (clarified by D-032, applies to both MFA paths).
+- **New, disclosed by Security Fix R2 (D-032):** the legacy admin MFA
+  bridge (`enrollAdminMfa()`/`verifyAdminMfa()`) is deliberately separate
+  from the new identity system's own MFA — a legacy admin's MFA standing
+  does not carry over to the new identity surface, and vice versa,
+  exactly mirroring D-026's "two independent systems" decision for
+  authorization itself. Same `PropertiesService`-scoping and 12-hour-TTL
+  caveats as D-031 apply to this bridge too.
 - Everything in `reviews/003`'s Future/Unknown-Verification sections
   (a real, selected Identity Provider; server-side sessions; exact OAuth
   scopes/deployment facts) — unchanged, and explicitly out of scope for
@@ -262,7 +315,9 @@ items `reviews/003` §H never asked any of these tasks to fix:
   scope (`reviews/008` §1).
 - Rewiring the 45+ existing `sl_isAdmin()`-gated call sites onto the new
   Phase 1H-C permission model — the two systems intentionally coexist
-  (D-026); doing so would be unrelated refactoring.
+  (D-026); doing so would be unrelated refactoring. (Security Fix R2 made
+  both paths require MFA — that is not the same as unifying them; role/
+  permission resolution on the two paths remains fully independent.)
 - Moving admin access into `CONFIG_SYSTEM` (D-007).
 - Making Brand/Region/Category admin-configurable (D-013) — deferred
   until after the admin-access gap, given Brand's larger blast radius.
@@ -273,10 +328,11 @@ items `reviews/003` §H never asked any of these tasks to fix:
 
 ## Immediate next task
 
-**Project-owner review of `reviews/008-phase-1h-c-security-fix-r1.md`**
-(and `reviews/007` alongside it) and a decision on what comes next:
-either (a) select an external identity provider and scope the OIDC/SAML
-integration behind the provider-neutral boundary Phase 1H-C built, or
-(b) address one of the still-open System Peripherals items below (an
-Admin Configuration screen for admin access, `reviews/001`/`002`,
-`DECISIONS.md` D-007) first. No application work has begun on either.
+**Project-owner review of `reviews/009-phase-1h-c-security-fix-r2.md`**
+(and `reviews/007`/`reviews/008` alongside it) and a decision on what
+comes next: either (a) select an external identity provider and scope
+the OIDC/SAML integration behind the provider-neutral boundary Phase
+1H-C built, or (b) address one of the still-open System Peripherals items
+below (an Admin Configuration screen for admin access, `reviews/001`/
+`002`, `DECISIONS.md` D-007) first. No application work has begun on
+either.

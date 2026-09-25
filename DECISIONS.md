@@ -535,3 +535,87 @@ is a tunable policy constant, not itself a security boundary — do not
 extend it without a new decision if a shorter/longer window is later
 required. The 45+ pre-existing `sl_isAdmin()`-gated call sites are
 unaffected (D-025/D-026 — separate systems, not rewired here).
+
+## Phase 1H-C Security Fix R2 — MFA now applies to the legacy `sl_isAdmin()` path too
+
+### D-032 — `sl_isAdmin()` requires a satisfied MFA credential; legacy admins get their own MFA bridge, not the new identity system's
+
+**Status:** Settled (Phase 1H-C Security Fix R2)
+**Decision:** `sl_isAdmin()` (`SVMKPI_ACCESS.gs`) — the single function
+every one of the 45+ pre-existing SETTINGS!G-gated call sites already
+calls — now requires BOTH admin-list membership AND a currently
+satisfied MFA credential before returning `true`. The MFA credential is
+established via new, self-service `enrollAdminMfa()`/`verifyAdminMfa()`
+functions, reusing the exact TOTP implementation
+(`SVMKPI_IDENTITY_MFA.gs`) and `PropertiesService`-backed satisfaction
+gate (`SVMKPI_IDENTITY_CORE.gs` §6.5, D-031) Security Fix R1 already
+built, under a distinct key namespace (`'LEGACY_ADMIN:' + email`) and
+reusing the existing `IDENTITY_MFA` sheet (rows keyed by that synthetic
+string, never colliding with a real `USR-<uuid>` identity User ID — no
+new sheet was added). `enrollAdminMfa()`/`verifyAdminMfa()` gate on
+SETTINGS!G list membership alone (`_isOnLegacyAdminList_()`, the
+pre-R2 `sl_isAdmin()` logic extracted unchanged), never on `sl_isAdmin()`
+itself.
+**Rationale — why this was NOT unified with the new identity system's
+MFA gate instead:** the obvious-looking alternative — require a legacy
+admin to also be an `ACTIVE`, MFA-satisfied `IDENTITY_USERS` record — was
+inspected and rejected. `enrollMfa()`/`verifyMfa()` (the new system's own
+self-service MFA functions) both require an `ACTIVE` `IDENTITY_USERS`
+record to even start, and today there is no seed/bootstrap mechanism
+that creates the FIRST such record with the `ADMIN` role: the new
+system's own `approveRegistration()` is gated by
+`_identity_authorizeCurrentUser_(REGISTRATION_APPROVE)`, which itself
+requires an already-`ACTIVE`, already-MFA-satisfied approver holding
+that permission. Making `sl_isAdmin()` depend on that system would have
+created a real circular bootstrap trap — every existing SETTINGS!G admin
+permanently locked out of every one of the 45+ gated functions,
+including the ones needed to fix the problem, with no way back in short
+of manual Sheet surgery. That is the opposite of "the smallest safe
+change necessary." A dedicated, list-membership-gated bridge avoids the
+circularity entirely while still requiring a real, freshly-verified TOTP
+code — the actual approved requirement ("MFA is required for everyone")
+— from every legacy admin, not just new-identity-system users.
+**Approved requirement addressed:** "MFA is required for everyone," not
+only ACTIVE users reached through the new identity/permission surface —
+closes the dual-authorization-path gap `reviews/008`
+(Security Fix R1) left open, in which an admin could satisfy
+`sl_isAdmin()` with no MFA at all.
+**MFA satisfaction TTL policy (clarifying D-031 for both paths):** MFA is
+required to ESTABLISH or RENEW authenticated (admin or identity)
+access; a satisfied credential remains valid for the configured TTL
+(`IDENTITY_MFA_GATE_TTL_MINUTES`, currently 12 hours — a tunable
+security-policy value, not a per-approved-requirement number); it is NOT
+equivalent to, and this decision does not require, a fresh TOTP code
+before every individual operation. The 12-hour default was not changed
+by this fix and remains open to a future decision if evidence warrants a
+different value.
+**Impact:** Every one of the 45+ `sl_isAdmin()`-gated functions across
+16 files (`SVMKPI_CONFIG.gs`, `SVMKPI_STORE_CONFIG.gs`,
+`SVMKPI_COMPLIANCE_CONFIG.gs`, `SVMKPI_RISK_CONFIG.gs`,
+`SVMKPI_KPI_CONFIG.gs`, `SVMKPI_PURPOSE_CONFIG.gs`,
+`SVMKPI_REPORT_SNAPSHOT.gs`, `SVMKPI_ADMIN.gs`'s `portal_*` wrappers and
+Sheets-menu handlers, `SVMKPI_SETTINGS_MIGRATION.gs`,
+`SVMKPI_VISITOR_CONFIG.gs`, `INPUT_PORTAL.gs`, plus the 5 Phase 1H-B.1
+engine-level re-checks in `SVMKPI_LAYOUT.gs`/`SVMKPI_KPI_REBUILD.gs`/
+`SVMKPI_MASTER_REBUILD.gs`/`SVMKPI_STORE_MASTER.gs`/`SVMKPI_RISK.gs`) is
+now MFA-gated with zero edits to any of those call sites — confirmed by
+full-codebase inspection to be the ONLY legacy authorization mechanism in
+this pilot (no second independent admin-check function exists anywhere).
+`refreshRiskEngine()`'s unattended-daily-trigger `__systemToken` bypass
+(Phase 1H-B.1 Required finding 2, `reviews/005-...md`) is unaffected — it
+never reaches the `sl_isAdmin()` call at all when the system-trigger
+token matches, exactly as before.
+The MFA check inside `sl_isAdmin()` is typeof-guarded
+(`typeof _identity_hasSatisfiedMfa_ === 'function'`) so it degrades to
+the pre-R2 admin-list-only check in the rare case the identity subsystem
+isn't loaded (a test-sandbox-only scenario in this codebase — in the
+real deployed app all `.gs` files share one project and this function is
+always present); this mirrors the identical, already-established
+`typeof sl_isAdmin === 'function'` guard pattern used elsewhere in this
+codebase for the same reason. No existing `sl_isAdmin()`-gated behavior,
+Admin-list logic, or Phase 1H-B.1 protection was removed or weakened —
+`_isOnLegacyAdminList_()` is the exact pre-R2 check, unchanged.
+`SVMI_PORTAL.html` gained a minimal admin-MFA banner (enroll/verify,
+reusing the Account tab's visual pattern) so a legacy admin actually has
+a way to complete this requirement — without it, R2 would have locked
+every admin out with no interactive path back in.

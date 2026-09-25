@@ -7,12 +7,17 @@ demo; dry-run tooling is pure-function/synthetic-data only).
 
 ## Apps Script track — `SVMI_Project/tests/`
 
-**Verified this session: 25 files, 1229 assertions, 0 failures.** Phase
+**Verified this session: 26 files, 1273 assertions, 0 failures.** Phase
 1H-C Security Fix R1 grew `identity.test.js` from 62 to 100 assertions
 (38 new, covering the 10 required MFA-enforcement proof points — see
-`reviews/008-phase-1h-c-security-fix-r1.md`); the other 24 files/1129
-assertions — including Phase 1H-B.1's `security-remediation.test.js` — are
-the unchanged pre-existing baseline, re-run as regression.
+`reviews/008-phase-1h-c-security-fix-r1.md`); Phase 1H-C Security Fix R2
+added a new file, `identity-legacy-admin-mfa.test.js` (44 assertions,
+covering the 6 required proof points that MFA now also gates the
+pre-existing `sl_isAdmin()` legacy admin path — see
+`reviews/009-phase-1h-c-security-fix-r2.md`); the other 24 files/1129
+assertions — including Phase 1H-B.1's `security-remediation.test.js`,
+deliberately left unmodified by both fixes — are the unchanged
+pre-existing baseline, re-run as regression.
 
 Per-file counts below are as documented in `SVMI_Project/DEPLOY.md`'s own
 "Checks before you push" section (attributed to that source, not
@@ -29,6 +34,7 @@ touched or added in Phase 1G are from today's direct run.
 | `date-parsing.test.js` | `_parseDateCell()` + duplicate-check integration | — |
 | `duplicate-prevention.test.js` | Exact-duplicate-visit blocking under concurrent submission | — |
 | `identity.test.js` | **Phase 1H-C** — registration/email-OTP verification (incl. attempt lockout), approval/rejection (permission-gated, fails closed, no self-escalation), account-lifecycle transition validity, role/direct-permission/scope assignment, suspend/reactivate/disable, the external-disablement offboarding hook, MFA TOTP enrollment/verification (real RFC 6238 round-trip + clock-drift tolerance), confirms no secret value ever appears in `IDENTITY_AUDIT`. **Phase 1H-C Security Fix R1** — server-authoritative MFA enforcement: ACTIVE-without-MFA rejected, ACTIVE-with-MFA succeeds, invalid/expired/replayed TOTP codes rejected, spoofed client-supplied MFA/role/permission/status state has no effect, existing ADMIN permission checks intact, TOTP secret never returned to client or written to `IDENTITY_AUDIT` | 100 (grew from 62 this session) |
+| `identity-legacy-admin-mfa.test.js` | **Phase 1H-C Security Fix R2** — MFA now also gates the pre-existing `sl_isAdmin()` legacy admin path (`SVMKPI_ACCESS.gs`), proven against 4 representative protected operations across 4 categories (Store/Compliance configuration, Report snapshot admin, System Tools): non-MFA-satisfied admin rejected, MFA-satisfied admin passes the gate, invalid/expired/replayed TOTP codes rejected, forged client-supplied MFA/admin state has no effect, non-admin-listed users still rejected + Phase 1H-B.1 findings intact, admin TOTP secret never returned to client or written to `IDENTITY_AUDIT`, static confirmation no second legacy admin-check mechanism exists anywhere, the unattended daily-trigger bypass is unaffected, graceful no-throw degradation when the identity subsystem isn't loaded | 44 (new file, added this session) |
 | `kpi-purpose-config.test.js` | Versioned KPI config (infra-only) + deliberate Purpose KPI/risk config, no inheritance | 44 |
 | `kpi-roster-history.test.js` | KPI 2026 roster-removal history retention | — |
 | `purpose-generic-reporting.test.js` | No source file re-adds a hardcoded CAPAR-style purpose branch | — |
@@ -86,6 +92,9 @@ environment.
   sub-tab at phone/tablet/desktop widths) were run ad hoc during Phase 1G's
   and Phase 1H-C's own work but are not part of the committed, repeatable
   test suite — same disclosed limitation, unchanged by this phase.
+  Security Fix R2's new admin-MFA banner was verified by direct code
+  reading and `new Function()` syntax extraction only, not a live
+  screenshot — same disclosed limitation.
 - `.gs` syntax validity (`new Function()` extraction) and the portal's
   `<script>` block are checked manually before each push, per
   `DEPLOY.md`'s "Checks before you push" — not wired into an automated

@@ -535,6 +535,16 @@ textarea.fi{padding-right:28px}
   <div class="user-wrap" id="userWrap" hidden>👤 <span id="userEmail"></span></div>
 </div>
 
+<!-- Security Fix R2 (DECISIONS.md D-032): shown only to a Google account
+     on the SETTINGS!G admin list whose MFA is not yet satisfied — the
+     ONLY interactive way such an admin can complete enrollAdminMfa()/
+     verifyAdminMfa(), without which sl_isAdmin() would lock them out of
+     every admin-only function with no path back in. Hidden for everyone
+     else (including non-admins, for whom sl_getAdminMfaStatus() itself
+     reveals nothing about the underlying admin list). -->
+<div class="admin-mfa-banner" id="adminMfaBanner" hidden
+     style="max-width:480px;margin:10px auto 0;padding:12px 14px;background:var(--orange-l);border-radius:10px"></div>
+
 <!-- Tab Bar: a burger button showing the current section; opens the
      nav drawer below rather than laying every tab out side by side -->
 <div class="tab-bar">
@@ -1107,6 +1117,66 @@ function loadAdminStatus() {
     .withSuccessHandler(applyAdminGating)
     .withFailureHandler(function(){ applyAdminGating(false); })   // fail closed
     .sl_isAdmin();
+  loadAdminMfaBanner();
+}
+
+// Security Fix R2 (DECISIONS.md D-032): sl_isAdmin() alone no longer
+// distinguishes "not an admin" from "admin, MFA not yet satisfied" — both
+// return false, by design (nothing here can reveal SETTINGS!G list
+// membership to a non-admin). This separate, finer-grained call is what
+// lets the banner tell those two cases apart for the CALLER's own
+// account only.
+function loadAdminMfaBanner() {
+  google.script.run
+    .withSuccessHandler(renderAdminMfaBanner)
+    .withFailureHandler(function(){})   // leave the banner hidden on error
+    .sl_getAdminMfaStatus();
+}
+
+function renderAdminMfaBanner(status) {
+  var banner = document.getElementById('adminMfaBanner');
+  if (!status || !status.onAdminList || status.mfaSatisfied) { banner.hidden = true; return; }
+  banner.hidden = false;
+  if (!status.mfaEnrolled) {
+    banner.innerHTML = '<div class="risk-badge warn">⚠ Admin MFA required — not yet enrolled</div>'
+      + '<div class="hint" style="margin-top:6px">Your account is on the admin list, but System Tools and the Admin tab stay locked until you enroll multi-factor authentication.</div>'
+      + '<button class="btn-gold" style="margin-top:8px" onclick="adminMfaEnroll()">🔐 Enroll Admin MFA</button>';
+    return;
+  }
+  banner.innerHTML = '<div class="risk-badge warn">⚠ Admin MFA verification required to continue</div>'
+    + '<div class="hint" style="margin-top:6px">Enter the current code from your authenticator app to unlock System Tools and the Admin tab.</div>'
+    + '<div class="fg"><div class="fg-head"><label>6-digit code</label></div>'
+    + '<input type="text" class="fi" id="adminMfaVerifyCode" placeholder="000000" maxlength="6"></div>'
+    + '<button class="btn-primary" id="adminMfaVerifyBtn" onclick="adminMfaVerifySubmit()">Verify</button>'
+    + '<div class="status-line" id="adminMfaVerifyStatus"></div>'
+    + '<button class="btn-navy" style="margin-top:8px" onclick="adminMfaEnroll()">↻ Lost access? Reset admin MFA</button>';
+}
+
+function adminMfaEnroll() {
+  callServer('enrollAdminMfa', [], function(result) {
+    if (!result.success) { document.getElementById('adminMfaBanner').innerHTML = '<div class="hint">' + esc(result.message) + '</div>'; return; }
+    var banner = document.getElementById('adminMfaBanner');
+    banner.innerHTML = '<div class="hint">Scan this into your authenticator app, or enter the secret manually:</div>'
+      + '<div class="status-line" style="word-break:break-all">' + esc(result.secret) + '</div>'
+      + '<div class="fg"><div class="fg-head"><label>Enter the 6-digit code from your app</label></div>'
+      + '<input type="text" class="fi" id="adminMfaVerifyCode" placeholder="000000" maxlength="6"></div>'
+      + '<button class="btn-primary" id="adminMfaVerifyBtn" onclick="adminMfaVerifySubmit()">Confirm</button>'
+      + '<div class="status-line" id="adminMfaVerifyStatus"></div>';
+  }, function(msg) { document.getElementById('adminMfaBanner').innerHTML = '<div class="hint">' + esc(msg) + '</div>'; });
+}
+
+function adminMfaVerifySubmit() {
+  var btn = document.getElementById('adminMfaVerifyBtn');
+  withButtonLoading(btn, 'Verifying…', function(restore) {
+    var code = document.getElementById('adminMfaVerifyCode').value;
+    callServer('verifyAdminMfa', [code], function(result) {
+      restore();
+      document.getElementById('adminMfaVerifyStatus').textContent = result.message;
+      if (result.success) {
+        setTimeout(function() { loadAdminStatus(); }, 1000);
+      }
+    }, function(msg) { restore(); document.getElementById('adminMfaVerifyStatus').textContent = msg; });
+  });
 }
 
 // Shows who's actually signed in — confirms the Web App is running as the

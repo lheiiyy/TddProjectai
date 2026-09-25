@@ -175,6 +175,17 @@ shortcut.
   prompt markup was verified by direct code reading, not a live
   screenshot.
 
+**⚠ PARTIALLY SUPERSEDED — see `reviews/009-phase-1h-c-security-fix-r2.md`.**
+§6's disclosed limitation "the 45+ pre-existing `sl_isAdmin()`-gated call
+sites do not require MFA — that system was explicitly out of scope" was
+then flagged as leaving the approved "MFA is required for everyone"
+requirement not globally enforced (a second, MFA-independent
+authorization path). `reviews/009` records the fix: `sl_isAdmin()` itself
+now also requires a satisfied MFA credential, via a dedicated legacy-
+admin MFA bridge. Everything else in this review is preserved unedited
+as the historical record of what Security Fix R1 actually delivered —
+read it alongside `reviews/009`, not as a replacement for it.
+
 ## 6. Remaining transitional limitations (unchanged or newly disclosed)
 
 - **Still transitional (unchanged, per explicit instruction not to
