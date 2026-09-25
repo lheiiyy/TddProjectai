@@ -339,9 +339,8 @@
       <div class="row2">
         <div>
           <label>Initial Uniform Size</label>
-          <select id="uniformSize">
-            <option value="">— none yet —</option>
-          </select>
+          <input type="text" id="uniformSize" list="uniformSizeList" placeholder="— none yet —">
+          <datalist id="uniformSizeList"></datalist>
         </div>
         <div>
           <label>Qty</label>
@@ -389,19 +388,21 @@
       <small class="hint">PROBATIONARY, EXTENDED, and CERTIFIED trainees are listed — CERTIFIED so they can still be moved to PROMOTION later.</small>
 
       <label>Trainee *</label>
-      <select id="key" onchange="onTraineeChange()"><option value="">Loading…</option></select>
+      <input type="text" id="key" list="keyList" placeholder="Type a name to search…" oninput="onTraineeChange()">
+      <datalist id="keyList"></datalist>
 
       <div class="card" id="traineeCard" style="display:none;"></div>
 
       <label>New Status *</label>
-      <select id="newStatus" onchange="onStatusChange()">
+      <input type="text" id="newStatus" list="newStatusList" placeholder="Type or pick a status…" value="CERTIFIED" oninput="onStatusChange()">
+      <datalist id="newStatusList">
         <option value="CERTIFIED">CERTIFIED</option>
         <option value="EXTENDED">EXTENDED (push deadline)</option>
         <option value="FAILED">FAILED</option>
         <option value="QUIT">QUIT</option>
         <option value="DISQUALIFIED">DISQUALIFIED</option>
         <option value="PROMOTION">PROMOTION</option>
-      </select>
+      </datalist>
 
       <div id="deadlineRow" style="display:none;">
         <label>New Deadline (leave blank to auto +2 months from current deadline)</label>
@@ -426,14 +427,14 @@
       <div class="avgPreview" id="updateAvgPreview"></div>
 
       <label>Final Status Note</label>
-      <select id="finalStatus">
-        <option value="">— none —</option>
+      <input type="text" id="finalStatus" list="finalStatusList" placeholder="— none —">
+      <datalist id="finalStatusList">
         <option value="SIGNED">SIGNED (appointment letter)</option>
         <option value="AGENCY">AGENCY</option>
         <option value="FOR REPORTING">FOR REPORTING</option>
         <option value="ON-GOING PROMOTION">ON-GOING PROMOTION</option>
         <option value="NOT RETURNED">NOT RETURNED</option>
-      </select>
+      </datalist>
 
       <button id="updateSubmitBtn" onclick="submitUpdate()">Save Update</button>
     </div>
@@ -443,16 +444,16 @@
       <small class="hint">Log every piece handed out — to anyone, any status, any time. Kept in its own UNIFORM_LOG tab.</small>
 
       <label>Trainee *</label>
-      <select id="uf_key" onchange="onUniformTraineeChange()"><option value="">Loading…</option></select>
+      <input type="text" id="uf_key" list="ufKeyList" placeholder="Type a name to search…" oninput="onUniformTraineeChange()">
+      <datalist id="ufKeyList"></datalist>
 
       <div id="uf_history"></div>
 
       <div class="row2">
         <div>
           <label>Size *</label>
-          <select id="uf_size">
-            <option value="">— select —</option>
-          </select>
+          <input type="text" id="uf_size" list="uf_sizeList" placeholder="— select —">
+          <datalist id="uf_sizeList"></datalist>
         </div>
         <div>
           <label>Qty</label>
@@ -478,7 +479,8 @@
       <small class="hint">Directly edit an existing record — for fixing mistakes only (typo'd name/store, wrong grade, wrong date). This overwrites the row as-is; it skips the checks New Entry and Certify normally apply.</small>
 
       <label>Record *</label>
-      <select id="ad_key" onchange="onAdminTraineeChange()"><option value="">Loading…</option></select>
+      <input type="text" id="ad_key" list="adKeyList" placeholder="Type a name to search…" oninput="onAdminTraineeChange()">
+      <datalist id="adKeyList"></datalist>
 
       <div id="ad_fields" style="display:none;">
         <label>Date of Entry *</label>
@@ -510,7 +512,8 @@
         </div>
 
         <label>Status *</label>
-        <select id="ad_status"></select>
+        <input type="text" id="ad_status" list="ad_statusList" placeholder="Type or pick a status…">
+        <datalist id="ad_statusList"></datalist>
 
         <label>Entry By</label>
         <input type="text" id="ad_entryBy" list="trainerList">
@@ -578,14 +581,14 @@
         <input type="number" inputmode="decimal" id="ad_average" min="0" max="100">
 
         <label>Final Status Note</label>
-        <select id="ad_finalStatus">
-          <option value="">— none —</option>
+        <input type="text" id="ad_finalStatus" list="ad_finalStatusList" placeholder="— none —">
+        <datalist id="ad_finalStatusList">
           <option value="SIGNED">SIGNED (appointment letter)</option>
           <option value="AGENCY">AGENCY</option>
           <option value="FOR REPORTING">FOR REPORTING</option>
           <option value="ON-GOING PROMOTION">ON-GOING PROMOTION</option>
           <option value="NOT RETURNED">NOT RETURNED</option>
-        </select>
+        </datalist>
 
         <button id="adminSubmitBtn" onclick="submitAdminEdit()">Save Changes</button>
       </div>
@@ -599,9 +602,8 @@
       <div class="row2">
         <div>
           <label>Size *</label>
-          <select id="dv_size">
-            <option value="">— select —</option>
-          </select>
+          <input type="text" id="dv_size" list="dv_sizeList" placeholder="— select —">
+          <datalist id="dv_sizeList"></datalist>
         </div>
         <div>
           <label>Qty Received *</label>
@@ -730,7 +732,7 @@
     function showApp() {
       document.getElementById('pinGate').style.display = 'none';
       document.getElementById('app').style.display = 'block';
-      fillSelect('ad_status', STATUS_VALUES_CLIENT, '— select —');
+      fillDatalist('ad_statusList', STATUS_VALUES_CLIENT);
       loadFormData();
     }
 
@@ -847,34 +849,34 @@
       });
     }
 
-    function fillSelect(id, items, placeholder) {
-      var sel = document.getElementById(id);
-      sel.innerHTML = '<option value="">' + placeholder + '</option>' +
-        items.map(function(s) { return '<option value="' + s + '">' + s + '</option>'; }).join('');
+    // Trainee pickers are typeable inputs backed by a datalist, so what the
+    // input actually holds is the person's LABEL text, not their composite
+    // key. keyMaps[inputId] remembers label -> key for each picker so
+    // resolveKey() can turn what was typed/picked back into the key the
+    // server-side functions need.
+    var keyMaps = {};
+
+    function populateKeyDatalist(inputId, datalistId, list) {
+      var map = {};
+      var dl = document.getElementById(datalistId);
+      dl.innerHTML = '';
+      list.forEach(function(item) {
+        map[item.label] = item.key;
+        var opt = document.createElement('option');
+        opt.value = item.label;
+        dl.appendChild(opt);
+      });
+      keyMaps[inputId] = map;
     }
 
-    function populateSelectOptions(id, list, emptyLabel) {
-      var sel = document.getElementById(id);
-      sel.innerHTML = '';
-      if (list.length === 0) {
-        sel.innerHTML = '<option value="">' + emptyLabel + '</option>';
-        return;
-      }
-      var placeholder = document.createElement('option');
-      placeholder.value = '';
-      placeholder.textContent = '— select —';
-      sel.appendChild(placeholder);
-      list.forEach(function(item) {
-        var opt = document.createElement('option');
-        opt.value = item.key;
-        opt.textContent = item.label;
-        sel.appendChild(opt);
-      });
+    function resolveKey(inputId) {
+      var map = keyMaps[inputId] || {};
+      return map[val(inputId)] || '';
     }
 
     function populateOpenList(list) {
       openList = list;
-      populateSelectOptions('key', list, 'No open PROBATIONARY/EXTENDED records');
+      populateKeyDatalist('key', 'keyList', list);
     }
 
     function loadFormData() {
@@ -886,12 +888,12 @@
         fillDatalist('trainerList2', data.trainers);
         fillDatalist('trainerList3', data.trainers);
         fillDatalist('trainerList4', data.trainers);
-        fillSelect('uniformSize', data.uniformSizes, '— none yet —');
-        fillSelect('uf_size', data.uniformSizes, '— select —');
-        fillSelect('dv_size', data.uniformSizes, '— select —');
+        fillDatalist('uniformSizeList', data.uniformSizes);
+        fillDatalist('uf_sizeList', data.uniformSizes);
+        fillDatalist('dv_sizeList', data.uniformSizes);
         populateOpenList(data.openList);
-        populateSelectOptions('uf_key', data.allList, 'No trainees yet');
-        populateSelectOptions('ad_key', data.allList, 'No trainees yet');
+        populateKeyDatalist('uf_key', 'ufKeyList', data.allList);
+        populateKeyDatalist('ad_key', 'adKeyList', data.allList);
         renderStockTable(data.inventorySummary);
         updateOverdueNavBadge(data.overdueCount);
       }).withFailureHandler(function(err) {
@@ -1214,18 +1216,20 @@
     function openUpdateFor(key) {
       var t = monitoringData.filter(function(r) { return r.key === key; })[0];
       if (!t) return;
-      var sel = document.getElementById('key');
+      var label = t.fullName + ' — ' + t.motherStore + ' (' + t.status + ')';
       // Certify's picker only lists PROBATIONARY/EXTENDED/CERTIFIED by
       // default — add this exact person if their current status put them
       // outside that list, so tapping anyone found in Monitoring always works.
-      var exists = Array.prototype.some.call(sel.options, function(o) { return o.value === key; });
+      keyMaps.key = keyMaps.key || {};
+      keyMaps.key[label] = key;
+      var dl = document.getElementById('keyList');
+      var exists = Array.prototype.some.call(dl.options, function(o) { return o.value === label; });
       if (!exists) {
         var opt = document.createElement('option');
-        opt.value = key;
-        opt.textContent = t.fullName + ' — ' + t.motherStore + ' (' + t.status + ')';
-        sel.appendChild(opt);
+        opt.value = label;
+        dl.appendChild(opt);
       }
-      sel.value = key;
+      document.getElementById('key').value = label;
       switchMode('update');
       closeModeMenu();
       onTraineeChange();
@@ -1233,7 +1237,7 @@
 
     // ---------- trainee summary card ----------
     function onTraineeChange() {
-      var key = val('key');
+      var key = resolveKey('key');
       var card = document.getElementById('traineeCard');
       if (!key) { card.style.display = 'none'; return; }
       google.script.run.withSuccessHandler(function(d) {
@@ -1297,7 +1301,7 @@
           // refresh the trainee lists in the background so Certify/Uniform stay current
           google.script.run.withSuccessHandler(function(data){
             populateOpenList(data.openList);
-            populateSelectOptions('uf_key', data.allList, 'No trainees yet');
+            populateKeyDatalist('uf_key', 'ufKeyList', data.allList);
           }).getFormBootstrapData();
         })
         .withFailureHandler(function(err) {
@@ -1316,7 +1320,7 @@
       msg.textContent = ''; msg.className = '';
 
       var form = {
-        key: val('key'),
+        key: resolveKey('key'),
         newStatus: val('newStatus'),
         deadlineOverride: val('deadlineOverride'),
         certBy: val('certBy'),
@@ -1343,7 +1347,7 @@
           document.getElementById('traineeCard').style.display = 'none';
           google.script.run.withSuccessHandler(function(data) {
             populateOpenList(data.openList);
-            populateSelectOptions('uf_key', data.allList, 'No trainees yet');
+            populateKeyDatalist('uf_key', 'ufKeyList', data.allList);
           }).getFormBootstrapData();
         })
         .withFailureHandler(function(err) {
@@ -1357,7 +1361,7 @@
 
     // ---------- Admin: load a record into the edit form ----------
     function onAdminTraineeChange() {
-      var key = val('ad_key');
+      var key = resolveKey('ad_key');
       var fields = document.getElementById('ad_fields');
       if (!key) { fields.style.display = 'none'; return; }
       google.script.run.withSuccessHandler(function(d) {
@@ -1398,7 +1402,7 @@
       msg.textContent = ''; msg.className = '';
 
       var form = {
-        key: val('ad_key'),
+        key: resolveKey('ad_key'),
         entryDate: val('ad_entryDate'),
         batch: val('ad_batch'),
         motherStore: val('ad_motherStore'),
@@ -1443,8 +1447,8 @@
           document.getElementById('ad_key').value = '';
           google.script.run.withSuccessHandler(function(data) {
             populateOpenList(data.openList);
-            populateSelectOptions('uf_key', data.allList, 'No trainees yet');
-            populateSelectOptions('ad_key', data.allList, 'No trainees yet');
+            populateKeyDatalist('uf_key', 'ufKeyList', data.allList);
+            populateKeyDatalist('ad_key', 'adKeyList', data.allList);
           }).getFormBootstrapData();
         })
         .withFailureHandler(function(err) {
@@ -1458,7 +1462,7 @@
 
     // ---------- uniform history card ----------
     function onUniformTraineeChange() {
-      var key = val('uf_key');
+      var key = resolveKey('uf_key');
       var box = document.getElementById('uf_history');
       if (!key) { box.innerHTML = ''; return; }
       box.innerHTML = '<div class="histbox"><div class="histtitle">Loading history…</div></div>';
@@ -1483,7 +1487,7 @@
       msg.textContent = ''; msg.className = '';
 
       var form = {
-        key: val('uf_key'),
+        key: resolveKey('uf_key'),
         size: val('uf_size'),
         quantity: val('uf_qty'),
         drNumber: val('uf_dr'),
