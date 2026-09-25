@@ -14,6 +14,12 @@
 // mechanism keeps gating the existing pilot surface unchanged (D-025).
 // This file's sl_isAdmin()-equivalent is _identity_hasPermission_(),
 // used only by the NEW registration/approval/role/scope/MFA surface.
+//
+// Security Fix R1 (this pass): _identity_currentUserHasPermission_() —
+// the single choke point every protected identity function already
+// calls — now ALSO requires a satisfied, unexpired MFA credential (see
+// SECTION 6 below and DECISIONS.md D-031). No protected function needed
+// its own edit to pick this up.
 // ============================================================
 
 
@@ -114,7 +120,7 @@ const IDENTITY_HEADERS = {
   USER_ROLES:        ['User ID', 'Role ID', 'Granted At', 'Granted By'],
   USER_PERMISSIONS:  ['User ID', 'Permission Key', 'Granted At', 'Granted By'],
   USER_SCOPE:        ['User ID', 'Scope Type', 'Scope Value', 'Granted At', 'Granted By'],
-  MFA:               ['User ID', 'Status', 'Method', 'Secret', 'Enrolled At', 'Last Verified At'],
+  MFA:               ['User ID', 'Status', 'Method', 'Secret', 'Enrolled At', 'Last Verified At', 'Last Used Step'],
   AUDIT:             ['Audit ID', 'Timestamp', 'Event Type', 'Actor User ID', 'Target User ID', 'Details'],
 };
 
@@ -363,11 +369,89 @@ function _identity_hasPermission_(userId, permissionKey) {
  * The only permission check any exposed identity-admin function should
  * use — always resolves the ACTOR from the server-verified Google
  * identity (D-025), never from a client-supplied "actorUserId" argument.
+ * Security Fix R1: also requires a satisfied MFA credential (D-031) — an
+ * ACTIVE, permitted user who has not completed MFA is still refused.
+ * Thin wrapper over _identity_authorizeCurrentUser_() for boolean-only
+ * call sites; use that function directly where the specific denial
+ * reason (no identity / not ACTIVE / MFA required / lacks permission)
+ * needs to reach the caller.
  */
 function _identity_currentUserHasPermission_(permissionKey) {
+  return _identity_authorizeCurrentUser_(permissionKey).authorized;
+}
+
+/**
+ * _identity_authorizeCurrentUser_(permissionKey)
+ * @returns {{authorized:boolean, reason?:string}} reason is set only
+ *   when authorized is false, and is safe to surface to the caller (it
+ *   never reveals another user's data or a secret value).
+ */
+function _identity_authorizeCurrentUser_(permissionKey) {
   const current = _identity_currentUserRecord_();
-  if (!current || current.accountStatus !== IDENTITY_STATUS.ACTIVE) return false;
-  return _identity_hasPermission_(current.userId, permissionKey);
+  if (!current) return { authorized: false, reason: 'No SVMI identity linked to this Google account.' };
+  if (current.accountStatus !== IDENTITY_STATUS.ACTIVE) return { authorized: false, reason: 'Account is not ACTIVE.' };
+  if (!_identity_hasSatisfiedMfa_(current.userId)) return { authorized: false, reason: 'MFA verification required.' };
+  if (!_identity_hasPermission_(current.userId, permissionKey)) return { authorized: false, reason: 'Permission required: ' + permissionKey + '.' };
+  return { authorized: true };
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 6.5: MFA SATISFACTION GATE (Security Fix R1, D-031)
+// ------------------------------------------------------------
+// "Only after successful MFA may the user establish an authenticated
+// SVMI access state" — this section is that gate. It is NOT a general
+// session: it carries exactly one fact (this Google identity recently
+// completed a real TOTP check), has a bounded expiry, and is re-checked
+// on every call; no role/permission/identity data is ever cached here.
+//
+// Backed by PropertiesService.getUserProperties() — a server-side store
+// Apps Script itself scopes to the executing Google identity, the SAME
+// trust primitive Session.getActiveUser() already provides everywhere
+// else in this codebase. No client-side code can read or write it: it
+// is not a cookie, not a token sent to the browser, not reachable via
+// any exposed RPC other than verifyMfa()'s own success path.
+// ═══════════════════════════════════════════════════════════════
+
+// How long a completed MFA check is honored before re-verification is
+// required again. A tunable policy constant, not a security boundary in
+// itself — the boundary is "was a real TOTP code verified," this only
+// bounds how long that fact is trusted afterward.
+const IDENTITY_MFA_GATE_TTL_MINUTES = 720; // 12 hours
+
+function _identity_mfaGatePropertyKey_(userId) {
+  return 'SVMI_MFA_SATISFIED_UNTIL_' + userId;
+}
+
+function _identity_markMfaSatisfied_(userId) {
+  const until = Date.now() + IDENTITY_MFA_GATE_TTL_MINUTES * 60 * 1000;
+  PropertiesService.getUserProperties().setProperty(_identity_mfaGatePropertyKey_(userId), String(until));
+}
+
+/**
+ * _identity_hasSatisfiedMfa_(userId)
+ * Fails closed: missing, malformed, or expired -> false. This is the
+ * ONLY function any authorization check should call to answer "has this
+ * user completed MFA recently enough" — never re-derive it from
+ * IDENTITY_MFA.status alone (ENROLLED means "has a working secret", not
+ * "proved it again this cycle").
+ */
+function _identity_hasSatisfiedMfa_(userId) {
+  const raw = PropertiesService.getUserProperties().getProperty(_identity_mfaGatePropertyKey_(userId));
+  if (!raw) return false;
+  const until = Number(raw);
+  if (!until || Date.now() > until) return false;
+  return true;
+}
+
+/**
+ * _identity_clearMfaSatisfaction_(userId)
+ * Called whenever the MFA secret changes (fresh enroll or reset) so a
+ * stale satisfaction from the OLD secret can never carry over to the
+ * new one.
+ */
+function _identity_clearMfaSatisfaction_(userId) {
+  PropertiesService.getUserProperties().deleteProperty(_identity_mfaGatePropertyKey_(userId));
 }
 
 
@@ -395,9 +479,8 @@ function _identity_writeAudit_(eventType, actorUserId, targetUserId, details) {
  * @returns {{success:boolean, entries?:object[], message?:string}}
  */
 function identityAudit_list() {
-  if (!_identity_currentUserHasPermission_(IDENTITY_PERMISSION.IDENTITY_AUDIT_VIEW)) {
-    return { success: false, message: 'Permission required: IDENTITY_AUDIT_VIEW.' };
-  }
+  const auth = _identity_authorizeCurrentUser_(IDENTITY_PERMISSION.IDENTITY_AUDIT_VIEW);
+  if (!auth.authorized) return { success: false, message: auth.reason };
   const sheet = _identity_ensureSheet_(IDENTITY_SHEET.AUDIT, IDENTITY_HEADERS.AUDIT);
   const rows = _identity_readAll_(sheet);
   const entries = rows.map(r => ({

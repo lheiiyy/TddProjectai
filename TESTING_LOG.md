@@ -7,10 +7,12 @@ demo; dry-run tooling is pure-function/synthetic-data only).
 
 ## Apps Script track — `SVMI_Project/tests/`
 
-**Verified this session: 25 files, 1191 assertions, 0 failures** (Phase
-1H-C added `identity.test.js`, 62 assertions; the other 24 files/1129
+**Verified this session: 25 files, 1229 assertions, 0 failures.** Phase
+1H-C Security Fix R1 grew `identity.test.js` from 62 to 100 assertions
+(38 new, covering the 10 required MFA-enforcement proof points — see
+`reviews/008-phase-1h-c-security-fix-r1.md`); the other 24 files/1129
 assertions — including Phase 1H-B.1's `security-remediation.test.js` — are
-the unchanged pre-existing baseline, re-run as regression).
+the unchanged pre-existing baseline, re-run as regression.
 
 Per-file counts below are as documented in `SVMI_Project/DEPLOY.md`'s own
 "Checks before you push" section (attributed to that source, not
@@ -26,7 +28,7 @@ touched or added in Phase 1G are from today's direct run.
 | `config-service.test.js` | `SVMKPI_CONFIG.gs` end-to-end: validation, effective-dating, versioning, audit, security, backdating, rollback, portability | 71 |
 | `date-parsing.test.js` | `_parseDateCell()` + duplicate-check integration | — |
 | `duplicate-prevention.test.js` | Exact-duplicate-visit blocking under concurrent submission | — |
-| `identity.test.js` | **Phase 1H-C** — registration/email-OTP verification (incl. attempt lockout), approval/rejection (permission-gated, fails closed, no self-escalation), account-lifecycle transition validity, role/direct-permission/scope assignment, suspend/reactivate/disable, the external-disablement offboarding hook, MFA TOTP enrollment/verification (real RFC 6238 round-trip + clock-drift tolerance), and confirms no secret value ever appears in `IDENTITY_AUDIT` | 62 (added this session) |
+| `identity.test.js` | **Phase 1H-C** — registration/email-OTP verification (incl. attempt lockout), approval/rejection (permission-gated, fails closed, no self-escalation), account-lifecycle transition validity, role/direct-permission/scope assignment, suspend/reactivate/disable, the external-disablement offboarding hook, MFA TOTP enrollment/verification (real RFC 6238 round-trip + clock-drift tolerance), confirms no secret value ever appears in `IDENTITY_AUDIT`. **Phase 1H-C Security Fix R1** — server-authoritative MFA enforcement: ACTIVE-without-MFA rejected, ACTIVE-with-MFA succeeds, invalid/expired/replayed TOTP codes rejected, spoofed client-supplied MFA/role/permission/status state has no effect, existing ADMIN permission checks intact, TOTP secret never returned to client or written to `IDENTITY_AUDIT` | 100 (grew from 62 this session) |
 | `kpi-purpose-config.test.js` | Versioned KPI config (infra-only) + deliberate Purpose KPI/risk config, no inheritance | 44 |
 | `kpi-roster-history.test.js` | KPI 2026 roster-removal history retention | — |
 | `purpose-generic-reporting.test.js` | No source file re-adds a hardcoded CAPAR-style purpose branch | — |

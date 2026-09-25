@@ -7,17 +7,18 @@
 // the full rationale, and reviews/006 §2 for why this was not left
 // unimplemented instead.
 // ------------------------------------------------------------
-// Disclosed scope limitation: this pilot has no session mechanism
-// (unchanged since Phase 1H-A/1H-B.1 — session redesign is explicitly
-// out of scope for this task), so MFA here is enrollment-time proof of
-// possession, not a per-request re-check. getAccessState() reports
-// whether MFA is enrolled; nothing in this phase re-prompts for a TOTP
-// code on every subsequent page load. This is the honest, foundation-
-// level scope of "MFA required for all Active users" achievable without
-// inventing session infrastructure this task forbids.
+// Security Fix R1 (this pass): verifyMfa() success now marks a bounded,
+// server-side "MFA satisfied" credential (SVMKPI_IDENTITY_CORE.gs §6.5,
+// D-031) that _identity_authorizeCurrentUser_() requires before any
+// protected identity function proceeds — MFA is now an actual access
+// requirement for ACTIVE users, not enrollment-time proof alone. Still
+// no general session was added: the credential carries exactly one
+// fact (MFA satisfied until time T) and is re-checked, not cached, on
+// every call. Anti-replay: a given TOTP time-step can satisfy at most
+// one verifyMfa() call (see IDENTITY_MFA_COL.LAST_USED_STEP below).
 // ============================================================
 
-const IDENTITY_MFA_COL = { USER_ID: 1, STATUS: 2, METHOD: 3, SECRET: 4, ENROLLED_AT: 5, LAST_VERIFIED_AT: 6 };
+const IDENTITY_MFA_COL = { USER_ID: 1, STATUS: 2, METHOD: 3, SECRET: 4, ENROLLED_AT: 5, LAST_VERIFIED_AT: 6, LAST_USED_STEP: 7 };
 const IDENTITY_TOTP_STEP_SECONDS = 30;
 const IDENTITY_TOTP_DIGITS = 6;
 const IDENTITY_TOTP_WINDOW_STEPS = 1; // +/- 1 step (30s) clock-drift tolerance
@@ -76,14 +77,28 @@ function _identity_totpCodeForTime_(secretBase32, unixSeconds) {
 }
 
 function _identity_verifyTotpCode_(secretBase32, submittedCode, windowSteps) {
+  return _identity_matchTotpStep_(secretBase32, submittedCode, windowSteps) !== null;
+}
+
+/**
+ * _identity_matchTotpStep_(secretBase32, submittedCode, windowSteps)
+ * Same window search as _identity_verifyTotpCode_(), but also returns
+ * WHICH absolute time-step (Math.floor(unixSeconds/30)) matched, so the
+ * caller can enforce anti-replay (a given step may satisfy at most one
+ * verifyMfa() call — see IDENTITY_MFA_COL.LAST_USED_STEP).
+ * @returns {number|null} the matched step, or null if no window step matched
+ */
+function _identity_matchTotpStep_(secretBase32, submittedCode, windowSteps) {
   const nowSeconds = Math.floor(Date.now() / 1000);
   const w = windowSteps == null ? IDENTITY_TOTP_WINDOW_STEPS : windowSteps;
   const normalizedSubmitted = String(submittedCode || '').trim();
-  if (!normalizedSubmitted) return false;
-  for (let step = -w; step <= w; step++) {
-    if (_identity_totpCodeForTime_(secretBase32, nowSeconds + step * IDENTITY_TOTP_STEP_SECONDS) === normalizedSubmitted) return true;
+  if (!normalizedSubmitted) return null;
+  const nowStep = Math.floor(nowSeconds / IDENTITY_TOTP_STEP_SECONDS);
+  for (let stepOffset = -w; stepOffset <= w; stepOffset++) {
+    const candidateStep = nowStep + stepOffset;
+    if (_identity_totpCodeForTime_(secretBase32, candidateStep * IDENTITY_TOTP_STEP_SECONDS) === normalizedSubmitted) return candidateStep;
   }
-  return false;
+  return null;
 }
 
 
@@ -121,13 +136,22 @@ function enrollMfa() {
 
   const secret = _identity_generateTotpSecret_();
   if (rowNum === -1) {
-    sheet.appendRow([current.userId, 'NOT_ENROLLED', 'TOTP', secret, '', '']);
+    sheet.appendRow([current.userId, 'NOT_ENROLLED', 'TOTP', secret, '', '', '']);
   } else {
     sheet.getRange(rowNum, IDENTITY_MFA_COL.STATUS).setValue('NOT_ENROLLED');
     sheet.getRange(rowNum, IDENTITY_MFA_COL.SECRET).setValue(secret);
     sheet.getRange(rowNum, IDENTITY_MFA_COL.ENROLLED_AT).setValue('');
+    // A new secret has its own independent step-space — a "last used
+    // step" from the OLD secret must never block the first code
+    // generated against the new one.
+    sheet.getRange(rowNum, IDENTITY_MFA_COL.LAST_USED_STEP).setValue('');
   }
   SpreadsheetApp.flush();
+
+  // A new/reset secret invalidates any standing MFA-satisfied credential
+  // (SVMKPI_IDENTITY_CORE.gs §6.5) — re-verification against the NEW
+  // secret is required before the user is authorized again.
+  _identity_clearMfaSatisfaction_(current.userId);
 
   if (wasEnrolled) {
     _identity_writeAudit_(IDENTITY_AUDIT_EVENT.MFA_RESET, current.userId, current.userId, 'MFA re-enrollment started');
@@ -148,10 +172,14 @@ function enrollMfa() {
  * verifyMfa(code)
  * Self-service. On the FIRST successful verification after enrollMfa(),
  * transitions IDENTITY_MFA status NOT_ENROLLED -> ENROLLED and writes
- * MFA_ENROLLED. On any later successful call, just updates
- * lastVerifiedAt (no audit spam for routine re-verification). On
- * failure, writes MFA_VERIFY_FAILED — never reveals the correct code or
- * the stored secret.
+ * MFA_ENROLLED. Every successful call — first or subsequent — marks the
+ * server-side MFA-satisfied credential (SVMKPI_IDENTITY_CORE.gs §6.5,
+ * Security Fix R1), which is what actually gates protected identity
+ * functions from here on; updates lastVerifiedAt regardless (no audit
+ * spam for routine re-verification beyond the first). On failure —
+ * wrong code, or a code whose time-step was already used (anti-replay)
+ * — writes MFA_VERIFY_FAILED and never marks satisfaction; never
+ * reveals the correct code or the stored secret.
  * @returns {{success:boolean, message:string}}
  */
 function verifyMfa(code) {
@@ -167,9 +195,21 @@ function verifyMfa(code) {
   const secret = record ? record[IDENTITY_MFA_COL.SECRET - 1] : '';
   if (!record || !secret) return { success: false, message: 'MFA not enrolled — call enrollMfa() first.' };
 
-  if (!_identity_verifyTotpCode_(secret, code, IDENTITY_TOTP_WINDOW_STEPS)) {
+  const matchedStep = _identity_matchTotpStep_(secret, code, IDENTITY_TOTP_WINDOW_STEPS);
+  if (matchedStep === null) {
     _identity_writeAudit_(IDENTITY_AUDIT_EVENT.MFA_VERIFY_FAILED, current.userId, current.userId, '');
     return { success: false, message: 'Incorrect code.' };
+  }
+
+  const lastUsedStepRaw = record[IDENTITY_MFA_COL.LAST_USED_STEP - 1];
+  const lastUsedStep = lastUsedStepRaw === '' || lastUsedStepRaw == null ? null : Number(lastUsedStepRaw);
+  if (lastUsedStep !== null && matchedStep <= lastUsedStep) {
+    // Anti-replay: this exact time-step (or an earlier one) already
+    // satisfied a previous verifyMfa() call — a captured/observed code
+    // cannot be replayed, even though it would still pass the raw TOTP
+    // check within the clock-drift window.
+    _identity_writeAudit_(IDENTITY_AUDIT_EVENT.MFA_VERIFY_FAILED, current.userId, current.userId, 'replayed code rejected');
+    return { success: false, message: 'This code has already been used. Wait for a new code.' };
   }
 
   const wasEnrolled = record[IDENTITY_MFA_COL.STATUS - 1] === 'ENROLLED';
@@ -177,7 +217,10 @@ function verifyMfa(code) {
   sheet.getRange(rowNum, IDENTITY_MFA_COL.STATUS).setValue('ENROLLED');
   if (!wasEnrolled) sheet.getRange(rowNum, IDENTITY_MFA_COL.ENROLLED_AT).setValue(now);
   sheet.getRange(rowNum, IDENTITY_MFA_COL.LAST_VERIFIED_AT).setValue(now);
+  sheet.getRange(rowNum, IDENTITY_MFA_COL.LAST_USED_STEP).setValue(matchedStep);
   SpreadsheetApp.flush();
+
+  _identity_markMfaSatisfied_(current.userId);
 
   if (!wasEnrolled) {
     _identity_writeAudit_(IDENTITY_AUDIT_EVENT.MFA_ENROLLED, current.userId, current.userId, '');

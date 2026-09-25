@@ -2936,23 +2936,40 @@ function renderAccountForStatus(user) {
   if (user.accountStatus === 'ACTIVE') {
     panel.innerHTML = head + '<div id="mfaArea"><div class="spinner"></div></div>';
     callServer('getAccessState', [], function(state) {
-      renderMfaArea(state.mfaEnrolled);
-    }, function() { renderMfaArea(false); });
+      renderMfaArea(state);
+    }, function() { renderMfaArea({ mfaEnrolled: false, mfaSatisfied: false }); });
     return;
   }
   panel.innerHTML = head;
 }
 
-function renderMfaArea(enrolled) {
+// Security Fix R1: three distinct states now, not two — not enrolled;
+// enrolled but this Google identity hasn't satisfied MFA yet (server-
+// authoritative, PropertiesService-backed — see SVMKPI_IDENTITY_CORE.gs
+// §6.5); enrolled and currently satisfied. Only the third state can
+// actually use Admin → Identity actions or any other MFA-gated
+// function — this display is informational, matching every other
+// gating hint in this portal (real enforcement is server-side).
+function renderMfaArea(state) {
   var area = document.getElementById('mfaArea');
   if (!area) return;
-  if (enrolled) {
-    area.innerHTML = '<div class="risk-badge safe">✓ Multi-factor authentication enrolled</div>'
-      + '<button class="btn-navy" style="margin-top:8px" onclick="identityEnrollMfa()">↻ Reset MFA</button>';
+  if (!state.mfaEnrolled) {
+    area.innerHTML = '<div class="risk-badge warn">⚠ Multi-factor authentication required — not yet enrolled</div>'
+      + '<button class="btn-gold" style="margin-top:8px" onclick="identityEnrollMfa()">🔐 Enroll MFA</button>';
     return;
   }
-  area.innerHTML = '<div class="risk-badge warn">⚠ Multi-factor authentication required — not yet enrolled</div>'
-    + '<button class="btn-gold" style="margin-top:8px" onclick="identityEnrollMfa()">🔐 Enroll MFA</button>';
+  if (!state.mfaSatisfied) {
+    area.innerHTML = '<div class="risk-badge warn">⚠ MFA verification required to continue</div>'
+      + '<div class="hint">Enter the current code from your authenticator app.</div>'
+      + '<div class="fg"><div class="fg-head"><label>6-digit code</label></div>'
+      + '<input type="text" class="fi" id="mfaVerifyCode" placeholder="000000" maxlength="6"></div>'
+      + '<button class="btn-primary" id="mfaVerifyBtn" onclick="identityVerifyMfaSubmit()">Verify</button>'
+      + '<div class="status-line" id="mfaVerifyStatus"></div>'
+      + '<button class="btn-navy" style="margin-top:8px" onclick="identityEnrollMfa()">↻ Lost access? Reset MFA</button>';
+    return;
+  }
+  area.innerHTML = '<div class="risk-badge safe">✓ Multi-factor authentication verified</div>'
+    + '<button class="btn-navy" style="margin-top:8px" onclick="identityEnrollMfa()">↻ Reset MFA</button>';
 }
 
 function identityEnrollMfa() {

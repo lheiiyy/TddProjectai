@@ -6,6 +6,17 @@ in `reviews/006-phase-1h-c-planning.md` and `DECISIONS.md` D-024–D-030.
 Additive to the existing pilot — no existing authentication, authorization,
 or business logic was modified or removed.
 
+**⚠ PARTIALLY SUPERSEDED — see `reviews/008-phase-1h-c-security-fix-r1.md`.**
+This review's §5 item 2 ("MFA is not a per-request re-check... nothing in
+this phase re-prompts for a TOTP code on subsequent visits") described a
+real gap the project owner then flagged as not satisfying the approved
+"MFA is required for every Active user" requirement. `reviews/008`
+records the fix: MFA is now a server-authoritative access requirement,
+not enrollment-time proof alone. Everything else below is preserved
+unedited as the historical record of what Phase 1H-C's initial
+implementation pass actually delivered — read it alongside `reviews/008`,
+not as a replacement for it.
+
 ---
 
 ## 1. What was built

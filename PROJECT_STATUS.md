@@ -1,14 +1,17 @@
 # SVMI — Project Status
 
-Last updated: 2026-09-25, recording that **Phase 1H-C is implemented**:
-registration/email-verification, mandatory admin approval,
-ADMIN/USER-plus-extensible-roles, permissions, system/region/store scope,
-native MFA, and a separate identity/access audit domain — external IdP
-selection and PostgreSQL cutover remain explicitly deferred. See
-`reviews/007-phase-1h-c-implementation.md` (implementation record) and
-`reviews/006-phase-1h-c-planning.md` (the plan it followed); new
-decisions `DECISIONS.md` D-024–D-030. See `PROJECT_MEMORY.md` for
-orientation and `IMPLEMENTATION_LOG.md` for the full phase-by-phase
+Last updated: 2026-09-25, recording **Phase 1H-C Security Fix R1: MFA is
+now an enforced, server-authoritative access requirement for `ACTIVE`
+users**, not enrollment-time proof alone — closing the gap
+`reviews/007-phase-1h-c-implementation.md` itself disclosed. See
+`reviews/008-phase-1h-c-security-fix-r1.md` (this fix) and
+`DECISIONS.md` D-031. Phase 1H-C's broader scope remains as recorded in
+`reviews/006`/`reviews/007` (`DECISIONS.md` D-024–D-030) — registration/
+email-verification, mandatory admin approval, ADMIN/USER-plus-extensible
+roles, permissions, system/region/store scope, native MFA, and a
+separate identity/access audit domain; external IdP selection and
+PostgreSQL cutover remain explicitly deferred. See `PROJECT_MEMORY.md`
+for orientation and `IMPLEMENTATION_LOG.md` for the full phase-by-phase
 history behind this summary.
 
 ## What is SVMI?
@@ -44,14 +47,17 @@ approved target enterprise identity/access architecture recorded** (see
 **Phase 1H-B.1: the 3 Required pilot security findings from Phase 1H-A
 fixed** (see `reviews/005-phase-1h-required-security-remediation.md`) →
 **Phase 1H-C: the registration/approval/RBAC/scope/MFA identity
-foundation implemented** (see
-`reviews/007-phase-1h-c-implementation.md` — full detail in "What has
-been completed" → Security/identity track, below). The System
-Peripherals audit, Phase 1H-A, and Phase 1H-B were documentation/audit/
-architecture-only; **Phase 1H-B.1 and Phase 1H-C are the two application-
-code changes since Phase 1G** — Phase 1H-B.1 a scoped pilot-hardening
-fix, Phase 1H-C new additive identity infrastructure alongside the
-unchanged pilot access gate (D-025).
+foundation implemented** (see `reviews/007-phase-1h-c-implementation.md`)
+→ **Phase 1H-C Security Fix R1: MFA enforced server-side as an actual
+access requirement** (see `reviews/008-phase-1h-c-security-fix-r1.md` —
+full detail in "What has been completed" → Security/identity track,
+below). The System Peripherals audit, Phase 1H-A, and Phase 1H-B were
+documentation/audit/architecture-only; **Phase 1H-B.1, Phase 1H-C, and
+this Security Fix R1 are the three application-code changes since Phase
+1G** — Phase 1H-B.1 a scoped pilot-hardening fix, Phase 1H-C new additive
+identity infrastructure alongside the unchanged pilot access gate
+(D-025), Security Fix R1 a scoped correction closing a gap Phase 1H-C's
+own review had disclosed.
 
 **Documentation track** (also complete, both passes pushed):
 1. **Documentation foundation** (commit `a84074b`) — created the 8 root
@@ -122,20 +128,39 @@ unchanged pilot access gate (D-025).
    transitions enforced server-side); `ADMIN`/`USER` roles extensible via
    data, not code; permissions resolved server-side as role-derived ∪
    direct grants, never trusted from the client; configurable
-   `SYSTEM`/`REGION`/`STORE` scope; native TOTP MFA (a documented,
-   temporary exception to D-022 — D-028); a separate `IDENTITY_AUDIT` log
-   (D-023/D-029); an always-visible "Account" tab and an Admin → Identity
-   sub-tab in `SVMI_PORTAL.html`, both calling only named service
-   functions, never a Sheet/row directly. New `database/migrations/
-   013_identity_extension.sql`, verified end-to-end against a local
-   ephemeral Postgres instance. 62 new tests (`identity.test.js`,
-   including a real TOTP round-trip and a check that no secret ever
-   appears in the audit log) plus the full existing suite, all passing —
-   **1191 assertions across 25 files, 0 failures.** Responsive checks run
-   ad hoc against the real portal (phone/tablet/desktop), all passing.
-   External IdP selection/integration and PostgreSQL production cutover
-   remain not implemented. See that review for full detail, disclosed
-   limitations, and regression results.
+   `SYSTEM`/`REGION`/`STORE` scope; native TOTP MFA foundation; a
+   separate `IDENTITY_AUDIT` log (D-023/D-029); an always-visible
+   "Account" tab and an Admin → Identity sub-tab in `SVMI_PORTAL.html`,
+   both calling only named service functions, never a Sheet/row directly.
+   New `database/migrations/013_identity_extension.sql`, verified
+   end-to-end against a local ephemeral Postgres instance. This pass's
+   own review disclosed that MFA was enrollment-time proof only, not yet
+   an enforced access requirement — closed by item 5 below.
+5. **Phase 1H-C Security Fix R1 — MFA enforced as an actual access
+   requirement** (code change; `reviews/008-phase-1h-c-security-fix-r1.md`,
+   `DECISIONS.md` D-031) — `_identity_authorizeCurrentUser_()`
+   (`SVMKPI_IDENTITY_CORE.gs`), the single choke point every protected
+   identity function already called, now also requires a satisfied,
+   unexpired MFA credential — server-side, `PropertiesService`-backed
+   (scoped to the executing Google identity, never client-readable/
+   writable), bounded to 12 hours, re-checked on every call, carrying no
+   role/permission/identity data (explicitly not a general session).
+   `verifyMfa()` gained anti-replay protection (a given TOTP time-step
+   satisfies at most one call). `getAccessState().isActive` now requires
+   both `ACTIVE` status and MFA satisfaction, matching the approved
+   requirement literally. No session mechanism was built; no external
+   IdP was chosen; no unrelated module was touched. 38 new tests
+   (`identity.test.js` grew from 62 to 100 assertions) covering all 10
+   required proof points (unauthorized-without-MFA rejected,
+   authorized-with-MFA succeeds, invalid/expired/replayed codes
+   rejected, spoofed client state has no effect, existing permission
+   checks intact, secrets never returned/logged) plus the full existing
+   suite, all passing — **1229 assertions across 25 files, 0 failures**
+   (`identity.test.js`'s own count grew within the same file; no new
+   test file was added this pass).
+   Responsive checks re-run against the real portal, all passing (with a
+   disclosed caveat — see that review). See that review for full detail,
+   remaining transitional limitations, and regression results.
 
 **Database track**: PostgreSQL DEV schema (13 migrations + rollback
 scripts), proven against a local ephemeral instance, including verified
@@ -147,18 +172,20 @@ synthetic data — **158/158 passing** as of this check.
 ## What is currently being worked on
 
 Nothing is mid-implementation. Phase 1G, Phase 1H-A, Phase 1H-B, Phase
-1H-B.1, and Phase 1H-C are all complete, tested, documented, and pushed.
-Phase 1H-D/whatever comes next (external IdP selection, or further
-identity-surface work) has not been scoped — see "Immediate next task."
+1H-B.1, Phase 1H-C, and Phase 1H-C Security Fix R1 are all complete,
+tested, documented, and pushed. Phase 1H-D/whatever comes next (external
+IdP selection, or further identity-surface work) has not been scoped —
+see "Immediate next task."
 
 ## What remains unresolved
 
 **Security/identity — the 3 Phase 1H-A Required findings are fixed**
-(Phase 1H-B.1) **and the registration/approval/RBAC/scope/MFA foundation
-is implemented** (Phase 1H-C, `reviews/007-phase-1h-c-implementation.md`).
-What remains, per that review's own disclosed limitations and the
-Recommended/Future/Unknown items `reviews/003` §H never asked either task
-to fix:
+(Phase 1H-B.1), **the registration/approval/RBAC/scope/MFA foundation is
+implemented** (Phase 1H-C), **and MFA is now an enforced, server-side
+access requirement, not enrollment-time proof alone** (Security Fix R1,
+`reviews/008-phase-1h-c-security-fix-r1.md`). What remains, per that
+review's own disclosed limitations and the Recommended/Future/Unknown
+items `reviews/003` §H never asked any of these tasks to fix:
 - The guest password and admin email list remain plaintext in `SETTINGS`
   (readable by anyone with Sheet access) and the guest password remains
   cached in browser `localStorage` by design — unchanged by either
@@ -176,15 +203,22 @@ to fix:
   the new identity surface, not `sl_isAdmin()`/guest-password events.
 - The guest password is a single shared secret with no per-user binding,
   rate limiting, or lockout (Recommended item 7).
-- **New in Phase 1H-C, disclosed by design (D-025/D-028):**
-  `getCurrentUser()`/`getAccessState()` correlate identity by matching
-  the visiting Google account's email against `IDENTITY_USERS.email` — a
-  person registering with a different email than the Google account they
-  use to reach this pilot deployment will not resolve to their SVMI
-  identity here. MFA is enrollment-time proof of possession only, not a
-  per-request re-check (no session mechanism exists). The TOTP secret is
-  stored natively (no external IdP exists yet to own it), a temporary
-  exception to D-022.
+- **Disclosed by design (D-025):** `getCurrentUser()`/`getAccessState()`
+  correlate identity by matching the visiting Google account's email
+  against `IDENTITY_USERS.email` — a person registering with a different
+  email than the Google account they use to reach this pilot deployment
+  will not resolve to their SVMI identity here. Unchanged by Security Fix
+  R1.
+- **Disclosed by design (D-028, unchanged by Security Fix R1):** the
+  TOTP secret is stored natively in `IDENTITY_MFA.secret` (no external
+  IdP exists yet to own it), a temporary, documented exception to D-022.
+- **New, disclosed by Security Fix R1 (D-031):** the MFA-satisfied
+  credential is scoped to the Google identity via `PropertiesService`,
+  not to a specific browser/device/tab — the same account satisfying MFA
+  in one browser is considered satisfied in a concurrent session on the
+  same account. The 12-hour satisfaction window
+  (`IDENTITY_MFA_GATE_TTL_MINUTES`) is a tunable policy choice, not
+  independently re-derived from any specific approved number.
 - Everything in `reviews/003`'s Future/Unknown-Verification sections
   (a real, selected Identity Provider; server-side sessions; exact OAuth
   scopes/deployment facts) — unchanged, and explicitly out of scope for
@@ -222,8 +256,10 @@ to fix:
 - Additional business roles beyond `ADMIN`/`USER`, and non-admin MFA
   policy — both explicitly left `PENDING DECISION` by Phase 1H-C's own
   scope (`reviews/006` §12/`reviews/007`).
-- A session mechanism — Phase 1H-C's MFA is enrollment-time proof of
-  possession only, by explicit design (see "What remains unresolved").
+- A general session mechanism — Security Fix R1's MFA-satisfaction
+  credential is deliberately narrow (one bounded fact, `PropertiesService`-
+  backed), not a session; building an actual session remains out of
+  scope (`reviews/008` §1).
 - Rewiring the 45+ existing `sl_isAdmin()`-gated call sites onto the new
   Phase 1H-C permission model — the two systems intentionally coexist
   (D-026); doing so would be unrelated refactoring.
@@ -237,10 +273,10 @@ to fix:
 
 ## Immediate next task
 
-**Project-owner review of `reviews/007-phase-1h-c-implementation.md`**
-and a decision on what comes next: either (a) select an external
-identity provider and scope the OIDC/SAML integration behind the
-provider-neutral boundary Phase 1H-C built, or (b) address one of the
-still-open System Peripherals items below (an Admin Configuration screen
-for admin access, `reviews/001`/`002`, `DECISIONS.md` D-007) first. No
-application work has begun on either.
+**Project-owner review of `reviews/008-phase-1h-c-security-fix-r1.md`**
+(and `reviews/007` alongside it) and a decision on what comes next:
+either (a) select an external identity provider and scope the OIDC/SAML
+integration behind the provider-neutral boundary Phase 1H-C built, or
+(b) address one of the still-open System Peripherals items below (an
+Admin Configuration screen for admin access, `reviews/001`/`002`,
+`DECISIONS.md` D-007) first. No application work has begun on either.

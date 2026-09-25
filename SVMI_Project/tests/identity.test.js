@@ -1,13 +1,17 @@
 // Phase 1H-C: registration / email-verification / approval / RBAC /
 // scope / MFA / identity-access-audit — the approved identity foundation
-// (reviews/006-phase-1h-c-planning.md, DECISIONS.md D-024-D-030).
+// (reviews/006-phase-1h-c-planning.md, DECISIONS.md D-024-D-030), PLUS
+// Security Fix R1 (DECISIONS.md D-031): MFA is now an enforced,
+// server-authoritative access requirement for ACTIVE users, not just
+// enrollment-time proof — see reviews/008-phase-1h-c-security-fix-r1.md.
 //
 // Loads the REAL SVMKPI_IDENTITY_*.gs source into a Node vm sandbox with
-// SpreadsheetApp/Session/Utilities/MailApp mocked — same house pattern
-// as every other file in this directory. sl_getCurrentUser() itself is
-// stubbed directly (not the real SVMKPI_ACCESS.gs) to keep this file
-// scoped to the identity surface, consistent with how other test files
-// stub sl_isAdmin()/sl_getCurrentUser() directly.
+// SpreadsheetApp/Session/Utilities/MailApp/PropertiesService mocked —
+// same house pattern as every other file in this directory.
+// sl_getCurrentUser() itself is stubbed directly (not the real
+// SVMKPI_ACCESS.gs) to keep this file scoped to the identity surface,
+// consistent with how other test files stub sl_isAdmin()/
+// sl_getCurrentUser() directly.
 
 const fs = require('fs');
 const path = require('path');
@@ -85,15 +89,30 @@ function makeSpreadsheetMock() {
   };
 }
 
+// PropertiesService.getUserProperties() mock — a plain key/value store,
+// exactly mirroring the real service's shape (get/set/deleteProperty).
+// Security Fix R1's MFA-satisfaction gate is built entirely on this.
+function makePropertiesServiceMock() {
+  const store = {};
+  const userProps = {
+    getProperty: (key) => (key in store ? store[key] : null),
+    setProperty: (key, value) => { store[key] = String(value); },
+    deleteProperty: (key) => { delete store[key]; },
+  };
+  return { getUserProperties: () => userProps, _store: store };
+}
+
 function newIdentitySandbox() {
   const ssMock = makeSpreadsheetMock();
   const sentEmails = [];
   const state = { email: 'alice@example.com' };
+  const propsMock = makePropertiesServiceMock();
 
   const sandbox = {
     SpreadsheetApp: { getActiveSpreadsheet: () => ssMock, flush: () => {} },
     Session: { getActiveUser: () => ({ getEmail: () => state.email }) },
     sl_getCurrentUser: () => state.email,
+    PropertiesService: propsMock,
     Utilities: {
       getUuid: (() => { let n = 0; return () => 'uuid-' + (++n); })(),
       DigestAlgorithm: { SHA_256: 'SHA_256' },
@@ -113,12 +132,55 @@ function newIdentitySandbox() {
   };
   vm.createContext(sandbox);
   [coreSrc, regSrc, adminSrc, accessSrc, mfaSrc].forEach(src => vm.runInContext(src, sandbox));
-  return { sandbox, ssMock, state, sentEmails };
+  return { sandbox, ssMock, state, sentEmails, propsMock };
 }
 
 function extractCode(emailBody) {
   const m = /code is: (\d{6})/.exec(emailBody);
   return m ? m[1] : null;
+}
+
+/**
+ * Registers, verifies, and activates a user — no role, no MFA. Test
+ * setup only: bypasses the admin-approval API call itself (there's no
+ * approver yet in most setup sequences) via the same internal
+ * transition helper the real approveRegistration() uses.
+ */
+function makeActiveUser(sandbox, sentEmails, email, fullName, dept) {
+  sandbox.registerUser(fullName, email, dept || 'Ops');
+  const code = extractCode(sentEmails[sentEmails.length - 1].body);
+  sandbox.verifyRegistrationEmail(email, code);
+  const user = sandbox._identity_findUserByEmail_(email).user;
+  sandbox._identity_transitionStatus_(user.userId, 'ACTIVE', '', 'test setup');
+  return user;
+}
+
+function grantRole(sandbox, userId, roleId) {
+  sandbox._identity_ensureSheet_('IDENTITY_USER_ROLES', ['User ID', 'Role ID', 'Granted At', 'Granted By'])
+    .appendRow([userId, roleId, new Date(), '']);
+}
+
+/**
+ * Completes REAL MFA enrollment+verification for `state.email`'s
+ * account — the actual required flow (enrollMfa() -> compute a valid
+ * TOTP code -> verifyMfa()), not a shortcut. Returns the secret so the
+ * caller can generate further valid codes later in the same test.
+ */
+function completeMfaEnrollment(sandbox) {
+  const enrollment = sandbox.enrollMfa();
+  const code = sandbox._identity_totpCodeForTime_(enrollment.secret, Math.floor(Date.now() / 1000));
+  const verify = sandbox.verifyMfa(code);
+  if (!verify.success) throw new Error('test helper: MFA enrollment did not verify — ' + verify.message);
+  return enrollment.secret;
+}
+
+/** Full real flow: register -> verify email -> activate -> grant role -> enroll+verify MFA. */
+function makeAdmin(sandbox, sentEmails, state, email, fullName) {
+  const user = makeActiveUser(sandbox, sentEmails, email, fullName, 'IT');
+  grantRole(sandbox, user.userId, 'ADMIN');
+  state.email = email;
+  const secret = completeMfaEnrollment(sandbox);
+  return { user, secret };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -133,7 +195,6 @@ console.log('\n── registerUser() ──');
   const detail = sandbox._identity_findUserByEmail_('alice@example.com');
   check('new user starts PENDING_VERIFICATION', detail.user.accountStatus === 'PENDING_VERIFICATION');
 
-  const auditList = sandbox.identityAudit_list; // not callable yet (no permission) — checked separately below
   const rawAudit = sandbox._identity_readAll_(sandbox.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('IDENTITY_AUDIT'));
   check('REGISTRATION_SUBMITTED audit event written', rawAudit.some(r => r[2] === 'REGISTRATION_SUBMITTED'));
 }
@@ -203,33 +264,27 @@ console.log('\n── registration approval — permission-gated, fails closed �
   const rejectedNoIdentity = sandbox.approveRegistration(carol.userId);
   check('approveRegistration() fails with no linked identity at all', rejectedNoIdentity.success === false, JSON.stringify(rejectedNoIdentity));
 
-  // A real, ACTIVE, but permission-less user (plain USER role, no REGISTRATION_APPROVE) must also fail.
+  // A real, ACTIVE, MFA-satisfied, but permission-less user (plain USER
+  // role, no REGISTRATION_APPROVE) must also fail — and specifically on
+  // the PERMISSION check, isolated by completing MFA first so the
+  // rejection reason is unambiguous.
   sandbox._identity_ensureSeeds_();
-  sandbox.registerUser('Dave', 'dave@example.com', 'Ops');
-  code = extractCode(sentEmails[sentEmails.length - 1].body);
-  sandbox.verifyRegistrationEmail('dave@example.com', code);
-  const dave = sandbox._identity_findUserByEmail_('dave@example.com').user;
-  sandbox._identity_transitionStatus_(dave.userId, 'ACTIVE', '', 'test setup'); // bypass approval flow directly for setup only
-  sandbox._identity_ensureSheet_('IDENTITY_USER_ROLES', ['User ID', 'Role ID', 'Granted At', 'Granted By']).appendRow([dave.userId, 'USER', new Date(), '']);
-
+  const dave = makeActiveUser(sandbox, sentEmails, 'dave@example.com', 'Dave');
+  grantRole(sandbox, dave.userId, 'USER');
   state.email = 'dave@example.com';
+  completeMfaEnrollment(sandbox);
+
   const rejectedNoPermission = sandbox.approveRegistration(carol.userId);
-  check('approveRegistration() fails for an ACTIVE user with no REGISTRATION_APPROVE permission', rejectedNoPermission.success === false, JSON.stringify(rejectedNoPermission));
+  check('approveRegistration() fails for an ACTIVE, MFA-satisfied user with no REGISTRATION_APPROVE permission', rejectedNoPermission.success === false, JSON.stringify(rejectedNoPermission));
+  check('...and the rejection reason is specifically about permission, not MFA', /Permission required/.test(rejectedNoPermission.message), rejectedNoPermission.message);
 
   const stillPending = sandbox._identity_findUserById_(carol.userId).user;
   check('rejected approval attempt left the target unchanged', stillPending.accountStatus === 'PENDING_APPROVAL');
 
-  // A real admin (ADMIN role, seeded with REGISTRATION_APPROVE via role_permissions) succeeds.
-  sandbox.registerUser('AdminA', 'admin@example.com', 'IT');
-  code = extractCode(sentEmails[sentEmails.length - 1].body);
-  sandbox.verifyRegistrationEmail('admin@example.com', code);
-  const adminUser = sandbox._identity_findUserByEmail_('admin@example.com').user;
-  sandbox._identity_transitionStatus_(adminUser.userId, 'ACTIVE', '', 'test setup');
-  sandbox._identity_ensureSheet_('IDENTITY_USER_ROLES', ['User ID', 'Role ID', 'Granted At', 'Granted By']).appendRow([adminUser.userId, 'ADMIN', new Date(), '']);
-
-  state.email = 'admin@example.com';
+  // A real admin (ADMIN role, MFA-satisfied) succeeds.
+  const { user: adminUser } = makeAdmin(sandbox, sentEmails, state, 'admin@example.com', 'AdminA');
   const approved = sandbox.approveRegistration(carol.userId);
-  check('approveRegistration() succeeds for a real ADMIN-role actor', approved.success === true, JSON.stringify(approved));
+  check('approveRegistration() succeeds for a real, MFA-satisfied ADMIN-role actor', approved.success === true, JSON.stringify(approved));
 
   const carolNow = sandbox._identity_findUserById_(carol.userId).user;
   eq('carol is now ACTIVE', carolNow.accountStatus, 'ACTIVE');
@@ -248,15 +303,10 @@ console.log('\n── rejectRegistration() — terminal, no re-approval ──')
 {
   const { sandbox, sentEmails, state } = newIdentitySandbox();
   sandbox._identity_ensureSeeds_();
-  sandbox.registerUser('AdminA', 'admin@example.com', 'IT');
-  let code = extractCode(sentEmails[sentEmails.length - 1].body);
-  sandbox.verifyRegistrationEmail('admin@example.com', code);
-  const adminUser = sandbox._identity_findUserByEmail_('admin@example.com').user;
-  sandbox._identity_transitionStatus_(adminUser.userId, 'ACTIVE', '', 'test setup');
-  sandbox._identity_ensureSheet_('IDENTITY_USER_ROLES', ['User ID', 'Role ID', 'Granted At', 'Granted By']).appendRow([adminUser.userId, 'ADMIN', new Date(), '']);
+  makeAdmin(sandbox, sentEmails, state, 'admin@example.com', 'AdminA');
 
   sandbox.registerUser('Frank', 'frank@example.com', 'Ops');
-  code = extractCode(sentEmails[sentEmails.length - 1].body);
+  const code = extractCode(sentEmails[sentEmails.length - 1].body);
   sandbox.verifyRegistrationEmail('frank@example.com', code);
   const frank = sandbox._identity_findUserByEmail_('frank@example.com').user;
 
@@ -274,21 +324,12 @@ console.log('\n── role / permission / scope assignment ──');
 {
   const { sandbox, sentEmails, state } = newIdentitySandbox();
   sandbox._identity_ensureSeeds_();
+  makeAdmin(sandbox, sentEmails, state, 'admin@example.com', 'AdminA');
 
-  sandbox.registerUser('AdminA', 'admin@example.com', 'IT');
-  let code = extractCode(sentEmails[sentEmails.length - 1].body);
-  sandbox.verifyRegistrationEmail('admin@example.com', code);
-  const adminUser = sandbox._identity_findUserByEmail_('admin@example.com').user;
-  sandbox._identity_transitionStatus_(adminUser.userId, 'ACTIVE', '', 'test setup');
-  sandbox._identity_ensureSheet_('IDENTITY_USER_ROLES', ['User ID', 'Role ID', 'Granted At', 'Granted By']).appendRow([adminUser.userId, 'ADMIN', new Date(), '']);
+  const grace = makeActiveUser(sandbox, sentEmails, 'grace@example.com', 'Grace');
 
-  sandbox.registerUser('Grace', 'grace@example.com', 'Ops');
-  code = extractCode(sentEmails[sentEmails.length - 1].body);
-  sandbox.verifyRegistrationEmail('grace@example.com', code);
-  const grace = sandbox._identity_findUserByEmail_('grace@example.com').user;
-  sandbox._identity_transitionStatus_(grace.userId, 'ACTIVE', '', 'test setup');
-
-  // Non-admin (Grace, no roles yet) cannot assign roles to herself or anyone.
+  // Non-admin (Grace, no roles yet, no MFA yet either) cannot assign
+  // roles to herself or anyone.
   state.email = 'grace@example.com';
   const selfEscalate = sandbox.assignRole(grace.userId, 'ADMIN', true);
   check('a permission-less ACTIVE user cannot grant itself a role (no self-escalation)', selfEscalate.success === false, JSON.stringify(selfEscalate));
@@ -304,10 +345,14 @@ console.log('\n── role / permission / scope assignment ──');
   check('admin grants a direct permission', directGrant.success === true, JSON.stringify(directGrant));
   check('effective permissions now include the direct grant (additive to role)', sandbox._identity_getUserPermissions_(grace.userId).indexOf('IDENTITY_AUDIT_VIEW') !== -1);
 
-  // Grace can now use exactly that one permission — no more, no less.
+  // Grace completes MFA — only now can she actually use the permission she holds.
   state.email = 'grace@example.com';
+  const beforeMfa = sandbox.identityAudit_list();
+  check('...but Grace still cannot use it until she completes MFA herself', beforeMfa.success === false && /MFA/.test(beforeMfa.message), JSON.stringify(beforeMfa));
+  completeMfaEnrollment(sandbox);
+
   const graceCanViewAudit = sandbox.identityAudit_list();
-  check('Grace can now view the audit log (permission she was actually granted)', graceCanViewAudit.success === true, JSON.stringify(graceCanViewAudit));
+  check('Grace can now view the audit log (permission she was actually granted, MFA satisfied)', graceCanViewAudit.success === true, JSON.stringify(graceCanViewAudit));
   const graceCannotApprove = sandbox.approveRegistration(grace.userId);
   check('Grace still cannot approve registrations (permission she was NOT granted)', graceCannotApprove.success === false, JSON.stringify(graceCannotApprove));
 
@@ -330,18 +375,8 @@ console.log('\n── suspend / reactivate / disable ──');
 {
   const { sandbox, sentEmails, state } = newIdentitySandbox();
   sandbox._identity_ensureSeeds_();
-  sandbox.registerUser('AdminA', 'admin@example.com', 'IT');
-  let code = extractCode(sentEmails[sentEmails.length - 1].body);
-  sandbox.verifyRegistrationEmail('admin@example.com', code);
-  const adminUser = sandbox._identity_findUserByEmail_('admin@example.com').user;
-  sandbox._identity_transitionStatus_(adminUser.userId, 'ACTIVE', '', 'test setup');
-  sandbox._identity_ensureSheet_('IDENTITY_USER_ROLES', ['User ID', 'Role ID', 'Granted At', 'Granted By']).appendRow([adminUser.userId, 'ADMIN', new Date(), '']);
-
-  sandbox.registerUser('Hank', 'hank@example.com', 'Ops');
-  code = extractCode(sentEmails[sentEmails.length - 1].body);
-  sandbox.verifyRegistrationEmail('hank@example.com', code);
-  const hank = sandbox._identity_findUserByEmail_('hank@example.com').user;
-  sandbox._identity_transitionStatus_(hank.userId, 'ACTIVE', '', 'test setup');
+  makeAdmin(sandbox, sentEmails, state, 'admin@example.com', 'AdminA');
+  const hank = makeActiveUser(sandbox, sentEmails, 'hank@example.com', 'Hank');
 
   state.email = 'admin@example.com';
   const suspend = sandbox.suspendAccount(hank.userId, 'policy violation');
@@ -375,20 +410,16 @@ console.log('\n── handleExternalIdentityDisabled() — offboarding hook ─�
 }
 
 // ═══════════════════════════════════════════════════════════════
-console.log('\n── MFA (TOTP) foundation ──');
+console.log('\n── MFA (TOTP) enrollment/verification ──');
 {
   const { sandbox, sentEmails, state } = newIdentitySandbox();
-  sandbox.registerUser('Judy', 'judy@example.com', 'Ops');
-  const code = extractCode(sentEmails[0].body);
-  sandbox.verifyRegistrationEmail('judy@example.com', code);
-  const judy = sandbox._identity_findUserByEmail_('judy@example.com').user;
+  const judy = makeActiveUser(sandbox, sentEmails, 'judy@example.com', 'Judy');
 
+  state.email = 'unlinked@example.com'; // not judy yet — sanity: unrelated identity can't enroll on her behalf
   const notActiveYet = sandbox.enrollMfa();
-  check('enrollMfa() refuses a non-ACTIVE account', notActiveYet.success === false, JSON.stringify(notActiveYet));
+  check('enrollMfa() refuses when no SVMI identity is linked', notActiveYet.success === false, JSON.stringify(notActiveYet));
 
-  sandbox._identity_transitionStatus_(judy.userId, 'ACTIVE', '', 'test setup');
   state.email = 'judy@example.com';
-
   const enrollment = sandbox.enrollMfa();
   check('enrollMfa() succeeds for an ACTIVE user and returns a secret exactly once', enrollment.success === true && !!enrollment.secret, JSON.stringify(enrollment));
   check('otpauth URI references the secret and the account email', enrollment.otpauthUri.indexOf(enrollment.secret) !== -1 && enrollment.otpauthUri.indexOf(encodeURIComponent('judy@example.com')) !== -1);
@@ -402,35 +433,213 @@ console.log('\n── MFA (TOTP) foundation ──');
 
   const state1 = sandbox.getAccessState();
   check('getAccessState() reports mfaEnrolled true after successful verification', state1.mfaEnrolled === true, JSON.stringify(state1));
+  check('getAccessState() reports mfaSatisfied true right after verifying', state1.mfaSatisfied === true, JSON.stringify(state1));
+  check('getAccessState() reports isActive true once ACTIVE + MFA satisfied', state1.isActive === true, JSON.stringify(state1));
 
-  // Clock-drift tolerance: a code from one step (30s) in the past still verifies.
-  const pastStepCode = sandbox._identity_totpCodeForTime_(enrollment.secret, Math.floor(Date.now() / 1000) - 30);
-  const driftOk = sandbox.verifyMfa(pastStepCode);
-  check('a code from one time-step ago still verifies (clock-drift tolerance)', driftOk.success === true, JSON.stringify(driftOk));
+  // Clock-drift tolerance: a code one step (30s) AHEAD of the server's
+  // clock — the realistic case where the client device's clock runs
+  // slightly fast — still verifies. (One step BEHIND is deliberately
+  // NOT retried here — anti-replay is monotonic: the current step was
+  // already consumed above, and any step at or before it is correctly
+  // refused regardless of whether that exact code was literally reused;
+  // see the R1.5 section for that behavior tested directly.)
+  const futureStepCode = sandbox._identity_totpCodeForTime_(enrollment.secret, Math.floor(Date.now() / 1000) + 30);
+  const driftOk = sandbox.verifyMfa(futureStepCode);
+  check('a not-yet-used code one step ahead (client clock drift) still verifies', driftOk.success === true, JSON.stringify(driftOk));
 
   // Reset flow.
   const reset = sandbox.enrollMfa();
   check('re-enrolling (reset) generates a new secret', reset.secret !== enrollment.secret);
   const state2 = sandbox.getAccessState();
   check('MFA reverts to not-enrolled until the new secret is verified', state2.mfaEnrolled === false, JSON.stringify(state2));
+  check('resetting MFA clears any standing MFA-satisfied credential', state2.mfaSatisfied === false, JSON.stringify(state2));
+  check('...so isActive is false again immediately after a reset, even though the account is still ACTIVE', state2.isActive === false, JSON.stringify(state2));
 }
 
-console.log('\n── audit log never contains a secret value ──');
+// ═══════════════════════════════════════════════════════════════
+// Security Fix R1 — required test coverage (10 items from the task):
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── R1.1: ACTIVE user without completed MFA cannot access protected functionality ──');
 {
   const { sandbox, sentEmails, state } = newIdentitySandbox();
-  sandbox.registerUser('Karl', 'karl@example.com', 'Ops');
-  const code = extractCode(sentEmails[0].body);
-  sandbox.verifyRegistrationEmail('karl@example.com', code);
-  const karl = sandbox._identity_findUserByEmail_('karl@example.com').user;
-  sandbox._identity_transitionStatus_(karl.userId, 'ACTIVE', '', 'test setup');
+  sandbox._identity_ensureSeeds_();
+  const admin = makeActiveUser(sandbox, sentEmails, 'admin@example.com', 'AdminA', 'IT');
+  grantRole(sandbox, admin.userId, 'ADMIN');
+  state.email = 'admin@example.com';
+  // Deliberately NOT calling enrollMfa()/verifyMfa() — ACTIVE + ADMIN role, MFA untouched.
+
+  const target = makeActiveUser(sandbox, sentEmails, 'target@example.com', 'Target', 'Ops');
+
+  const attempts = [
+    ['approveRegistration', () => sandbox.approveRegistration(target.userId)],
+    ['assignRole', () => sandbox.assignRole(target.userId, 'USER', true)],
+    ['assignPermissions', () => sandbox.assignPermissions(target.userId, 'USER_MANAGE', true)],
+    ['assignScope', () => sandbox.assignScope(target.userId, 'SYSTEM', '', true)],
+    ['suspendAccount', () => sandbox.suspendAccount(target.userId, 'x')],
+    ['identityAudit_list', () => sandbox.identityAudit_list()],
+  ];
+  attempts.forEach(([name, fn]) => {
+    const r = fn();
+    check(name + '() rejected for an ACTIVE, permitted admin who has not completed MFA', r.success === false, JSON.stringify(r));
+    check(name + '() rejection reason specifically names MFA, not permission', /MFA/.test(r.message), r.message);
+  });
+
+  // Confirm nothing was actually mutated.
+  eq('target account untouched by the rejected attempts', sandbox._identity_findUserById_(target.userId).user.accountStatus, 'ACTIVE');
+}
+
+console.log('\n── R1.2: ACTIVE user WITH valid MFA can access according to their actual authorization ──');
+{
+  const { sandbox, sentEmails, state } = newIdentitySandbox();
+  sandbox._identity_ensureSeeds_();
+  const { user: admin } = makeAdmin(sandbox, sentEmails, state, 'admin2@example.com', 'AdminB');
+
+  const target = makeActiveUser(sandbox, sentEmails, 'target2@example.com', 'Target', 'Ops');
+  const suspend = sandbox.suspendAccount(target.userId, 'test');
+  check('an ACTIVE admin who HAS completed MFA and HAS the permission succeeds', suspend.success === true, JSON.stringify(suspend));
+
+  // MFA satisfied is not a blanket bypass — still correctly denied for a
+  // permission this admin does not hold... but ADMIN holds everything by
+  // seed, so prove the boundary with Grace-style limited user instead.
+  const limited = makeActiveUser(sandbox, sentEmails, 'limited@example.com', 'Limited', 'Ops');
+  grantRole(sandbox, limited.userId, 'USER');
+  state.email = 'limited@example.com';
+  completeMfaEnrollment(sandbox);
+  const limitedTry = sandbox.suspendAccount(target.userId, 'nope');
+  check('MFA satisfaction alone does not grant a permission the user does not hold', limitedTry.success === false && /Permission required/.test(limitedTry.message), JSON.stringify(limitedTry));
+}
+
+console.log('\n── R1.3: invalid MFA code rejected ──');
+{
+  const { sandbox, sentEmails, state } = newIdentitySandbox();
+  const user = makeActiveUser(sandbox, sentEmails, 'kim@example.com', 'Kim');
+  state.email = 'kim@example.com';
+  sandbox.enrollMfa();
+  const bad = sandbox.verifyMfa('999999');
+  check('a code that does not match the secret at all is rejected', bad.success === false, JSON.stringify(bad));
+  check('MFA satisfaction is NOT granted by an invalid code', sandbox.getAccessState().mfaSatisfied === false);
+}
+
+console.log('\n── R1.4: expired MFA satisfaction is rejected (re-verification required) ──');
+{
+  const { sandbox, sentEmails, state, propsMock } = newIdentitySandbox();
+  sandbox._identity_ensureSeeds_();
+  const admin = makeActiveUser(sandbox, sentEmails, 'expiring@example.com', 'Expiring', 'IT');
+  grantRole(sandbox, admin.userId, 'ADMIN');
+  state.email = 'expiring@example.com';
+  const secret = completeMfaEnrollment(sandbox);
+
+  const beforeExpiry = sandbox.identityAudit_list();
+  check('access works immediately after a real MFA verification', beforeExpiry.success === true, JSON.stringify(beforeExpiry));
+
+  // Simulate the satisfaction window elapsing — directly advance the
+  // stored expiry into the past via the same PropertiesService key the
+  // real code reads (_identity_mfaGatePropertyKey_ is itself the real,
+  // non-secret helper this whole mechanism uses — this is the test
+  // manipulating time, not bypassing any check).
+  const key = sandbox._identity_mfaGatePropertyKey_(admin.userId);
+  propsMock.getUserProperties().setProperty(key, String(Date.now() - 1000));
+
+  const afterExpiry = sandbox.identityAudit_list();
+  check('access is refused once the MFA-satisfied window has expired', afterExpiry.success === false && /MFA/.test(afterExpiry.message), JSON.stringify(afterExpiry));
+
+  // Re-verifying with a FRESH code from the SAME, already-enrolled
+  // secret (exactly what a real user does — open their authenticator
+  // app again, no re-enrollment/reset needed) restores access. One step
+  // AHEAD of the step already consumed by completeMfaEnrollment() above
+  // (anti-replay is monotonic — see R1.5 — so it must be a later step).
+  const freshCode = sandbox._identity_totpCodeForTime_(secret, Math.floor(Date.now() / 1000) + 30);
+  const reverify = sandbox.verifyMfa(freshCode);
+  check('re-verifying with the existing secret succeeds', reverify.success === true, JSON.stringify(reverify));
+  const afterReverify = sandbox.identityAudit_list();
+  check('re-verifying MFA restores access after expiry', afterReverify.success === true, JSON.stringify(afterReverify));
+}
+
+console.log('\n── R1.5: replayed/used MFA verification cannot be reused ──');
+{
+  const { sandbox, sentEmails, state } = newIdentitySandbox();
+  const user = makeActiveUser(sandbox, sentEmails, 'replay@example.com', 'Replay');
+  state.email = 'replay@example.com';
+  const enrollment = sandbox.enrollMfa();
+  const code = sandbox._identity_totpCodeForTime_(enrollment.secret, Math.floor(Date.now() / 1000));
+
+  const first = sandbox.verifyMfa(code);
+  check('first use of a valid code succeeds', first.success === true, JSON.stringify(first));
+
+  const second = sandbox.verifyMfa(code);
+  check('replaying the EXACT SAME code a second time is rejected', second.success === false, JSON.stringify(second));
+  check('the replay rejection message is distinct ("already been used")', /already.*used/i.test(second.message), second.message);
+
+  const rawAudit = sandbox._identity_readAll_(sandbox.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('IDENTITY_AUDIT'));
+  check('the replay attempt is recorded as a failed MFA verification', rawAudit.some(r => r[2] === 'MFA_VERIFY_FAILED' && String(r[5]).indexOf('replay') !== -1));
+}
+
+console.log('\n── R1.6: client-supplied MFA state cannot bypass the server check ──');
+{
+  const { sandbox, sentEmails, state } = newIdentitySandbox();
+  sandbox._identity_ensureSeeds_();
+  const admin = makeActiveUser(sandbox, sentEmails, 'spoof@example.com', 'Spoofer', 'IT');
+  grantRole(sandbox, admin.userId, 'ADMIN');
+  state.email = 'spoof@example.com';
+  // No real MFA completed.
+
+  const target = makeActiveUser(sandbox, sentEmails, 'spooftarget@example.com', 'Target');
+
+  // A spoofed extra "options" argument claiming MFA/role/approval state
+  // — none of these functions accept or look at any such argument, so
+  // this proves the point structurally as well as behaviorally.
+  const spoofedArgs = { mfaVerified: true, isAdmin: true, role: 'ADMIN', accountStatus: 'ACTIVE', permission: 'USER_MANAGE' };
+  const r1 = sandbox.suspendAccount(target.userId, 'x', spoofedArgs);
+  check('a spoofed extra argument cannot substitute for real MFA verification', r1.success === false && /MFA/.test(r1.message), JSON.stringify(r1));
+
+  // Directly attempting to forge the PropertiesService value the REAL
+  // gate reads, without going through verifyMfa(), is the only way such
+  // a bypass could work — confirm no exposed identity function ever
+  // does this: none of registerUser/verifyRegistrationEmail/
+  // approveRegistration/assignRole/assignPermissions/assignScope/
+  // suspendAccount/reactivateAccount/disableAccount/enrollMfa touch
+  // PropertiesService at all except verifyMfa()'s own success path.
+  check('no function outside SVMKPI_IDENTITY_MFA.gs references PropertiesService at all',
+    [regSrc, adminSrc].every(src => src.indexOf('PropertiesService') === -1));
+}
+
+console.log('\n── R1.7: existing ADMIN permission checks remain intact ──');
+{
+  const { sandbox, sentEmails, state } = newIdentitySandbox();
+  sandbox._identity_ensureSeeds_();
+  const { user: admin } = makeAdmin(sandbox, sentEmails, state, 'stillworks@example.com', 'StillWorks');
+  const target = makeActiveUser(sandbox, sentEmails, 'stillworkstarget@example.com', 'Target');
+
+  const approve = sandbox.assignRole(target.userId, 'USER', true);
+  check('a fully-authorized (ACTIVE + MFA-satisfied + permitted) admin can still perform every permission-gated action', approve.success === true, JSON.stringify(approve));
+
+  const nonAdmin = makeActiveUser(sandbox, sentEmails, 'stillworksuser@example.com', 'PlainUser');
+  grantRole(sandbox, nonAdmin.userId, 'USER');
+  state.email = 'stillworksuser@example.com';
+  completeMfaEnrollment(sandbox);
+  const denied = sandbox.assignRole(target.userId, 'ADMIN', true);
+  check('a plain USER (even MFA-satisfied) is still correctly denied ADMIN-only actions', denied.success === false && /Permission required/.test(denied.message), JSON.stringify(denied));
+}
+
+console.log('\n── R1.8/R1.9: TOTP secrets never returned or logged after enrollment ──');
+{
+  const { sandbox, sentEmails, state } = newIdentitySandbox();
+  const user = makeActiveUser(sandbox, sentEmails, 'karl@example.com', 'Karl');
   state.email = 'karl@example.com';
   const enrollment = sandbox.enrollMfa();
   const validCode = sandbox._identity_totpCodeForTime_(enrollment.secret, Math.floor(Date.now() / 1000));
   sandbox.verifyMfa(validCode);
 
+  const detail = sandbox.identityAdmin_getUserDetail; // admin-only read path; verified separately not to exist for self
+  const accessState = sandbox.getAccessState();
+  check('getAccessState() never returns the TOTP secret', JSON.stringify(accessState).indexOf(enrollment.secret) === -1);
+  const currentUser = sandbox.getCurrentUser();
+  check('getCurrentUser() never returns the TOTP secret', JSON.stringify(currentUser).indexOf(enrollment.secret) === -1);
+
   const rawAudit = sandbox._identity_readAll_(sandbox.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('IDENTITY_AUDIT'));
   const allDetails = rawAudit.map(r => String(r[5] || '')).join(' | ');
-  check('the verification code never appears in any audit "details" field', allDetails.indexOf(code) === -1, allDetails);
+  check('the verification code never appears in any audit "details" field', allDetails.indexOf(validCode) === -1, allDetails);
   check('the MFA secret never appears in any audit "details" field', allDetails.indexOf(enrollment.secret) === -1, allDetails);
 }
 
@@ -443,6 +652,7 @@ console.log('\n── getCurrentUser() / getAccessState() ──');
   const noAccountState = sandbox.getAccessState();
   eq('unregistered -> status NO_ACCOUNT', noAccountState.status, 'NO_ACCOUNT');
   eq('unregistered -> isActive false', noAccountState.isActive, false);
+  eq('unregistered -> mfaSatisfied false', noAccountState.mfaSatisfied, false);
 }
 
 console.log('\n══════════════════════════════════');

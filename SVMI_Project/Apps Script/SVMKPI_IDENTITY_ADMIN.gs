@@ -6,9 +6,11 @@
 // externally-disabled identity.
 // ------------------------------------------------------------
 // Every mutating function here:
-//   - re-checks the ACTOR's permission server-side via
-//     _identity_currentUserHasPermission_() (SVMKPI_IDENTITY_CORE.gs) —
-//     never trusts a client-supplied role/permission/approval value;
+//   - re-checks the ACTOR's authorization server-side via
+//     _identity_authorizeCurrentUser_() (SVMKPI_IDENTITY_CORE.gs) — which
+//     as of Security Fix R1 requires ACTIVE status, a satisfied MFA
+//     credential (D-031), AND the specific permission — never trusts a
+//     client-supplied role/permission/approval/MFA-state value;
 //   - writes an IDENTITY_AUDIT row before returning success;
 //   - fails closed (returns {success:false,...}) on any missing/invalid
 //     authorization or target.
@@ -26,9 +28,8 @@
  * @returns {{success:boolean, registrations?:object[], message?:string}}
  */
 function listPendingRegistrations() {
-  if (!_identity_currentUserHasPermission_(IDENTITY_PERMISSION.REGISTRATION_APPROVE)) {
-    return { success: false, message: 'Permission required: REGISTRATION_APPROVE.' };
-  }
+  const auth = _identity_authorizeCurrentUser_(IDENTITY_PERMISSION.REGISTRATION_APPROVE);
+  if (!auth.authorized) return { success: false, message: auth.reason };
   const sheet = _identity_ensureSheet_(IDENTITY_SHEET.USERS, IDENTITY_HEADERS.USERS);
   const rows = _identity_readAll_(sheet);
   const registrations = rows
@@ -50,9 +51,8 @@ function listPendingRegistrations() {
  * @returns {{success:boolean, message:string}}
  */
 function approveRegistration(userId) {
-  if (!_identity_currentUserHasPermission_(IDENTITY_PERMISSION.REGISTRATION_APPROVE)) {
-    return { success: false, message: 'Permission required: REGISTRATION_APPROVE.' };
-  }
+  const auth = _identity_authorizeCurrentUser_(IDENTITY_PERMISSION.REGISTRATION_APPROVE);
+  if (!auth.authorized) return { success: false, message: auth.reason };
   const actor = _identity_currentUserRecord_();
   const result = _identity_transitionStatus_(userId, IDENTITY_STATUS.ACTIVE, actor.userId, 'Approved');
   if (!result.success) return result;
@@ -76,9 +76,8 @@ function approveRegistration(userId) {
  * @returns {{success:boolean, message:string}}
  */
 function rejectRegistration(userId, reason) {
-  if (!_identity_currentUserHasPermission_(IDENTITY_PERMISSION.REGISTRATION_APPROVE)) {
-    return { success: false, message: 'Permission required: REGISTRATION_APPROVE.' };
-  }
+  const auth = _identity_authorizeCurrentUser_(IDENTITY_PERMISSION.REGISTRATION_APPROVE);
+  if (!auth.authorized) return { success: false, message: auth.reason };
   const actor = _identity_currentUserRecord_();
   const result = _identity_transitionStatus_(userId, IDENTITY_STATUS.REJECTED, actor.userId, reason || '');
   if (!result.success) return result;
@@ -93,9 +92,8 @@ function rejectRegistration(userId, reason) {
 // ═══════════════════════════════════════════════════════════════
 
 function suspendAccount(userId, reason) {
-  if (!_identity_currentUserHasPermission_(IDENTITY_PERMISSION.USER_MANAGE)) {
-    return { success: false, message: 'Permission required: USER_MANAGE.' };
-  }
+  const auth = _identity_authorizeCurrentUser_(IDENTITY_PERMISSION.USER_MANAGE);
+  if (!auth.authorized) return { success: false, message: auth.reason };
   const actor = _identity_currentUserRecord_();
   const result = _identity_transitionStatus_(userId, IDENTITY_STATUS.SUSPENDED, actor.userId, reason || '');
   if (!result.success) return result;
@@ -104,9 +102,8 @@ function suspendAccount(userId, reason) {
 }
 
 function reactivateAccount(userId, reason) {
-  if (!_identity_currentUserHasPermission_(IDENTITY_PERMISSION.USER_MANAGE)) {
-    return { success: false, message: 'Permission required: USER_MANAGE.' };
-  }
+  const auth = _identity_authorizeCurrentUser_(IDENTITY_PERMISSION.USER_MANAGE);
+  if (!auth.authorized) return { success: false, message: auth.reason };
   const actor = _identity_currentUserRecord_();
   const result = _identity_transitionStatus_(userId, IDENTITY_STATUS.ACTIVE, actor.userId, reason || '');
   if (!result.success) return result;
@@ -121,9 +118,8 @@ function reactivateAccount(userId, reason) {
  * presumably-permanent action vs. the reversible "suspend".
  */
 function disableAccount(userId, reason) {
-  if (!_identity_currentUserHasPermission_(IDENTITY_PERMISSION.USER_MANAGE)) {
-    return { success: false, message: 'Permission required: USER_MANAGE.' };
-  }
+  const auth = _identity_authorizeCurrentUser_(IDENTITY_PERMISSION.USER_MANAGE);
+  if (!auth.authorized) return { success: false, message: auth.reason };
   const actor = _identity_currentUserRecord_();
   const result = _identity_transitionStatus_(userId, IDENTITY_STATUS.DISABLED, actor.userId, reason || '');
   if (!result.success) return result;
@@ -178,9 +174,8 @@ function handleExternalIdentityDisabled(authProvider, authSubject) {
  * @returns {{success:boolean, message:string}}
  */
 function assignRole(userId, roleId, grant) {
-  if (!_identity_currentUserHasPermission_(IDENTITY_PERMISSION.ROLE_ASSIGN)) {
-    return { success: false, message: 'Permission required: ROLE_ASSIGN.' };
-  }
+  const auth = _identity_authorizeCurrentUser_(IDENTITY_PERMISSION.ROLE_ASSIGN);
+  if (!auth.authorized) return { success: false, message: auth.reason };
   const target = _identity_findUserById_(userId);
   if (!target) return { success: false, message: 'User not found.' };
 
@@ -221,9 +216,8 @@ function assignRole(userId, roleId, grant) {
  * @returns {{success:boolean, message:string}}
  */
 function assignPermissions(userId, permissionKey, grant) {
-  if (!_identity_currentUserHasPermission_(IDENTITY_PERMISSION.PERMISSION_ASSIGN)) {
-    return { success: false, message: 'Permission required: PERMISSION_ASSIGN.' };
-  }
+  const auth = _identity_authorizeCurrentUser_(IDENTITY_PERMISSION.PERMISSION_ASSIGN);
+  if (!auth.authorized) return { success: false, message: auth.reason };
   const target = _identity_findUserById_(userId);
   if (!target) return { success: false, message: 'User not found.' };
 
@@ -263,9 +257,8 @@ function assignPermissions(userId, permissionKey, grant) {
  * @returns {{success:boolean, message:string}}
  */
 function assignScope(userId, scopeType, scopeValue, grant) {
-  if (!_identity_currentUserHasPermission_(IDENTITY_PERMISSION.SCOPE_ASSIGN)) {
-    return { success: false, message: 'Permission required: SCOPE_ASSIGN.' };
-  }
+  const auth = _identity_authorizeCurrentUser_(IDENTITY_PERMISSION.SCOPE_ASSIGN);
+  if (!auth.authorized) return { success: false, message: auth.reason };
   const target = _identity_findUserById_(userId);
   if (!target) return { success: false, message: 'User not found.' };
 

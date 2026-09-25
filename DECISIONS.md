@@ -489,3 +489,49 @@ rewriting an already-numbered file.
 "historical, corrected via a pointer" pattern used for `DEPLOY.md`/
 `README.txt` in the documentation-reconciliation pass), not a rewrite. No
 production Postgres cutover occurs in Phase 1H-C — unchanged from D-011.
+
+---
+
+## Phase 1H-C Security Fix R1 — MFA is now an enforced access requirement
+
+### D-031 — Server-authoritative MFA satisfaction gate, backed by `PropertiesService`, not a general session
+**Status:** Settled (Phase 1H-C Security Fix R1)
+**Decision:** `verifyMfa()` success now records a bounded (12-hour,
+`IDENTITY_MFA_GATE_TTL_MINUTES`), server-side "MFA satisfied" credential
+via `PropertiesService.getUserProperties()` — scoped by Apps Script
+itself to the executing Google identity, the same trust primitive
+`Session.getActiveUser()` already provides everywhere else in this
+codebase, never readable or writable by any client. The central identity
+authorization function, `_identity_authorizeCurrentUser_()`
+(`SVMKPI_IDENTITY_CORE.gs`), now refuses any ACTIVE, otherwise-permitted
+user who has not satisfied this credential — the single choke point
+every protected identity function (`approveRegistration`, `assignRole`,
+`assignPermissions`, `assignScope`, `suspendAccount`, `reactivateAccount`,
+`disableAccount`, `identityAudit_list`) already called, so none needed
+its own edit. TOTP verification also gained anti-replay protection: a
+given time-step can satisfy at most one `verifyMfa()` call
+(`IDENTITY_MFA_COL.LAST_USED_STEP`).
+**Rationale:** Closes the gap the Phase 1H-C implementation review
+(`reviews/007-...md`) itself disclosed: MFA was enrollment-time proof of
+possession only, not an actual access requirement, which did not satisfy
+the approved requirement ("MFA is required for every Active user").
+Building a general session mechanism was explicitly out of scope for
+this fix; `PropertiesService.getUserProperties()` is a native Apps
+Script primitive tied to the same server-verified identity already
+trusted throughout this codebase, not a client-held token or cookie — it
+carries exactly one fact (MFA satisfied until time T), not roles,
+permissions, or identity data, all of which continue to be re-read fresh
+from the `IDENTITY_*` sheets on every call. This is deliberately NOT
+called a session anywhere in code or docs, to avoid contradicting the
+"no session redesign" constraint both Phase 1H-C and this fix operated
+under.
+**Impact:** `getAccessState().isActive` now requires both `ACTIVE`
+account status and a satisfied MFA credential — `accountStatus` is
+reported separately so the UI can still distinguish "not yet ACTIVE"
+from "ACTIVE, MFA not yet completed this cycle." A reset or fresh
+`enrollMfa()` call clears any standing satisfaction (a stale credential
+from an old secret can never carry over to a new one). The 12-hour TTL
+is a tunable policy constant, not itself a security boundary — do not
+extend it without a new decision if a shorter/longer window is later
+required. The 45+ pre-existing `sl_isAdmin()`-gated call sites are
+unaffected (D-025/D-026 — separate systems, not rewired here).
