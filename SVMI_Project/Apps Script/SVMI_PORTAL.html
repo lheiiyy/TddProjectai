@@ -2675,12 +2675,24 @@ function runSettingsMigration() {
     .withSuccessHandler(function(r) {
       if (r && r.success) {
         var s = r.stores || {}, v = r.visitors || {}, p = r.purposes || {};
+        var failedCount = (s.failed || []).length + (v.failed || []).length + (p.failed || []).length;
         var summary = 'Stores: +' + ((s.createdStoreIds || []).length) + ' (already had ' + ((s.alreadyMigrated || []).length) + ') · '
           + 'Visitors: +' + ((v.createdNames || []).length) + ' (already had ' + ((v.alreadyMigrated || []).length) + ') · '
-          + 'Purposes: +' + ((p.createdNames || []).length) + ' (already had ' + ((p.alreadyMigrated || []).length) + ')';
-        stat.textContent = '✅ Done — ' + summary; stat.className = 'tool-stat success';
-        addLog('ok', '✅ Migrate Legacy Data: ' + summary);
+          + 'Purposes: +' + ((p.createdNames || []).length) + ' (already had ' + ((p.alreadyMigrated || []).length) + ')'
+          + (failedCount ? ' · ' + failedCount + ' FAILED' : '');
+        stat.textContent = (failedCount ? '⚠ Done with errors — ' : '✅ Done — ') + summary;
+        stat.className = failedCount ? 'tool-stat error' : 'tool-stat success';
+        addLog(failedCount ? 'warn' : 'ok', (failedCount ? '⚠' : '✅') + ' Migrate Legacy Data: ' + summary);
         if (s.unmappedCount) addLog('warn', '⚠ ' + s.unmappedCount + ' MASTER_LOG store name(s) could not be confidently matched — see CONFIG_UNMAPPED_STORES.');
+        // A SETTINGS row this migration could not create (most commonly:
+        // a blank required field — Brand/Region/Category for a Store,
+        // SVMKPI_CONFIG.gs's own validation) never becomes a CONFIG_*
+        // entity at all — never silently drop that, since it's exactly
+        // the "SETTINGS has it, Configuration doesn't" mismatch an admin
+        // needs to go fix in SETTINGS itself.
+        (s.failed || []).forEach(function(f) { addLog('warn', '⚠ Store "' + f.name + '" not migrated: ' + f.message); });
+        (v.failed || []).forEach(function(f) { addLog('warn', '⚠ Visitor "' + f.name + '" not migrated: ' + f.message); });
+        (p.failed || []).forEach(function(f) { addLog('warn', '⚠ Purpose "' + f.name + '" not migrated: ' + f.message); });
       } else {
         stat.textContent = '❌ ' + ((r && r.message) || 'Migration failed.'); stat.className = 'tool-stat error';
       }

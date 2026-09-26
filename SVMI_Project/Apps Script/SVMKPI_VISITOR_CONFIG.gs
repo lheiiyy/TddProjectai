@@ -91,9 +91,12 @@ function _visitorSync_toSettings(visitorName) {
  * store_migrateFromSettings() uses for a store with no MASTER_LOG
  * history at all). Safe to re-run: a name that already resolves is
  * skipped, never re-created.
+ * A name that fails cfg_createConfiguration()'s own validation (e.g. an
+ * empty/malformed entry after normalization) is reported here in
+ * `failed`, with the reason, rather than silently vanishing.
  * Admin-gated.
  * @param {string[]} settingsVisitorNames
- * @returns {{success:boolean, message?:string, createdNames?:string[], alreadyMigrated?:string[]}}
+ * @returns {{success:boolean, message?:string, createdNames?:string[], alreadyMigrated?:string[], failed?:{name:string, message:string}[]}}
  */
 function visitor_migrateFromSettings(settingsVisitorNames) {
   if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
@@ -102,6 +105,7 @@ function visitor_migrateFromSettings(settingsVisitorNames) {
   const todayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
   const created = [];
   const alreadyMigrated = [];
+  const failed = [];
   const seen = {};
 
   (settingsVisitorNames || []).forEach(raw => {
@@ -115,8 +119,12 @@ function visitor_migrateFromSettings(settingsVisitorNames) {
     }
 
     const result = cfg_createConfiguration(CFG_AREA.VISITORS, name, { visitorName: name }, todayStr, null, 'Migrated from SETTINGS', {});
-    if (result.success) created.push(name);
+    if (result.success) {
+      created.push(name);
+    } else {
+      failed.push({ name, message: result.message || 'Unknown error.' });
+    }
   });
 
-  return { success: true, createdNames: created, alreadyMigrated };
+  return { success: true, createdNames: created, alreadyMigrated, failed };
 }

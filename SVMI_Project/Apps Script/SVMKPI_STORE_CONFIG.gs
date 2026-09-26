@@ -480,10 +480,22 @@ function store_reconcileUnmapped(unmappedId, resolvedStoreId, notes) {
  * never run against the live spreadsheet without a fresh backup — see
  * DEPLOY.md.)
  *
+ * A SETTINGS row missing one of store_create()'s own required fields
+ * (Store Name/Brand/Region/Category — cfg_validateConfiguration()'s
+ * `required` list for CFG_AREA.STORES, SVMKPI_CONFIG.gs) is rejected by
+ * store_create() — reported here in `failed`, with the reason, rather
+ * than silently vanishing from the result. Fix this by filling in the
+ * missing value in SETTINGS and re-running; already-migrated stores are
+ * skipped as always. (Note: a non-blank Brand/Region/Category that just
+ * isn't in APPROVED_BRANDS/APPROVED_REGIONS/APPROVED_CATEGORIES is NOT
+ * currently rejected here — cfg_validateConfiguration() only enforces
+ * "not blank" for these fields, not approved-list membership, for
+ * CFG_AREA.STORES specifically.)
+ *
  * @param {{store:string, brand:string, region:string, category:string}[]} settingsStores
  * @param {{store:string, date:(Date|string)}[]} masterLogRows - only the
  *   fields this function needs, not a full MASTER_LOG row shape
- * @returns {{success:boolean, message?:string, createdStoreIds?:string[], mapping?:object, unmappedCount?:number, alreadyMigrated?:string[]}}
+ * @returns {{success:boolean, message?:string, createdStoreIds?:string[], mapping?:object, unmappedCount?:number, alreadyMigrated?:string[], failed?:{name:string, message:string}[]}}
  */
 function store_migrateFromSettings(settingsStores, masterLogRows) {
   if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
@@ -492,6 +504,7 @@ function store_migrateFromSettings(settingsStores, masterLogRows) {
   const mapping = {};   // normalized name -> storeId
   const created = [];
   const alreadyMigrated = [];
+  const failed = [];
 
   (settingsStores || []).forEach(s => {
     const name = String(s.store || s.name || '').trim().toUpperCase();
@@ -518,7 +531,12 @@ function store_migrateFromSettings(settingsStores, masterLogRows) {
       'Migrated from SETTINGS',
       { backdateConfirmed: true }
     );
-    if (result.success) { mapping[name] = result.storeId; created.push(result.storeId); }
+    if (result.success) {
+      mapping[name] = result.storeId;
+      created.push(result.storeId);
+    } else {
+      failed.push({ name: s.store || s.name, message: result.message || 'Unknown error.' });
+    }
   });
 
   // Group MASTER_LOG rows by name to record occurrence stats once per
@@ -548,5 +566,6 @@ function store_migrateFromSettings(settingsStores, masterLogRows) {
     mapping,
     unmappedCount: Object.keys(unmappedStats).length,
     alreadyMigrated,
+    failed,
   };
 }

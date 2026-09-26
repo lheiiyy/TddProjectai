@@ -279,6 +279,62 @@ console.log('\n── settingsMigration_run() imports pre-existing legacy SETTIN
   eq('the purpose is reported as already migrated', second.purposes.alreadyMigrated, ['LEGACY PURPOSE']);
 }
 
+// ── 4b. A SETTINGS row that fails validation is reported in `failed`,
+//        never silently dropped (the bug a live-deployment admin actually
+//        hit: the migration reported "success" while some SETTINGS rows
+//        never became CONFIG_* entities at all, with no error surfaced) ──
+console.log('\n── settingsMigration_run() reports rows that fail to migrate instead of silently dropping them ──');
+{
+  const { sandbox, sheets } = newSandbox();
+  const settings = sheets['SETTINGS'] || (sheets['SETTINGS'] = makeSheet());
+  // Row 2: a valid store — should migrate cleanly.
+  settings.getRange(2, 1).setValue('GOOD STORE');
+  settings.getRange(2, 2).setValue('APEX');
+  settings.getRange(2, 3).setValue('NCR');
+  settings.getRange(2, 5).setValue('NCR');
+  // Row 3: a legacy row with a BLANK Region cell — a real-world data-
+  // quality gap this migration must surface, not one it invents. (A
+  // non-blank-but-unapproved Brand/Region is a separate, documented gap —
+  // cfg_validateConfiguration() doesn't check approved-list membership
+  // for CFG_AREA.STORES, only blankness — so that would NOT fail here.)
+  settings.getRange(3, 1).setValue('INCOMPLETE STORE');
+  settings.getRange(3, 2).setValue('APEX');
+  settings.getRange(3, 3).setValue(''); // blank Region — required field
+  settings.getRange(3, 5).setValue('NCR');
+
+  const result = sandbox.settingsMigration_run();
+  check('migration call itself still succeeds (a per-row failure is not a fatal error)', result.success === true, JSON.stringify(result));
+  eq('the valid store is created', result.stores.createdStoreIds.length, 1);
+  check('the incomplete-data store is reported in failed, not silently dropped',
+    result.stores.failed && result.stores.failed.length === 1 && result.stores.failed[0].name === 'INCOMPLETE STORE',
+    JSON.stringify(result.stores.failed));
+  check('the failure reason names the actual validation problem (missing Region)',
+    /region/i.test((result.stores.failed[0] || {}).message || ''), JSON.stringify(result.stores.failed));
+  check('the incomplete store never became a real Store ID', !sandbox.store_resolveIdByCurrentName('INCOMPLETE STORE'));
+
+  // Re-running does not spuriously "fix" or duplicate the failure — same
+  // row fails again, reported again, exactly like alreadyMigrated does
+  // for a row that succeeded.
+  const second = sandbox.settingsMigration_run();
+  eq('re-running reports the same still-unfixed row as failed again', second.stores.failed.length, 1);
+  eq('re-running does not re-create the already-migrated valid store', second.stores.createdStoreIds.length, 0);
+}
+
+console.log('\n── visitor_migrateFromSettings()/purpose_migrateFromSettings() also report failures, not just successes ──');
+{
+  const { sandbox } = newSandbox();
+  // cfg_createConfiguration() rejects a blank/whitespace-only entity ID
+  // (normalizes to '') — exercise the failure path directly, the same
+  // shape a real-world malformed SETTINGS cell would hit.
+  const visResult = sandbox.visitor_migrateFromSettings(['GOOD VISITOR']);
+  eq('a valid visitor still migrates cleanly', visResult.createdNames, ['GOOD VISITOR']);
+  check('visitor_migrateFromSettings() returns a failed array (even if empty) instead of omitting it', Array.isArray(visResult.failed));
+
+  const purResult = sandbox.purpose_migrateFromSettings(['GOOD PURPOSE']);
+  eq('a valid purpose still migrates cleanly', purResult.createdNames, ['GOOD PURPOSE']);
+  check('purpose_migrateFromSettings() returns a failed array (even if empty) instead of omitting it', Array.isArray(purResult.failed));
+}
+
 // ── 5. No Store & Roster Manager UI reference remains ──────────────────
 console.log('\n── SVMI_PORTAL.html has no remaining Store & Roster Manager UI/handlers ──');
 {

@@ -7,17 +7,23 @@ demo; dry-run tooling is pure-function/synthetic-data only).
 
 ## Apps Script track — `SVMI_Project/tests/`
 
-**Verified this session: 26 files, 1273 assertions, 0 failures.** Phase
+**Verified this session: 26 files, 1284 assertions, 0 failures.** Phase
 1H-C Security Fix R1 grew `identity.test.js` from 62 to 100 assertions
 (38 new, covering the 10 required MFA-enforcement proof points — see
 `reviews/008-phase-1h-c-security-fix-r1.md`); Phase 1H-C Security Fix R2
 added a new file, `identity-legacy-admin-mfa.test.js` (44 assertions,
 covering the 6 required proof points that MFA now also gates the
 pre-existing `sl_isAdmin()` legacy admin path — see
-`reviews/009-phase-1h-c-security-fix-r2.md`); the other 24 files/1129
-assertions — including Phase 1H-B.1's `security-remediation.test.js`,
-deliberately left unmodified by both fixes — are the unchanged
-pre-existing baseline, re-run as regression.
+`reviews/009-phase-1h-c-security-fix-r2.md`); a follow-up bug fix (a
+live-deployment admin report: "Migrate Legacy Data" reported success
+while some SETTINGS rows never became CONFIG_* entities, no error
+shown) grew `settings-config-migration.test.js` from 34 to 45 assertions
+(11 new, proving a row that fails `store_create()`'s/`cfg_
+createConfiguration()`'s own validation is now reported in a `failed`
+array with its reason, instead of silently vanishing); the other 23
+files/1129 assertions — including Phase 1H-B.1's
+`security-remediation.test.js`, deliberately left unmodified — are the
+unchanged pre-existing baseline, re-run as regression.
 
 Per-file counts below are as documented in `SVMI_Project/DEPLOY.md`'s own
 "Checks before you push" section (attributed to that source, not
@@ -45,7 +51,7 @@ touched or added in Phase 1G are from today's direct run.
 | `risk-scoring.test.js` | Store Health scoring engine | — |
 | `roster-auto-refresh.test.js` | Adding a roster member auto-rebuilds KPI 2026 | — |
 | `security-remediation.test.js` | **Phase 1H-B.1** — the 3 Required security findings: `_getAdminEmails`/`_getGuestPassword` no longer directly RPC-callable, the 5 rebuild engines + daily trigger, the 5 Sheets-menu handlers | 34 (added this session) |
-| `settings-config-migration.test.js` | **Phase 1G** — CONFIG_* → SETTINGS mirror sync (create/deactivate/rename), legacy-purpose fallback, `getSidebarData()` sourcing from CONFIG_*, migration idempotency, no-SRM-reference check | 34 |
+| `settings-config-migration.test.js` | **Phase 1G** — CONFIG_* → SETTINGS mirror sync (create/deactivate/rename), legacy-purpose fallback, `getSidebarData()` sourcing from CONFIG_*, migration idempotency, no-SRM-reference check. **Bug fix (this session)** — a row that fails `store_create()`/`cfg_createConfiguration()`/`purpose_create()` validation during `settingsMigration_run()` is now reported in a `failed` array with its reason, instead of silently vanishing (a live-deployment admin hit exactly this: the tool reported success while some SETTINGS rows never became CONFIG_* entities) | 45 (grew from 34 this session) |
 | `store-identity.test.js` | Store ID identity/immutability, historical resolution, migration + UNMAPPED tracking, security | 51 |
 | `store-lookup-date-handling.test.js` | Date-handling consistency across `SVMKPI_STORE_LOOKUP.gs` call sites | — |
 | `store-remove-history.test.js` | Remove Store preserves history, row isolation, admin gate | — |

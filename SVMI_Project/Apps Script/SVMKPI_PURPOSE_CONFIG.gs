@@ -144,8 +144,11 @@ function _purposeSync_toSettings(purposeName) {
  * those are correctly skipped here, not re-created). Effective from
  * today, same honest-boundary reasoning as the Visitor/Store migrations.
  * Safe to re-run. Admin-gated.
+ *
+ * A name that fails purpose_create()'s own validation is reported here
+ * in `failed`, with the reason, rather than silently vanishing.
  * @param {string[]} settingsPurposeNames
- * @returns {{success:boolean, message?:string, createdNames?:string[], alreadyMigrated?:string[]}}
+ * @returns {{success:boolean, message?:string, createdNames?:string[], alreadyMigrated?:string[], failed?:{name:string, message:string}[]}}
  */
 function purpose_migrateFromSettings(settingsPurposeNames) {
   if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
@@ -154,6 +157,7 @@ function purpose_migrateFromSettings(settingsPurposeNames) {
   const todayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
   const created = [];
   const alreadyMigrated = [];
+  const failed = [];
   const seen = {};
 
   (settingsPurposeNames || []).forEach(raw => {
@@ -167,8 +171,12 @@ function purpose_migrateFromSettings(settingsPurposeNames) {
     }
 
     const result = purpose_create(name, {}, todayStr, 'Migrated from SETTINGS', {});
-    if (result.success) created.push(name);
+    if (result.success) {
+      created.push(name);
+    } else {
+      failed.push({ name, message: result.message || 'Unknown error.' });
+    }
   });
 
-  return { success: true, createdNames: created, alreadyMigrated };
+  return { success: true, createdNames: created, alreadyMigrated, failed };
 }
