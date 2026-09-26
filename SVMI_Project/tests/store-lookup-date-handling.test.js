@@ -143,7 +143,7 @@ console.log('\n── sl_getVisitedThisMonth() / sl_getUnvisitedThisMonth(): str
     };
   });
 
-  const visited = sandbox.sl_getVisitedThisMonth([]).map(r => r.name).sort();
+  const visited = sandbox.sl_getVisitedThisMonth([]).resolved.map(r => r.name).sort();
   check('native-Date store counts as visited this month', visited.includes('STORE_NATIVE'), JSON.stringify(visited));
   check('string-dated store counts as visited this month (the fix)', visited.includes('STORE_STRING'), JSON.stringify(visited));
   check('invalid-date store is not counted as visited', !visited.includes('STORE_INVALID'), JSON.stringify(visited));
@@ -191,6 +191,96 @@ console.log('\n── sl_getComplianceGaps(): string dates count toward YTD/comp
   check('STORE_D (blank date) is NOT compliant -> present in the gap list', !!byStore.STORE_D, JSON.stringify(gaps.map(g => g.store)));
   check('STORE_C\'s YTD count is 0 (invalid date never counted)', byStore.STORE_C.ytdVisits === 0, byStore.STORE_C.ytdVisits);
   check('STORE_D\'s YTD count is 0 (blank date never counted)', byStore.STORE_D.ytdVisits === 0, byStore.STORE_D.ytdVisits);
+}
+
+// ── sl_getVisitedThisMonth(): unmapped-row bucket (bug fix) ───────────
+// A live-deployment report: Executive Summary's Monthly-by-Brand total
+// (raw COUNTIFS over MASTER_LOG, no roster check) didn't match Store
+// Insights' "Visited This Month" total (roster-joined, silently dropped
+// any row whose Store text didn't resolve to a current SETTINGS entry).
+// Proves such rows are now surfaced in `unmapped` instead of vanishing,
+// and that resolved+unmapped visits reconciles with a raw brand+month count.
+console.log('\n── sl_getVisitedThisMonth(): unmapped rows are surfaced, not dropped ──');
+{
+  const { sandbox, SDate } = newSandbox((D) => {
+    const now = new D();
+    const thisMonth10th = new D(now.getFullYear(), now.getMonth(), 10);
+    const thisMonth12th = new D(now.getFullYear(), now.getMonth(), 12);
+    return {
+      masterLogRows: [
+        ['t1', thisMonth10th, 'STORE_KNOWN', 'FIGARO', 'NCR', 'LEO', 'STORE VISIT', ''],
+        // Renamed/removed from Settings, or a data-entry mismatch — this
+        // store text has NO current roster entry at all.
+        ['t2', thisMonth12th, 'STORE_GHOST', 'FIGARO', 'NCR', 'YANA', 'STORE VISIT', ''],
+        ['t3', thisMonth12th, 'STORE_GHOST', 'FIGARO', 'NCR', 'YANA', 'STORE VISIT', ''],
+      ],
+      settingsRows: [
+        ['STORE_KNOWN', 'FIGARO', 'NCR', '', 'NCR'],
+      ],
+    };
+  });
+
+  const result = sandbox.sl_getVisitedThisMonth([]);
+  check('resolved bucket contains the roster-matched store', result.resolved.some(r => r.name === 'STORE_KNOWN'), JSON.stringify(result.resolved.map(r => r.name)));
+  check('unmapped bucket contains the non-roster store instead of dropping it (the fix)',
+    result.unmapped.some(u => u.name === 'STORE_GHOST'), JSON.stringify(result.unmapped));
+  const ghost = result.unmapped.find(u => u.name === 'STORE_GHOST');
+  check('unmapped entry counts both of its visit rows', ghost && ghost.visits === 2, ghost);
+  check('unmapped entry keeps its most recent visit date', ghost && ghost.lastVisitDate && ghost.lastVisitDate !== '—', ghost);
+
+  const rawTotal = 1 /*STORE_KNOWN*/ + 2 /*STORE_GHOST*/;
+  const resolvedTotal = result.resolved.reduce((n, r) => n + r.visits, 0);
+  const unmappedTotal = result.unmapped.reduce((n, u) => n + u.visits, 0);
+  check('resolved + unmapped visits reconciles with the raw row count (matches Executive Summary\'s COUNTIFS)',
+    resolvedTotal + unmappedTotal === rawTotal, { resolvedTotal, unmappedTotal, rawTotal });
+}
+
+// ── sl_getVisitedThisMonth(): a store excluded by brandFilter is NOT
+//    mistaken for "unmapped" — it's simply out of scope for this call.
+console.log('\n── sl_getVisitedThisMonth(): brandFilter exclusion is not the same as unmapped ──');
+{
+  const { sandbox, SDate } = newSandbox((D) => {
+    const now = new D();
+    const thisMonth5th = new D(now.getFullYear(), now.getMonth(), 5);
+    return {
+      masterLogRows: [
+        ['t1', thisMonth5th, 'STORE_OTHERBRAND', 'ANGELS PIZZA', 'NCR', 'LEO', 'STORE VISIT', ''],
+      ],
+      settingsRows: [
+        ['STORE_OTHERBRAND', 'ANGELS PIZZA', 'NCR', '', 'NCR'],
+      ],
+    };
+  });
+
+  const result = sandbox.sl_getVisitedThisMonth(['FIGARO']); // filter excludes the only store
+  check('store excluded by brandFilter is absent from resolved', result.resolved.length === 0, JSON.stringify(result.resolved));
+  check('store excluded by brandFilter is NOT counted as unmapped either', result.unmapped.length === 0, JSON.stringify(result.unmapped));
+}
+
+// ── sl_getVisitedThisMonth(): optional monthNumber/reportingYear ──────
+// Mirrors sl_getComplianceGaps()'s existing fallback pattern — omitting
+// both params preserves the exact pre-fix "always current month" behavior;
+// passing them reproduces any past month on demand.
+console.log('\n── sl_getVisitedThisMonth(): optional month/year params reproduce a past month ──');
+{
+  const { sandbox, SDate } = newSandbox((D) => ({
+    masterLogRows: [
+      ['t1', new D(2026, 6, 15), 'STORE_JUL', 'FIGARO', 'NCR', 'LEO', 'STORE VISIT', ''],   // July
+      ['t2', new D(2026, 7, 20), 'STORE_AUG', 'FIGARO', 'NCR', 'YANA', 'STORE VISIT', ''],  // August
+      ['t3', new D(2026, 8, 5),  'STORE_SEP', 'FIGARO', 'NCR', 'GIO', 'STORE VISIT', ''],   // September
+    ],
+    settingsRows: [
+      ['STORE_JUL', 'FIGARO', 'NCR', '', 'NCR'],
+      ['STORE_AUG', 'FIGARO', 'NCR', '', 'NCR'],
+      ['STORE_SEP', 'FIGARO', 'NCR', '', 'NCR'],
+    ],
+  }));
+
+  const august = sandbox.sl_getVisitedThisMonth([], 8, 2026).resolved.map(r => r.name);
+  check('explicit monthNumber=8 returns only the August visit', august.length === 1 && august[0] === 'STORE_AUG', JSON.stringify(august));
+
+  const july = sandbox.sl_getVisitedThisMonth([], 7, 2026).resolved.map(r => r.name);
+  check('explicit monthNumber=7 returns only the July visit — proves ANY past month is reachable now', july.length === 1 && july[0] === 'STORE_JUL', JSON.stringify(july));
 }
 
 console.log('\n══════════════════════════════════');

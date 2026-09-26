@@ -515,56 +515,104 @@ function _slBrandAllowed(brand, brandFilter) {
 }
 
 /**
- * sl_getVisitedThisMonth(brandFilter)
- * Returns stores that HAVE been visited in the current calendar month,
- * optionally filtered by brand. Powers the "Visited This Month" view in
- * the Store Insights tab. (Its mirror image — what's still outstanding —
- * is the Unvisited This Month tab, served by sl_getComplianceGaps().)
+ * sl_getVisitedThisMonth(brandFilter, monthNumber, reportingYear)
+ * Returns stores that HAVE been visited in the requested calendar month
+ * (default: the current one), optionally filtered by brand. Powers the
+ * "Visited This Month" view in the Store Insights tab. (Its mirror image
+ * — what's still outstanding — is the Unvisited This Month tab, served
+ * by sl_getComplianceGaps().)
+ *
+ * Returns TWO buckets instead of a flat list. A MASTER_LOG row's Store
+ * text doesn't always resolve to a CURRENT SETTINGS roster entry (the
+ * store was renamed, deactivated/removed, or the text has a typo/case
+ * mismatch) — Executive Summary's own Monthly-by-Brand COUNTIFS
+ * (SVMKPI_LAYOUT.gs) has no such roster check, so it still counts that
+ * visit. Silently dropping the row here (as this function used to)
+ * undercounts relative to Executive Summary. `unmapped` surfaces exactly
+ * those rows instead of dropping them, mirroring the CONFIG_UNMAPPED_
+ * STORES pattern already used for Store ID identity migration
+ * (SVMKPI_STORE_CONFIG.gs) — so `resolved` visits + `unmapped` visits
+ * reconciles with Executive Summary's raw brand+month count.
+ *
+ * `unmapped` is computed against the FULL roster (every SETTINGS store,
+ * any brand) regardless of `brandFilter` — an unresolved row has no
+ * known brand to filter by, and Executive Summary's own count for a
+ * single brand wouldn't include it either, so it's only meaningful
+ * against the all-brands total. A row for a store that IS in the roster
+ * but excluded by `brandFilter` is filtered out entirely, same as before
+ * — it's not "unmapped," just out of scope for this call.
  *
  * @param {string[]|string} brandFilter — array of UPPERCASE brand names to
  *   keep (empty array = no filter), or the legacy single brand name / 'ALL' / ''
+ * @param {number} [monthNumber] — 1-12 for a specific month, omit/0 for
+ *   the current month.
+ * @param {number} [reportingYear] — the calendar year monthNumber is
+ *   anchored to. Omit for getDefaultReportingYear() (SVMKPI_REPORTING_YEAR.gs).
  * @returns {{
- *   name: string, brand: string, region: string, visits: number,
- *   lastVisitDate: string, lastPurpose: string, visitors: string
- * }[]}  Sorted most-recently-visited first; same-day ties by store name.
+ *   resolved: {name: string, brand: string, region: string, visits: number,
+ *     lastVisitDate: string, lastPurpose: string, visitors: string, daysSince: (number|null)}[],
+ *   unmapped: {name: string, visits: number, lastVisitDate: string}[]
+ * }} `resolved` sorted most-recently-visited first (same-day ties by
+ *   name); `unmapped` sorted by visit count descending, then name.
  */
-function sl_getVisitedThisMonth(brandFilter) {
-  const ss  = SpreadsheetApp.getActiveSpreadsheet();
-  const now = new Date();
+function sl_getVisitedThisMonth(brandFilter, monthNumber, reportingYear) {
+  const ss   = SpreadsheetApp.getActiveSpreadsheet();
+  const now  = new Date();
+  const year = (reportingYear != null && !isNaN(Number(reportingYear)))
+    ? Number(reportingYear)
+    : getDefaultReportingYear();
+  const refMonthIdx = (monthNumber && monthNumber >= 1 && monthNumber <= 12)
+    ? monthNumber - 1          // convert to 0-based
+    : now.getMonth();          // current month
 
-  // Current month bounds (server timezone)
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-  const monthEnd   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  // Requested-month bounds (server timezone)
+  const monthStart = new Date(year, refMonthIdx, 1, 0, 0, 0, 0);
+  const monthEnd   = new Date(year, refMonthIdx + 1, 0, 23, 59, 59, 999);
 
   // ── Store roster from SETTINGS (brand/region come from here) ──
   const settings = ss.getSheetByName(SL_SHEET.SETTINGS);
-  if (!settings || settings.getLastRow() < 2) return [];
+  if (!settings || settings.getLastRow() < 2) return { resolved: [], unmapped: [] };
 
   const settingsRows = settings.getRange(2, 1, settings.getLastRow() - 1, 3).getValues();
-  const allStores    = new Map(); // name → {brand, region}
+  const allStores     = new Map(); // name → {brand, region} — brandFilter-scoped
+  const rosterNames    = new Set(); // every SETTINGS store name, ANY brand — for unmapped detection
 
   settingsRows.forEach(row => {
     const name   = String(row[SL_SETTINGS_COL.STORE]  || '').trim().toUpperCase();
     const brand  = String(row[SL_SETTINGS_COL.BRAND]  || '').trim().toUpperCase();
     const region = String(row[SL_SETTINGS_COL.REGION] || '').trim().toUpperCase();
-    if (!name || allStores.has(name)) return;
+    if (!name) return;
+    rosterNames.add(name);
+    if (allStores.has(name)) return;
     if (!_slBrandAllowed(brand, brandFilter)) return;
     allStores.set(name, { brand, region });
   });
 
   // ── Scan MASTER_LOG once, accumulating this month's visits ───
   const log = ss.getSheetByName(SL_SHEET.MASTER_LOG);
-  if (!log || log.getLastRow() < 2) return [];
+  if (!log || log.getLastRow() < 2) return { resolved: [], unmapped: [] };
 
-  const logData = log.getRange(2, 1, log.getLastRow() - 1, 8).getValues();
-  const acc     = new Map(); // name → {visits, lastDate, lastPurpose, visitors:Set}
+  const logData     = log.getRange(2, 1, log.getLastRow() - 1, 8).getValues();
+  const acc          = new Map(); // name → {visits, lastDate, lastPurpose, visitors:Set}
+  const unmappedAcc  = new Map(); // raw store text → {visits, lastDate}
 
   logData.forEach(row => {
     const store = String(row[SL_COL.STORE] || '').trim().toUpperCase();
-    if (!store || !allStores.has(store)) return;
+    if (!store) return;
 
     const date = _parseDateCell(row[SL_COL.DATE]);
     if (!date || date < monthStart || date > monthEnd) return;
+
+    if (!rosterNames.has(store)) {
+      // Doesn't resolve to ANY current SETTINGS entry — surface it
+      // instead of silently dropping it (see docblock above).
+      let u = unmappedAcc.get(store);
+      if (!u) { u = { visits: 0, lastDate: null }; unmappedAcc.set(store, u); }
+      u.visits++;
+      if (!u.lastDate || date > u.lastDate) u.lastDate = date;
+      return;
+    }
+    if (!allStores.has(store)) return; // in roster, just excluded by brandFilter
 
     let a = acc.get(store);
     if (!a) { a = { visits: 0, lastDate: null, lastPurpose: '', visitors: [] }; acc.set(store, a); }
@@ -580,14 +628,14 @@ function sl_getVisitedThisMonth(brandFilter) {
       .forEach(v => { if (a.visitors.indexOf(v) === -1) a.visitors.push(v); });
   });
 
-  // ── Shape the result ─────────────────────────────────────────
+  // ── Shape the resolved result ─────────────────────────────────
   // daysSince is carried alongside the formatted date so the portal can sort
   // "Last Visit" chronologically — the display string ("Aug 31, 2026") would
   // otherwise only sort alphabetically.
-  const result = [];
+  const resolved = [];
   acc.forEach((a, name) => {
     const info = allStores.get(name);
-    result.push({
+    resolved.push({
       name,
       brand:         info.brand,
       region:        info.region,
@@ -600,8 +648,20 @@ function sl_getVisitedThisMonth(brandFilter) {
   });
 
   // Most recently visited first; same-day ties by store name.
-  result.sort((a, b) => (a.daysSince - b.daysSince) || a.name.localeCompare(b.name));
-  return result;
+  resolved.sort((a, b) => (a.daysSince - b.daysSince) || a.name.localeCompare(b.name));
+
+  // ── Shape the unmapped result ──────────────────────────────────
+  const unmapped = [];
+  unmappedAcc.forEach((u, name) => {
+    unmapped.push({
+      name,
+      visits:        u.visits,
+      lastVisitDate: u.lastDate ? _sl_formatDate(u.lastDate) : '—',
+    });
+  });
+  unmapped.sort((a, b) => (b.visits - a.visits) || a.name.localeCompare(b.name));
+
+  return { resolved, unmapped };
 }
 
 /**

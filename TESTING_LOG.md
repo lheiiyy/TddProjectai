@@ -7,7 +7,7 @@ demo; dry-run tooling is pure-function/synthetic-data only).
 
 ## Apps Script track — `SVMI_Project/tests/`
 
-**Verified this session: 26 files, 1284 assertions, 0 failures.** Phase
+**Verified this session: 26 files, 1289 assertions, 0 failures.** Phase
 1H-C Security Fix R1 grew `identity.test.js` from 62 to 100 assertions
 (38 new, covering the 10 required MFA-enforcement proof points — see
 `reviews/008-phase-1h-c-security-fix-r1.md`); Phase 1H-C Security Fix R2
@@ -20,10 +20,19 @@ while some SETTINGS rows never became CONFIG_* entities, no error
 shown) grew `settings-config-migration.test.js` from 34 to 45 assertions
 (11 new, proving a row that fails `store_create()`'s/`cfg_
 createConfiguration()`'s own validation is now reported in a `failed`
-array with its reason, instead of silently vanishing); the other 23
-files/1129 assertions — including Phase 1H-B.1's
-`security-remediation.test.js`, deliberately left unmodified — are the
-unchanged pre-existing baseline, re-run as regression.
+array with its reason, instead of silently vanishing); a second
+follow-up bug fix (a project-owner report: live Store Insights "Visited
+This Month" totaled 88 for September while the live Executive Summary
+totaled 106 for the same month) grew `store-lookup-date-handling.test.js`
+from 22 to 27 assertions (5 new, proving a `MASTER_LOG` row that doesn't
+resolve to a current SETTINGS entry is now surfaced in an `unmapped`
+bucket instead of silently dropped, that resolved+unmapped visits
+reconciles with a raw brand+month count, that brandFilter exclusion is
+never mistaken for "unmapped," and that an explicit past month is now
+reachable via new optional params); the other 22 files/1094 assertions —
+including Phase 1H-B.1's `security-remediation.test.js`, deliberately
+left unmodified — are the unchanged pre-existing baseline, re-run as
+regression.
 
 Per-file counts below are as documented in `SVMI_Project/DEPLOY.md`'s own
 "Checks before you push" section (attributed to that source, not
@@ -53,7 +62,7 @@ touched or added in Phase 1G are from today's direct run.
 | `security-remediation.test.js` | **Phase 1H-B.1** — the 3 Required security findings: `_getAdminEmails`/`_getGuestPassword` no longer directly RPC-callable, the 5 rebuild engines + daily trigger, the 5 Sheets-menu handlers | 34 (added this session) |
 | `settings-config-migration.test.js` | **Phase 1G** — CONFIG_* → SETTINGS mirror sync (create/deactivate/rename), legacy-purpose fallback, `getSidebarData()` sourcing from CONFIG_*, migration idempotency, no-SRM-reference check. **Bug fix (this session)** — a row that fails `store_create()`/`cfg_createConfiguration()`/`purpose_create()` validation during `settingsMigration_run()` is now reported in a `failed` array with its reason, instead of silently vanishing (a live-deployment admin hit exactly this: the tool reported success while some SETTINGS rows never became CONFIG_* entities) | 45 (grew from 34 this session) |
 | `store-identity.test.js` | Store ID identity/immutability, historical resolution, migration + UNMAPPED tracking, security | 51 |
-| `store-lookup-date-handling.test.js` | Date-handling consistency across `SVMKPI_STORE_LOOKUP.gs` call sites | — |
+| `store-lookup-date-handling.test.js` | Date-handling consistency across `SVMKPI_STORE_LOOKUP.gs` call sites. **Bug fix (this session)** — `sl_getVisitedThisMonth()` now surfaces `MASTER_LOG` rows that don't resolve to a current SETTINGS entry in an `unmapped` bucket instead of silently dropping them (the cause of a live Store Insights-vs-Executive-Summary undercount), and gained optional `monthNumber`/`reportingYear` params | 27 (grew from 22 this session) |
 | `store-remove-history.test.js` | Remove Store preserves history, row isolation, admin gate | — |
 | `store-scale.test.js` | MASTER_LOG scale fixtures (4,999–10,000 rows), no scan-range ceiling | — |
 | `submission-lock.test.js` | LockService behavior around visit submission | — |

@@ -700,6 +700,16 @@ textarea.fi{padding-right:28px}
       <hr style="border-color:var(--border-d);margin:10px 0">
       <span class="si-label">Monthly Coverage</span>
       <button class="btn-navy" onclick="loadVisited()">✅ Visited This Month</button>
+      <select class="sel-dark" id="visMonthSel" onchange="loadVisited()" style="min-width:130px;margin-top:6px">
+        <option value="0">Current Month</option>
+        <option value="1">January</option><option value="2">February</option>
+        <option value="3">March</option><option value="4">April</option>
+        <option value="5">May</option><option value="6">June</option>
+        <option value="7">July</option><option value="8">August</option>
+        <option value="9">September</option><option value="10">October</option>
+        <option value="11">November</option><option value="12">December</option>
+      </select>
+      <span id="visMonthLbl" style="font-size:11px;color:var(--light)"></span>
       <div id="coverageHint" style="font-size:10px;color:var(--light);margin-top:6px"></div>
     </div>
     <div class="si-main" id="siMain">
@@ -1966,16 +1976,46 @@ function visOnRender(rows, allRows) {
   }
 }
 
+// Rows whose Store text in MASTER_LOG doesn't resolve to a current
+// Settings roster entry — sl_getVisitedThisMonth() surfaces these
+// instead of silently dropping them, so this total plus the resolved
+// table's total reconciles with Executive Summary's raw per-month count.
+function visRenderUnmapped(unmapped) {
+  if (!unmapped || !unmapped.length) return '';
+  var totalUnmapped = unmapped.reduce(function(n, u){ return n + (u.visits||0); }, 0);
+  var rowsHtml = unmapped.map(function(u) {
+    return '<tr><td>'+esc(u.name)+'</td><td class="c">'+(u.visits||0)+'</td><td>'+esc(u.lastVisitDate)+'</td></tr>';
+  }).join('');
+  return '<div class="profile-full" style="margin-top:14px;padding:10px 12px;border:1px solid var(--gold);border-radius:6px;background:rgba(212,175,55,0.06)">'
+    +'<div style="font-weight:700;color:var(--gold);font-size:12px;margin-bottom:6px">'
+    +'⚠ '+totalUnmapped+' visit'+(totalUnmapped!==1?'s':'')+' not matched to a current store ('+unmapped.length+' name'+(unmapped.length!==1?'s':'')+') — needs Settings review</div>'
+    +'<table style="width:100%;font-size:11px"><thead><tr><th>Store text in MASTER_LOG</th><th>Visits</th><th>Last Visit</th></tr></thead>'
+    +'<tbody>'+rowsHtml+'</tbody></table></div>';
+}
+
 function loadVisited() {
   var brand = gBrands;
+  var moEl  = document.getElementById('visMonthSel');
+  var mo    = moEl ? parseInt(moEl.value) : 0;
+  var lblEl = document.getElementById('visMonthLbl');
+  if (lblEl) {
+    var now = new Date();
+    lblEl.textContent = (!mo ? MONTHS[now.getMonth()]+' '+now.getFullYear() : MONTHS[mo-1]+' '+dataYear);
+  }
   document.getElementById('coverageHint').textContent = 'Loading…';
   document.getElementById('siMain').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
   google.script.run
-    .withSuccessHandler(function(rows) {
-      rows = rows || [];
+    .withSuccessHandler(function(data) {
+      data = data || {};
+      var rows     = data.resolved || [];
+      var unmapped = data.unmapped || [];
+      var totalVisits = rows.reduce(function(n, r){ return n + (r.visits||0); }, 0)
+        + unmapped.reduce(function(n, u){ return n + (u.visits||0); }, 0);
       document.getElementById('coverageHint').textContent =
-        rows.length+' store'+(rows.length!==1?'s':'')+' visited this month';
-      if (!rows.length) {
+        rows.length+' store'+(rows.length!==1?'s':'')+' visited'
+        + (unmapped.length ? ', '+unmapped.length+' unmatched name'+(unmapped.length!==1?'s':'') : '')
+        + ' ('+totalVisits+' total visit'+(totalVisits!==1?'s':'')+')';
+      if (!rows.length && !unmapped.length) {
         document.getElementById('siMain').innerHTML = stateMsg('📭','No Visits Logged','No stores have been visited yet this month.');
         return;
       }
@@ -1983,7 +2023,9 @@ function loadVisited() {
         '<div style="padding:12px 14px 20px">'
         +'<h3 style="margin-bottom:3px;color:var(--navy);font-size:13px">Stores Visited This Month ('+rows.length+')</h3>'
         +'<div id="visSummary" style="font-size:10px;color:var(--muted);margin-bottom:10px"></div>'
-        +'<div id="visBody"></div></div>';
+        +'<div id="visBody"></div>'
+        +'<div id="visUnmapped">'+visRenderUnmapped(unmapped)+'</div>'
+        +'</div>';
       // Same filter/sort engine as the Unvisited tab — headers filter and sort here too.
       ftCreate('vis', {
         cols:      VIS_COLS,
@@ -1998,7 +2040,7 @@ function loadVisited() {
       document.getElementById('coverageHint').textContent = '';
       document.getElementById('siMain').innerHTML = stateMsg('⚠️','Error',esc(err.message||String(err)));
     })
-    .sl_getVisitedThisMonth(brand);
+    .sl_getVisitedThisMonth(brand, mo);
 }
 
 // ═══════════════════════════════════════
