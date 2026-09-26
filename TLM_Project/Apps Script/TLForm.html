@@ -185,10 +185,8 @@
 
     /* monitoring list rows */
     .monlist { margin-top: 6px; }
-    .monrow { background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--tld); border-radius: 5px; padding: 8px 10px; margin-top: 6px; font-size: 12.5px; cursor: pointer; transition: border-color .15s; }
-    .monrow:hover { border-color: var(--tld); }
+    .monrow { background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--tld); border-radius: 5px; padding: 8px 10px; margin-top: 6px; font-size: 12.5px; }
     .monrow.overdue { border-left-color: #c53030; background: #FFF9F8; }
-    .monrow.overdue:hover { border-color: #c53030; }
     .monrow .mtop { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
     .monrow .mtop .mtopRight { display: flex; align-items: center; gap: 5px; flex: none; }
     .monrow .mname { font-weight: 700; color: var(--text); }
@@ -292,7 +290,6 @@
         <button type="button" class="modeItem" data-mode="stock" onclick="selectMode('stock')">📦 Stock</button>
         <button type="button" class="modeItem" data-mode="exec" onclick="selectMode('exec')">📊 Reports</button>
         <button type="button" class="modeItem" data-mode="monitor" onclick="selectMode('monitor')">🔎 Monitoring<span class="itemBadge" id="monitorItemBadge" style="display:none;"></span></button>
-        <button type="button" class="modeItem" data-mode="admin" onclick="selectMode('admin')">🛠️ Admin</button>
       </div>
     </div>
     <div class="modeOverlay" id="modeOverlay" onclick="closeModeMenu()"></div>
@@ -339,8 +336,9 @@
       <div class="row2">
         <div>
           <label>Initial Uniform Size</label>
-          <input type="text" id="uniformSize" list="uniformSizeList" placeholder="— none yet —">
-          <datalist id="uniformSizeList"></datalist>
+          <select id="uniformSize">
+            <option value="">— none yet —</option>
+          </select>
         </div>
         <div>
           <label>Qty</label>
@@ -385,24 +383,22 @@
 
     <!-- ============================= CERTIFY / UPDATE PANEL ============================= -->
     <div id="panelUpdate" class="panel">
-      <small class="hint">PROBATIONARY, EXTENDED, and CERTIFIED trainees are listed — CERTIFIED so they can still be moved to PROMOTION later.</small>
+      <small class="hint">Only trainees currently PROBATIONARY or EXTENDED are listed.</small>
 
       <label>Trainee *</label>
-      <input type="text" id="key" list="keyList" placeholder="Type a name to search…" oninput="onTraineeChange()">
-      <datalist id="keyList"></datalist>
+      <select id="key" onchange="onTraineeChange()"><option value="">Loading…</option></select>
 
       <div class="card" id="traineeCard" style="display:none;"></div>
 
       <label>New Status *</label>
-      <input type="text" id="newStatus" list="newStatusList" placeholder="Type or pick a status…" value="CERTIFIED" oninput="onStatusChange()">
-      <datalist id="newStatusList">
+      <select id="newStatus" onchange="onStatusChange()">
         <option value="CERTIFIED">CERTIFIED</option>
         <option value="EXTENDED">EXTENDED (push deadline)</option>
         <option value="FAILED">FAILED</option>
         <option value="QUIT">QUIT</option>
         <option value="DISQUALIFIED">DISQUALIFIED</option>
         <option value="PROMOTION">PROMOTION</option>
-      </datalist>
+      </select>
 
       <div id="deadlineRow" style="display:none;">
         <label>New Deadline (leave blank to auto +2 months from current deadline)</label>
@@ -427,14 +423,14 @@
       <div class="avgPreview" id="updateAvgPreview"></div>
 
       <label>Final Status Note</label>
-      <input type="text" id="finalStatus" list="finalStatusList" placeholder="— none —">
-      <datalist id="finalStatusList">
+      <select id="finalStatus">
+        <option value="">— none —</option>
         <option value="SIGNED">SIGNED (appointment letter)</option>
         <option value="AGENCY">AGENCY</option>
         <option value="FOR REPORTING">FOR REPORTING</option>
         <option value="ON-GOING PROMOTION">ON-GOING PROMOTION</option>
         <option value="NOT RETURNED">NOT RETURNED</option>
-      </datalist>
+      </select>
 
       <button id="updateSubmitBtn" onclick="submitUpdate()">Save Update</button>
     </div>
@@ -444,16 +440,16 @@
       <small class="hint">Log every piece handed out — to anyone, any status, any time. Kept in its own UNIFORM_LOG tab.</small>
 
       <label>Trainee *</label>
-      <input type="text" id="uf_key" list="ufKeyList" placeholder="Type a name to search…" oninput="onUniformTraineeChange()">
-      <datalist id="ufKeyList"></datalist>
+      <select id="uf_key" onchange="onUniformTraineeChange()"><option value="">Loading…</option></select>
 
       <div id="uf_history"></div>
 
       <div class="row2">
         <div>
           <label>Size *</label>
-          <input type="text" id="uf_size" list="uf_sizeList" placeholder="— select —">
-          <datalist id="uf_sizeList"></datalist>
+          <select id="uf_size">
+            <option value="">— select —</option>
+          </select>
         </div>
         <div>
           <label>Qty</label>
@@ -474,126 +470,6 @@
       <button id="uniformSubmitBtn" onclick="submitUniform()">Log Uniform</button>
     </div>
 
-    <!-- ============================= ADMIN PANEL ============================= -->
-    <div id="panelAdmin" class="panel">
-      <small class="hint">Directly edit an existing record — for fixing mistakes only (typo'd name/store, wrong grade, wrong date). This overwrites the row as-is; it skips the checks New Entry and Certify normally apply.</small>
-
-      <label>Record *</label>
-      <input type="text" id="ad_key" list="adKeyList" placeholder="Type a name to search…" oninput="onAdminTraineeChange()">
-      <datalist id="adKeyList"></datalist>
-
-      <div id="ad_fields" style="display:none;">
-        <label>Date of Entry *</label>
-        <input type="date" id="ad_entryDate">
-
-        <div class="row2">
-          <div>
-            <label>Batch #</label>
-            <input type="text" id="ad_batch" list="batchList">
-          </div>
-          <div>
-            <label>Mother Store *</label>
-            <input type="text" id="ad_motherStore" list="storeList">
-          </div>
-        </div>
-
-        <label>Full Name *</label>
-        <input type="text" id="ad_fullName">
-
-        <div class="row2">
-          <div>
-            <label>Mother Station</label>
-            <input type="text" id="ad_motherStation" list="stationList">
-          </div>
-          <div>
-            <label>Support Store</label>
-            <input type="text" id="ad_supportStore" list="storeList">
-          </div>
-        </div>
-
-        <label>Status *</label>
-        <input type="text" id="ad_status" list="ad_statusList" placeholder="Type or pick a status…">
-        <datalist id="ad_statusList"></datalist>
-
-        <label>Entry By</label>
-        <input type="text" id="ad_entryBy" list="trainerList">
-
-        <div class="sectionLabel">Entry Grades (%)</div>
-        <div class="row2">
-          <div>
-            <label>Store Grade</label>
-            <input type="number" inputmode="decimal" id="ad_istvGrade" min="0" max="100">
-          </div>
-          <div>
-            <label>TL Entry Average</label>
-            <input type="number" inputmode="decimal" id="ad_entryAverage" min="0" max="100">
-          </div>
-        </div>
-        <div class="row2">
-          <div>
-            <label>Techval Food Prep</label>
-            <input type="number" inputmode="decimal" id="ad_techValFp" min="0" max="100">
-          </div>
-          <div>
-            <label>Techval Pizza Maker</label>
-            <input type="number" inputmode="decimal" id="ad_techValPm" min="0" max="100">
-          </div>
-        </div>
-        <div class="row2">
-          <div>
-            <label>Exam Food Prep</label>
-            <input type="number" inputmode="decimal" id="ad_entryFoodPrepExam" min="0" max="100">
-          </div>
-          <div>
-            <label>Exam Pizza Maker</label>
-            <input type="number" inputmode="decimal" id="ad_entryPizzaMakerExam" min="0" max="100">
-          </div>
-        </div>
-
-        <label>Uniform Release (summary text)</label>
-        <input type="text" id="ad_uniformRelease">
-
-        <div class="sectionLabel">Certification</div>
-        <label>Certification Deadline</label>
-        <input type="date" id="ad_certDeadline">
-
-        <div class="row2">
-          <div>
-            <label>Cert By</label>
-            <input type="text" id="ad_certBy" list="trainerList">
-          </div>
-          <div>
-            <label>Date Certified</label>
-            <input type="date" id="ad_dateCertified">
-          </div>
-        </div>
-        <div class="row2">
-          <div>
-            <label>Certification Grade (%)</label>
-            <input type="number" inputmode="decimal" id="ad_certGrade" min="0" max="100">
-          </div>
-          <div>
-            <label>Exam Grade (%)</label>
-            <input type="number" inputmode="decimal" id="ad_examGrade" min="0" max="100">
-          </div>
-        </div>
-        <label>Average (%)</label>
-        <input type="number" inputmode="decimal" id="ad_average" min="0" max="100">
-
-        <label>Final Status Note</label>
-        <input type="text" id="ad_finalStatus" list="ad_finalStatusList" placeholder="— none —">
-        <datalist id="ad_finalStatusList">
-          <option value="SIGNED">SIGNED (appointment letter)</option>
-          <option value="AGENCY">AGENCY</option>
-          <option value="FOR REPORTING">FOR REPORTING</option>
-          <option value="ON-GOING PROMOTION">ON-GOING PROMOTION</option>
-          <option value="NOT RETURNED">NOT RETURNED</option>
-        </datalist>
-
-        <button id="adminSubmitBtn" onclick="submitAdminEdit()">Save Changes</button>
-      </div>
-    </div>
-
     <!-- ============================= STOCK PANEL ============================= -->
     <div id="panelStock" class="panel">
       <small class="hint">Log what comes in from the supplier here. Stock on hand below is Delivered minus what's been issued to trainees.</small>
@@ -602,8 +478,9 @@
       <div class="row2">
         <div>
           <label>Size *</label>
-          <input type="text" id="dv_size" list="dv_sizeList" placeholder="— select —">
-          <datalist id="dv_sizeList"></datalist>
+          <select id="dv_size">
+            <option value="">— select —</option>
+          </select>
         </div>
         <div>
           <label>Qty Received *</label>
@@ -684,7 +561,7 @@
 
     <!-- ============================= TRAINERS MONITORING PANEL ============================= -->
     <div id="panelMonitor" class="panel">
-      <small class="hint">Every trainee, searchable and filterable — for trainers checking their own roster or execs scanning everyone. Tap a row to jump straight to updating their status.</small>
+      <small class="hint">Every trainee, searchable and filterable — for trainers checking their own roster or execs scanning everyone.</small>
 
       <div id="monWarnBanner"></div>
 
@@ -716,23 +593,11 @@
   <script>
     var openList = [];
     var UNLOCK_KEY = 'tlTrackerUnlocked';
-    // Declared here, before initGate() below, because initGate can call
-    // showApp() synchronously on page load (PIN already remembered from
-    // a prior visit) — that's before execution would otherwise reach
-    // these var statements further down the script. showApp() reads
-    // STATUS_VALUES_CLIENT and switchMode() reads MODES/PANEL_ID/
-    // MODE_LABEL, so on that early path they'd still be undefined,
-    // throwing and leaving mode-switching broken for the rest of the load.
-    var MODES = ['entry', 'update', 'uniform', 'stock', 'exec', 'monitor', 'admin'];
-    var PANEL_ID = { entry: 'panelEntry', update: 'panelUpdate', uniform: 'panelUniform', stock: 'panelStock', exec: 'panelExec', monitor: 'panelMonitor', admin: 'panelAdmin' };
-    var MODE_LABEL = { entry: '🆕 New Entry', update: '✅ Certify', uniform: '👕 Uniform', stock: '📦 Stock', exec: '📊 Reports', monitor: '🔎 Monitoring', admin: '🛠️ Admin' };
-    var STATUS_VALUES_CLIENT = ['PROBATIONARY', 'EXTENDED', 'CERTIFIED', 'FAILED', 'QUIT', 'DISQUALIFIED', 'PROMOTION'];
 
     // ============================= PIN GATE =============================
     function showApp() {
       document.getElementById('pinGate').style.display = 'none';
       document.getElementById('app').style.display = 'block';
-      fillDatalist('ad_statusList', STATUS_VALUES_CLIENT);
       loadFormData();
     }
 
@@ -785,6 +650,10 @@
     })();
 
     // ============================= MAIN APP =============================
+    var MODES = ['entry', 'update', 'uniform', 'stock', 'exec', 'monitor'];
+    var PANEL_ID = { entry: 'panelEntry', update: 'panelUpdate', uniform: 'panelUniform', stock: 'panelStock', exec: 'panelExec', monitor: 'panelMonitor' };
+    var MODE_LABEL = { entry: '🆕 New Entry', update: '✅ Certify', uniform: '👕 Uniform', stock: '📦 Stock', exec: '📊 Reports', monitor: '🔎 Monitoring' };
+
     // ---------- burger menu open/close ----------
     function toggleModeMenu() {
       var menu = document.getElementById('modeMenu');
@@ -849,34 +718,34 @@
       });
     }
 
-    // Trainee pickers are typeable inputs backed by a datalist, so what the
-    // input actually holds is the person's LABEL text, not their composite
-    // key. keyMaps[inputId] remembers label -> key for each picker so
-    // resolveKey() can turn what was typed/picked back into the key the
-    // server-side functions need.
-    var keyMaps = {};
-
-    function populateKeyDatalist(inputId, datalistId, list) {
-      var map = {};
-      var dl = document.getElementById(datalistId);
-      dl.innerHTML = '';
-      list.forEach(function(item) {
-        map[item.label] = item.key;
-        var opt = document.createElement('option');
-        opt.value = item.label;
-        dl.appendChild(opt);
-      });
-      keyMaps[inputId] = map;
+    function fillSelect(id, items, placeholder) {
+      var sel = document.getElementById(id);
+      sel.innerHTML = '<option value="">' + placeholder + '</option>' +
+        items.map(function(s) { return '<option value="' + s + '">' + s + '</option>'; }).join('');
     }
 
-    function resolveKey(inputId) {
-      var map = keyMaps[inputId] || {};
-      return map[val(inputId)] || '';
+    function populateSelectOptions(id, list, emptyLabel) {
+      var sel = document.getElementById(id);
+      sel.innerHTML = '';
+      if (list.length === 0) {
+        sel.innerHTML = '<option value="">' + emptyLabel + '</option>';
+        return;
+      }
+      var placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '— select —';
+      sel.appendChild(placeholder);
+      list.forEach(function(item) {
+        var opt = document.createElement('option');
+        opt.value = item.key;
+        opt.textContent = item.label;
+        sel.appendChild(opt);
+      });
     }
 
     function populateOpenList(list) {
       openList = list;
-      populateKeyDatalist('key', 'keyList', list);
+      populateSelectOptions('key', list, 'No open PROBATIONARY/EXTENDED records');
     }
 
     function loadFormData() {
@@ -888,12 +757,11 @@
         fillDatalist('trainerList2', data.trainers);
         fillDatalist('trainerList3', data.trainers);
         fillDatalist('trainerList4', data.trainers);
-        fillDatalist('uniformSizeList', data.uniformSizes);
-        fillDatalist('uf_sizeList', data.uniformSizes);
-        fillDatalist('dv_sizeList', data.uniformSizes);
+        fillSelect('uniformSize', data.uniformSizes, '— none yet —');
+        fillSelect('uf_size', data.uniformSizes, '— select —');
+        fillSelect('dv_size', data.uniformSizes, '— select —');
         populateOpenList(data.openList);
-        populateKeyDatalist('uf_key', 'ufKeyList', data.allList);
-        populateKeyDatalist('ad_key', 'adKeyList', data.allList);
+        populateSelectOptions('uf_key', data.allList, 'No trainees yet');
         renderStockTable(data.inventorySummary);
         updateOverdueNavBadge(data.overdueCount);
       }).withFailureHandler(function(err) {
@@ -1162,7 +1030,7 @@
         if (r.batch) meta.push(r.batch);
         if (r.deadline) meta.push('Due ' + r.deadline);
         var overdueBadge = r.isOverdue ? '<span class="badge badgeOverdue">⚠️ Past Due</span>' : '';
-        return '<div class="monrow' + (r.isOverdue ? ' overdue' : '') + '" data-key="' + String(r.key).replace(/"/g,'&quot;') + '">' +
+        return '<div class="monrow' + (r.isOverdue ? ' overdue' : '') + '">' +
           '<div class="mtop"><span class="mname">' + r.fullName + '</span>' +
           '<span class="mtopRight">' + overdueBadge + '<span class="' + statusBadgeClass(r.status) + '">' + r.status + '</span></span></div>' +
           '<div class="msub">' + r.motherStore + (r.motherStation ? ' · ' + r.motherStation : '') + '</div>' +
@@ -1208,36 +1076,9 @@
     }
     onStatusChange();
 
-    // ---------- jump from Monitoring straight to updating that person ----------
-    document.getElementById('monList').addEventListener('click', function(e) {
-      var row = e.target.closest('.monrow');
-      if (row && row.dataset.key) openUpdateFor(row.dataset.key);
-    });
-    function openUpdateFor(key) {
-      var t = monitoringData.filter(function(r) { return r.key === key; })[0];
-      if (!t) return;
-      var label = t.fullName + ' — ' + t.motherStore + ' (' + t.status + ')';
-      // Certify's picker only lists PROBATIONARY/EXTENDED/CERTIFIED by
-      // default — add this exact person if their current status put them
-      // outside that list, so tapping anyone found in Monitoring always works.
-      keyMaps.key = keyMaps.key || {};
-      keyMaps.key[label] = key;
-      var dl = document.getElementById('keyList');
-      var exists = Array.prototype.some.call(dl.options, function(o) { return o.value === label; });
-      if (!exists) {
-        var opt = document.createElement('option');
-        opt.value = label;
-        dl.appendChild(opt);
-      }
-      document.getElementById('key').value = label;
-      switchMode('update');
-      closeModeMenu();
-      onTraineeChange();
-    }
-
     // ---------- trainee summary card ----------
     function onTraineeChange() {
-      var key = resolveKey('key');
+      var key = val('key');
       var card = document.getElementById('traineeCard');
       if (!key) { card.style.display = 'none'; return; }
       google.script.run.withSuccessHandler(function(d) {
@@ -1301,7 +1142,7 @@
           // refresh the trainee lists in the background so Certify/Uniform stay current
           google.script.run.withSuccessHandler(function(data){
             populateOpenList(data.openList);
-            populateKeyDatalist('uf_key', 'ufKeyList', data.allList);
+            populateSelectOptions('uf_key', data.allList, 'No trainees yet');
           }).getFormBootstrapData();
         })
         .withFailureHandler(function(err) {
@@ -1320,7 +1161,7 @@
       msg.textContent = ''; msg.className = '';
 
       var form = {
-        key: resolveKey('key'),
+        key: val('key'),
         newStatus: val('newStatus'),
         deadlineOverride: val('deadlineOverride'),
         certBy: val('certBy'),
@@ -1330,8 +1171,8 @@
       };
 
       if (!form.key) { msg.textContent = 'Please pick a trainee.'; msg.className = 'err'; return; }
-      if (!form.certBy && (form.newStatus === 'CERTIFIED' || form.newStatus === 'EXTENDED')) {
-        msg.textContent = 'Please fill in "Cert By" before saving.';
+      if (!form.certBy && form.newStatus !== 'EXTENDED') {
+        msg.textContent = 'Please fill in "Cert By" before saving a final outcome.';
         msg.className = 'err';
         return;
       }
@@ -1347,7 +1188,7 @@
           document.getElementById('traineeCard').style.display = 'none';
           google.script.run.withSuccessHandler(function(data) {
             populateOpenList(data.openList);
-            populateKeyDatalist('uf_key', 'ufKeyList', data.allList);
+            populateSelectOptions('uf_key', data.allList, 'No trainees yet');
           }).getFormBootstrapData();
         })
         .withFailureHandler(function(err) {
@@ -1359,110 +1200,9 @@
         .submitCertification(form);
     }
 
-    // ---------- Admin: load a record into the edit form ----------
-    function onAdminTraineeChange() {
-      var key = resolveKey('ad_key');
-      var fields = document.getElementById('ad_fields');
-      if (!key) { fields.style.display = 'none'; return; }
-      google.script.run.withSuccessHandler(function(d) {
-        fields.style.display = 'block';
-        document.getElementById('ad_entryDate').value = d.entryDate;
-        document.getElementById('ad_batch').value = d.batch;
-        document.getElementById('ad_motherStore').value = d.motherStore;
-        document.getElementById('ad_fullName').value = d.fullName;
-        document.getElementById('ad_motherStation').value = d.motherStation;
-        document.getElementById('ad_supportStore').value = d.supportStore;
-        document.getElementById('ad_status').value = d.status;
-        document.getElementById('ad_entryBy').value = d.entryBy;
-        document.getElementById('ad_istvGrade').value = d.istvGrade === null ? '' : d.istvGrade;
-        document.getElementById('ad_techValFp').value = d.techValFp === null ? '' : d.techValFp;
-        document.getElementById('ad_techValPm').value = d.techValPm === null ? '' : d.techValPm;
-        document.getElementById('ad_entryFoodPrepExam').value = d.entryFoodPrepExam === null ? '' : d.entryFoodPrepExam;
-        document.getElementById('ad_entryPizzaMakerExam').value = d.entryPizzaMakerExam === null ? '' : d.entryPizzaMakerExam;
-        document.getElementById('ad_entryAverage').value = d.entryAverage === '' ? '' : d.entryAverage;
-        document.getElementById('ad_uniformRelease').value = d.uniformRelease;
-        document.getElementById('ad_certDeadline').value = d.certDeadline;
-        document.getElementById('ad_certBy').value = d.certBy;
-        document.getElementById('ad_dateCertified').value = d.dateCertified;
-        document.getElementById('ad_certGrade').value = d.certGrade === null ? '' : d.certGrade;
-        document.getElementById('ad_examGrade').value = d.examGrade === null ? '' : d.examGrade;
-        document.getElementById('ad_average').value = d.average === null ? '' : d.average;
-        document.getElementById('ad_finalStatus').value = d.finalStatus;
-      }).withFailureHandler(function(err) {
-        fields.style.display = 'none';
-        document.getElementById('msg').textContent = err.message;
-        document.getElementById('msg').className = 'err';
-      }).getAdminRecordDetails(key);
-    }
-
-    // ---------- submit: Admin edit ----------
-    function submitAdminEdit() {
-      var btn = document.getElementById('adminSubmitBtn');
-      var msg = document.getElementById('msg');
-      msg.textContent = ''; msg.className = '';
-
-      var form = {
-        key: resolveKey('ad_key'),
-        entryDate: val('ad_entryDate'),
-        batch: val('ad_batch'),
-        motherStore: val('ad_motherStore'),
-        fullName: val('ad_fullName'),
-        motherStation: val('ad_motherStation'),
-        supportStore: val('ad_supportStore'),
-        status: val('ad_status'),
-        entryBy: val('ad_entryBy'),
-        istvGrade: val('ad_istvGrade'),
-        techValFp: val('ad_techValFp'),
-        techValPm: val('ad_techValPm'),
-        entryFoodPrepExam: val('ad_entryFoodPrepExam'),
-        entryPizzaMakerExam: val('ad_entryPizzaMakerExam'),
-        entryAverage: val('ad_entryAverage'),
-        uniformRelease: val('ad_uniformRelease'),
-        certDeadline: val('ad_certDeadline'),
-        certBy: val('ad_certBy'),
-        dateCertified: val('ad_dateCertified'),
-        certGrade: val('ad_certGrade'),
-        examGrade: val('ad_examGrade'),
-        average: val('ad_average'),
-        finalStatus: val('ad_finalStatus')
-      };
-
-      if (!form.key) { msg.textContent = 'Please pick a record.'; msg.className = 'err'; return; }
-      if (!form.entryDate || !form.fullName || !form.motherStore || !form.status) {
-        msg.textContent = 'Date of Entry, Full Name, Mother Store, and Status are required.';
-        msg.className = 'err';
-        return;
-      }
-      if (!window.confirm('This directly overwrites this record\'s data. Continue?')) return;
-
-      btn.disabled = true;
-      btn.textContent = 'Saving…';
-      google.script.run
-        .withSuccessHandler(function(result) {
-          btn.disabled = false;
-          btn.textContent = 'Save Changes';
-          msg.textContent = result;
-          msg.className = 'ok';
-          document.getElementById('ad_fields').style.display = 'none';
-          document.getElementById('ad_key').value = '';
-          google.script.run.withSuccessHandler(function(data) {
-            populateOpenList(data.openList);
-            populateKeyDatalist('uf_key', 'ufKeyList', data.allList);
-            populateKeyDatalist('ad_key', 'adKeyList', data.allList);
-          }).getFormBootstrapData();
-        })
-        .withFailureHandler(function(err) {
-          btn.disabled = false;
-          btn.textContent = 'Save Changes';
-          msg.textContent = err.message;
-          msg.className = 'err';
-        })
-        .submitAdminEdit(form);
-    }
-
     // ---------- uniform history card ----------
     function onUniformTraineeChange() {
-      var key = resolveKey('uf_key');
+      var key = val('uf_key');
       var box = document.getElementById('uf_history');
       if (!key) { box.innerHTML = ''; return; }
       box.innerHTML = '<div class="histbox"><div class="histtitle">Loading history…</div></div>';
@@ -1487,7 +1227,7 @@
       msg.textContent = ''; msg.className = '';
 
       var form = {
-        key: resolveKey('uf_key'),
+        key: val('uf_key'),
         size: val('uf_size'),
         quantity: val('uf_qty'),
         drNumber: val('uf_dr'),
