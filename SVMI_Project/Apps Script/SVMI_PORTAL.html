@@ -71,7 +71,7 @@ body{font-family:Arial,sans-serif;font-size:12px;background:var(--bg);color:var(
 .fg{margin-bottom:9px}
 .fg label{display:block;font-size:10px;font-weight:700;color:var(--muted);margin-bottom:3px;
   text-transform:uppercase;letter-spacing:.4px}
-.fg label .req{color:var(--red);margin-left:2px}
+.fg label .req,.admin-form-row label .req{color:var(--red);margin-left:2px}
 .fi{width:100%;padding:6px 8px;font-size:12px;border:1px solid #cbd5e0;border-radius:4px;
   background:var(--card);color:var(--text);outline:none;font-family:Arial}
 .fi:focus{border-color:var(--tld);box-shadow:0 0 0 2px rgba(46,139,61,.14)}
@@ -118,14 +118,9 @@ textarea.fi{resize:vertical;min-height:50px}
 .store-info.visible{display:block}
 .store-info span{font-weight:700}
 
-/* ── Visitor manager (Store & Roster Manager, System Tools — admin-only) ── */
-.vm-row{display:flex;gap:5px;margin-bottom:5px}
-.vm-input{flex:1;padding:5px 7px;font-size:11px;border:1px solid #cbd5e0;border-radius:4px;background:var(--card);font-family:Arial;outline:none}
+/* ── Admin Configuration history-row action buttons (Activate/Deactivate/Rollback) ── */
 .vm-btn{padding:5px 9px;font-size:11px;font-weight:700;border:none;border-radius:4px;cursor:pointer;white-space:nowrap;font-family:Arial}
 .vm-add{background:#EAF4E1;color:var(--tld-d)}
-.vm-rem{background:#fff5f5;color:#c53030}
-.vm-msg{font-size:10px;margin-top:4px}
-.vm-msg.ok{color:#276749}.vm-msg.err{color:#c53030}
 
 /* ── Queue ── */
 .queue-hdr{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;
@@ -307,15 +302,15 @@ textarea.fi{resize:vertical;min-height:50px}
 .comp-active-note{font-size:10px;color:var(--orange);font-weight:700;margin-left:8px}
 @media (max-width:820px){ .colf{width:min(260px,86vw)} }
 
-/* ── System Tools ── */
+/* ── System Tools (now the Admin tab's "Tools" sub-tab) ── */
 /* .tools-grid itself must NOT be the scroll container: a CSS Grid element
    with overflow-y:auto sizes its auto rows to fit whatever height it's
    given rather than to content (a scroll-container-specific quirk in the
    Grid sizing algorithm), silently squashing every card — .tool-card's
    own overflow:hidden then clips the excess instead of it ever
-   scrolling into view. .tools-scroll (a plain flex/block box) does the
-   actual scrolling; .tools-grid just lays out cards at their natural size. */
-.tools-scroll{flex:1;overflow-y:auto}
+   scrolling into view. Its parent .admin-sub.active (a plain block box,
+   see the Admin tab CSS below) does the actual scrolling; .tools-grid
+   just lays out cards at their natural size. */
 .tools-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px 14px}
 .tool-card{background:var(--card);border:1px solid var(--border);border-radius:6px;overflow:hidden}
 .tool-hdr{background:var(--navy);padding:8px 12px;display:flex;align-items:center;gap:8px}
@@ -400,11 +395,9 @@ textarea.fi{padding-right:28px}
   background:var(--bg);color:var(--muted);font-style:italic;text-align:center}
 .tool-lock[hidden]{display:none}
 
-/* ── System Tools: Store & Roster Manager ── */
-.srm-section{margin-bottom:12px}
+/* ── Tools sub-tab group headers (Rebuild/Refresh, Validation & Repair, Legacy Data Setup) ── */
 .srm-hdr{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;
   letter-spacing:.4px;margin-bottom:6px}
-.srm-list{font-size:10px;color:var(--muted);margin-top:5px;line-height:1.5}
 
 /* ── Wide tables scroll inside their own box, never the page ── */
 .tbl-scroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -425,7 +418,7 @@ textarea.fi{padding-right:28px}
   .portal-form{border-bottom:8px solid var(--bg)}
   .si-side{overflow:visible;border-right:none;border-bottom:3px solid var(--gold)}
   .tools-grid{grid-template-columns:1fr}
-  .tools-scroll{overflow:visible}
+  .admin-sub.active{overflow:visible}
   .kpi-row{grid-template-columns:1fr 1fr}
   .profile-grid,.kpi2{grid-template-columns:1fr 1fr}
   .profile-grid{grid-template-columns:1fr}
@@ -449,7 +442,7 @@ textarea.fi{padding-right:28px}
   .burger-btn{padding:12px 16px;min-height:42px}
   .nav-item{padding:15px 18px;font-size:13px;min-height:42px}
   /* 16px inputs stop iOS from auto-zooming on focus; 42px = comfortable tap target */
-  .fi,.ss-input,.si-search,.sel-dark,.vm-input{font-size:16px;min-height:42px}
+  .fi,.ss-input,.si-search,.sel-dark{font-size:16px;min-height:42px}
   textarea.fi{min-height:72px}
   .btn-primary,.btn-clear,.tool-run,.btn-gold,.btn-navy,.cf-btn,.vm-btn,
   .dup-cancel,.dup-submit{min-height:42px}
@@ -465,8 +458,18 @@ textarea.fi{padding-right:28px}
 /* ── Admin tab (Phase 1F) — reuses existing vars/.p-card/.pill/.sel-dark/
    .btn-gold/.btn-navy/.dup-* modal/.state-msg conventions; only new
    layout/badge primitives are added here. ── */
+/* .admin-sub.active is a direct child of #content-Admin (.tab-content.active
+   — a flex column, see that rule above), same as .tools-scroll is for
+   System Tools. Without flex:1/overflow-y:auto here, this pane had no
+   flex-basis of its own: it grew to its natural content height, and
+   .tab-content's own overflow:hidden then clipped everything past the
+   viewport with no scrollbar — the config/audit/snapshot panes could
+   never be scrolled to their end. flex:1+overflow-y:auto makes THIS the
+   scroll container (mirrors .tools-scroll exactly); overflow other than
+   visible already zeroes the flex item's automatic min-height per spec,
+   so no separate min-height:0 is needed. */
 .admin-sub{display:none}
-.admin-sub.active{display:block}
+.admin-sub.active{display:block;flex:1;overflow-y:auto}
 .admin-area-bar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
 .admin-area-btn{padding:6px 12px;border-radius:6px;border:1px solid var(--border-d);
   background:var(--card);color:var(--text);font-size:11px;font-weight:700;cursor:pointer}
@@ -532,6 +535,16 @@ textarea.fi{padding-right:28px}
   <div class="user-wrap" id="userWrap" hidden>👤 <span id="userEmail"></span></div>
 </div>
 
+<!-- Security Fix R2 (DECISIONS.md D-032): shown only to a Google account
+     on the SETTINGS!G admin list whose MFA is not yet satisfied — the
+     ONLY interactive way such an admin can complete enrollAdminMfa()/
+     verifyAdminMfa(), without which sl_isAdmin() would lock them out of
+     every admin-only function with no path back in. Hidden for everyone
+     else (including non-admins, for whom sl_getAdminMfaStatus() itself
+     reveals nothing about the underlying admin list). -->
+<div class="admin-mfa-banner" id="adminMfaBanner" hidden
+     style="max-width:480px;margin:10px auto 0;padding:12px 14px;background:var(--orange-l);border-radius:10px"></div>
+
 <!-- Tab Bar: a burger button showing the current section; opens the
      nav drawer below rather than laying every tab out side by side -->
 <div class="tab-bar">
@@ -552,7 +565,13 @@ textarea.fi{padding-right:28px}
     <div class="nav-item"        id="tab-Insights" onclick="switchTab('Insights')">🔍 Store Insights</div>
     <div class="nav-item"        id="tab-Visits"   onclick="switchTab('Visits')">📅 Unvisited This Month</div>
     <div class="nav-item"        id="tab-Input"   onclick="switchTab('Input')">📋 Input Portal</div>
-    <div class="nav-item"        id="tab-Tools"    onclick="switchTab('Tools')">⚙ System Tools</div>
+    <!-- Phase 1H-C: always visible (not admin-gated) — registration is
+         exactly what a not-yet-approved person needs to reach. See
+         SVMKPI_IDENTITY_*.gs / reviews/006-phase-1h-c-planning.md. -->
+    <div class="nav-item"        id="tab-Account"  onclick="switchTab('Account')">👤 Account</div>
+    <!-- System Tools moved into the Admin tab (Configuration / Audit /
+         Report Snapshots / Tools sub-tabs) — a single admin-only home for
+         all admin functionality instead of two separate nav entries. -->
     <div class="nav-item"        id="tab-Admin"    data-admin-only="true" hidden onclick="switchTab('Admin')">🛡 Admin</div>
   </div>
 </div>
@@ -681,6 +700,16 @@ textarea.fi{padding-right:28px}
       <hr style="border-color:var(--border-d);margin:10px 0">
       <span class="si-label">Monthly Coverage</span>
       <button class="btn-navy" onclick="loadVisited()">✅ Visited This Month</button>
+      <select class="sel-dark" id="visMonthSel" onchange="loadVisited()" style="min-width:130px;margin-top:6px">
+        <option value="0">Current Month</option>
+        <option value="1">January</option><option value="2">February</option>
+        <option value="3">March</option><option value="4">April</option>
+        <option value="5">May</option><option value="6">June</option>
+        <option value="7">July</option><option value="8">August</option>
+        <option value="9">September</option><option value="10">October</option>
+        <option value="11">November</option><option value="12">December</option>
+      </select>
+      <span id="visMonthLbl" style="font-size:11px;color:var(--light)"></span>
       <div id="coverageHint" style="font-size:10px;color:var(--light);margin-top:6px"></div>
     </div>
     <div class="si-main" id="siMain">
@@ -734,161 +763,22 @@ textarea.fi{padding-right:28px}
   </div>
 </div>
 
-<!-- TAB 4: SYSTEM TOOLS -->
-<div class="tab-content" id="content-Tools">
-  <div class="tools-scroll">
-  <div class="tools-grid">
+<!-- System Tools relocated into the Admin tab's "Tools" sub-tab — see #adminPane-tools below. -->
 
-    <div class="tool-card primary" data-admin-only="true">
-      <div class="tool-hdr"><span class="tool-icon">📋</span>
-        <div><div class="tool-title">Store Master Insight</div>
-        <div class="tool-desc-hdr">All stores · visits · status · risk</div></div></div>
-      <div class="tool-body">
-        <span class="risk-badge info">🔄 Regenerated from MASTER_LOG</span>
-        <p>Rebuilds STORE MASTER INSIGHT sheet with per-store visit counts, last visit, risk tier, and compliance status.</p>
-        <button class="tool-run" onclick="runTool('rebuildStoreMaster','stat-SMI')">▶ Rebuild Store Master</button>
-        <div class="tool-stat idle" id="stat-SMI">Ready</div>
-        <div class="tool-lock" id="lock-SMI" hidden>🔒 Admin access required to run this tool.</div>
-      </div>
-    </div>
-
-    <div class="tool-card primary" data-admin-only="true">
-      <div class="tool-hdr"><span class="tool-icon">🏥</span>
-        <div><div class="tool-title">Store Health</div>
-        <div class="tool-desc-hdr">Risk scores + sheet rebuild</div></div></div>
-      <div class="tool-body">
-        <span class="risk-badge info">🔄 Regenerated from MASTER_LOG</span>
-        <p>Reads MASTER_LOG, scores all stores by visit frequency and QA/MS history, writes STORE HEALTH sheet.</p>
-        <button class="tool-run" onclick="runTool('rebuildStoreHealth','stat-SH')">▶ Rebuild Store Health</button>
-        <div class="tool-stat idle" id="stat-SH">Ready</div>
-        <div class="tool-lock" id="lock-SH" hidden>🔒 Admin access required to run this tool.</div>
-      </div>
-    </div>
-
-    <div class="tool-card" data-admin-only="true">
-      <div class="tool-hdr"><span class="tool-icon">📊</span>
-        <div><div class="tool-title">Executive Summary</div>
-        <div class="tool-desc-hdr">Layout + live GS formulas</div></div></div>
-      <div class="tool-body">
-        <span class="risk-badge warn">⚠ Clears formatting too</span>
-        <p>Rebuilds EXECUTIVE SUMMARY with COUNTIF/COUNTIFS/QUERY formulas that auto-update from MASTER_LOG.</p>
-        <button class="tool-run" onclick="runTool('rebuildExecutiveSummary','stat-ES')">▶ Rebuild Executive Summary</button>
-        <div class="tool-stat idle" id="stat-ES">Ready</div>
-        <div class="tool-lock" id="lock-ES" hidden>🔒 Admin access required to run this tool.</div>
-      </div>
-    </div>
-
-    <div class="tool-card" data-admin-only="true">
-      <div class="tool-hdr"><span class="tool-icon">📈</span>
-        <div><div class="tool-title">KPI 2026</div>
-        <div class="tool-desc-hdr">SUMPRODUCT formulas from SETTINGS!F</div></div></div>
-      <div class="tool-body">
-        <span class="risk-badge warn">⚠ Overwrites sheet</span>
-        <p>Rebuilds KPI 2026 weekly tracker. Reads visitor roster from SETTINGS!F and writes pipe-aware SUMPRODUCT formulas.</p>
-        <button class="tool-run" onclick="runTool('rebuildKPI2026','stat-KPI')">▶ Rebuild KPI 2026</button>
-        <div class="tool-stat idle" id="stat-KPI">Ready</div>
-        <div class="tool-lock" id="lock-KPI" hidden>🔒 Admin access required to run this tool.</div>
-      </div>
-    </div>
-
-    <div class="tool-card" data-admin-only="true">
-      <div class="tool-hdr"><span class="tool-icon">✅</span>
-        <div><div class="tool-title">Validate MASTER_LOG</div>
-        <div class="tool-desc-hdr">Check for missing or invalid data</div></div></div>
-      <div class="tool-body">
-        <span class="risk-badge safe">✓ Read-only · safe</span>
-        <p>Scans MASTER_LOG for rows with missing required fields, invalid dates, or unrecognized brand names. Changes nothing.</p>
-        <button class="tool-run" onclick="runTool('validateMasterLog','stat-VAL')">▶ Run Validation</button>
-        <div class="tool-stat idle" id="stat-VAL">Ready</div>
-        <div class="tool-lock" id="lock-VAL" hidden>🔒 Admin access required to run this tool.</div>
-      </div>
-    </div>
-
-    <div class="tool-card" data-admin-only="true">
-      <div class="tool-hdr"><span class="tool-icon">🗂</span>
-        <div><div class="tool-title">Data Sheet Headers</div>
-        <div class="tool-desc-hdr">MASTER_LOG + SETTINGS headers</div></div></div>
-      <div class="tool-body">
-        <span class="risk-badge warn">⚠ Rewrites headers</span>
-        <p>Restores MASTER_LOG row 1 headers with brand color rules. Restores SETTINGS headers and rebuilds col D formula. Data rows untouched.</p>
-        <button class="tool-run" onclick="runTool('rebuildDataHeaders','stat-DH')">▶ Rebuild Data Headers</button>
-        <div class="tool-stat idle" id="stat-DH">Ready</div>
-        <div class="tool-lock" id="lock-DH" hidden>🔒 Admin access required to run this tool.</div>
-      </div>
-    </div>
-
-    <div class="tool-card primary" data-admin-only="true" style="grid-column:1/-1">
-      <div class="tool-hdr"><span class="tool-icon">🗄️</span>
-        <div><div class="tool-title">Store & Roster Manager</div>
-        <div class="tool-desc-hdr">Add/edit stores · visitor roster · purpose list</div></div></div>
-      <div class="tool-body">
-        <span class="risk-badge safe">✓ Writes straight to SETTINGS — no rebuild needed</span>
-        <p>Add a new store or edit an existing one's brand/region/category, and manage the Visitor Roster and Purpose List — the same SETTINGS columns Input Portal reads from.</p>
-        <button class="tool-run" onclick="toggleStoreManager()">🗄️ Open Store & Roster Manager</button>
-        <div class="tool-lock" id="lock-SRM" hidden>🔒 Admin access required to run this tool.</div>
-
-        <div id="srmPanel" hidden style="margin-top:12px">
-          <div class="srm-section">
-            <div class="srm-hdr">Store</div>
-            <div class="fg">
-              <label>Store Name</label>
-              <div class="ss-wrap">
-                <input type="text" id="srmStoreSearch" class="ss-input"
-                  placeholder="Search an existing store, or type a new name…"
-                  oninput="srmFilterStores()" onfocus="srmFilterStores()"
-                  onblur="setTimeout(function(){ document.getElementById('srmStoreDrop').classList.remove('open'); }, 200)"
-                  autocomplete="off">
-                <div class="ss-drop" id="srmStoreDrop"></div>
-              </div>
-            </div>
-            <div class="fg"><label>Brand</label><select class="fi" id="srmBrand"></select></div>
-            <div class="fg"><label>Region</label><select class="fi" id="srmRegion"></select></div>
-            <div class="fg"><label>Category</label><select class="fi" id="srmCategory"></select></div>
-            <button class="btn-gold" onclick="srmSaveStore()">💾 Save Store</button>
-            <button class="vm-btn vm-rem" onclick="srmRemoveStore()">🗑️ Remove Store</button>
-            <div class="tool-stat idle" id="srmStoreStat">Ready</div>
-          </div>
-
-          <hr class="divider">
-
-          <div class="srm-section">
-            <div class="srm-hdr">Visitor Roster</div>
-            <div class="vm-row">
-              <input type="text" id="srmVisitorInput" class="vm-input" placeholder="Visitor name…"
-                onkeydown="if(event.key==='Enter')srmManageVisitor('add')" autocomplete="off">
-              <button class="vm-btn vm-add" onclick="srmManageVisitor('add')">+ Add</button>
-              <button class="vm-btn vm-rem" onclick="srmManageVisitor('remove')">− Remove</button>
-            </div>
-            <div class="vm-msg" id="srmVisitorMsg"></div>
-          </div>
-
-          <hr class="divider">
-
-          <div class="srm-section">
-            <div class="srm-hdr">Purpose List</div>
-            <div class="vm-row">
-              <input type="text" id="srmPurposeInput" class="vm-input" placeholder="Purpose name…"
-                onkeydown="if(event.key==='Enter')srmManagePurpose('add')" autocomplete="off">
-              <button class="vm-btn vm-add" onclick="srmManagePurpose('add')">+ Add</button>
-              <button class="vm-btn vm-rem" onclick="srmManagePurpose('remove')">− Remove</button>
-            </div>
-            <div class="vm-msg" id="srmPurposeMsg"></div>
-            <div class="srm-list">Current: <span id="srmPurposeList">—</span></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="log-panel">
-      <div class="log-hdr">
-        <span>📟 Activity Log</span>
-        <button class="log-clr" onclick="clearLog()">clear</button>
-      </div>
-      <div class="log-body" id="actLog">
-        <div class="log-entry info">System ready.</div>
-      </div>
-    </div>
+<!-- TAB: ACCOUNT (Phase 1H-C) — registration / email verification / MFA
+     enrollment, reachable by anyone past the pilot's existing Google
+     sign-in + guest-password gate (SVMKPI_ACCESS.gs, unchanged — see
+     DECISIONS.md D-025). Every button here calls a named
+     SVMKPI_IDENTITY_*.gs service function, never touches a Sheet/row
+     directly. All server-side mutations re-check authorization
+     themselves; this tab's own gating is convenience only, same
+     disclosure as the rest of this portal. -->
+<div class="tab-content" id="content-Account">
+  <div class="toolbar">
+    <div class="toolbar-title">Account —</div>
   </div>
+  <div class="scroll-panel" id="accountPanel" style="max-width:480px">
+    <div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>
   </div>
 </div>
 
@@ -905,11 +795,14 @@ textarea.fi{padding-right:28px}
     <button class="rep-btn active" id="adminSub-config" onclick="switchAdminSub('config')">Configuration</button>
     <button class="rep-btn"        id="adminSub-audit"  onclick="switchAdminSub('audit')">Audit</button>
     <button class="rep-btn"        id="adminSub-snap"   onclick="switchAdminSub('snap')">Report Snapshots</button>
+    <button class="rep-btn"        id="adminSub-tools"  onclick="switchAdminSub('tools')">Tools</button>
+    <button class="rep-btn"        id="adminSub-identity" onclick="switchAdminSub('identity')">Identity</button>
   </div>
 
   <!-- CONFIGURATION -->
   <div class="admin-sub active" id="adminPane-config">
     <div class="admin-area-bar" id="adminAreaBar"></div>
+    <div class="admin-note" id="adminAreaNote" style="margin-bottom:12px"></div>
     <div class="admin-config-layout">
       <div class="admin-entity-col">
         <div class="admin-entity-hdr" id="adminEntityHdr">Stores</div>
@@ -970,6 +863,146 @@ textarea.fi{padding-right:28px}
       <div class="admin-detail-col" id="snapDetailCol">
         <div class="state-msg"><span class="icon">🧊</span><div class="title">Select a snapshot</div>
           <div>Choose a version on the left for a read-only, frozen historical view, or view the live Draft — a fresh calculation from current data/configuration that is never persisted.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOOLS (moved here from the former standalone "⚙ System Tools" tab —
+       same cards, same server calls, just grouped and explained). -->
+  <div class="admin-sub" id="adminPane-tools">
+    <div class="tools-grid">
+
+      <div class="srm-hdr" style="grid-column:1/-1">🔄 Rebuild / Refresh Reports</div>
+
+      <div class="tool-card primary" data-admin-only="true">
+        <div class="tool-hdr"><span class="tool-icon">📋</span>
+          <div><div class="tool-title">Store Master Insight</div>
+          <div class="tool-desc-hdr">All stores · visits · status · risk</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge info">🔄 Regenerated from MASTER_LOG</span>
+          <p>Rebuilds STORE MASTER INSIGHT sheet with per-store visit counts, last visit, risk tier, and compliance status.</p>
+          <button class="tool-run" onclick="runTool('rebuildStoreMaster','stat-SMI')">▶ Rebuild Store Master</button>
+          <div class="tool-stat idle" id="stat-SMI">Ready</div>
+          <div class="tool-lock" id="lock-SMI" hidden>🔒 Admin access required to run this tool.</div>
+        </div>
+      </div>
+
+      <div class="tool-card primary" data-admin-only="true">
+        <div class="tool-hdr"><span class="tool-icon">🏥</span>
+          <div><div class="tool-title">Store Health</div>
+          <div class="tool-desc-hdr">Risk scores + sheet rebuild</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge info">🔄 Regenerated from MASTER_LOG</span>
+          <p>Reads MASTER_LOG, scores all stores by visit frequency and QA/MS history, writes STORE HEALTH sheet.</p>
+          <button class="tool-run" onclick="runTool('rebuildStoreHealth','stat-SH')">▶ Rebuild Store Health</button>
+          <div class="tool-stat idle" id="stat-SH">Ready</div>
+          <div class="tool-lock" id="lock-SH" hidden>🔒 Admin access required to run this tool.</div>
+        </div>
+      </div>
+
+      <div class="tool-card" data-admin-only="true">
+        <div class="tool-hdr"><span class="tool-icon">📊</span>
+          <div><div class="tool-title">Executive Summary</div>
+          <div class="tool-desc-hdr">Layout + live GS formulas</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge warn">⚠ Clears formatting too</span>
+          <p>Rebuilds EXECUTIVE SUMMARY with COUNTIF/COUNTIFS/QUERY formulas that auto-update from MASTER_LOG.</p>
+          <button class="tool-run" onclick="runTool('rebuildExecutiveSummary','stat-ES')">▶ Rebuild Executive Summary</button>
+          <div class="tool-stat idle" id="stat-ES">Ready</div>
+          <div class="tool-lock" id="lock-ES" hidden>🔒 Admin access required to run this tool.</div>
+        </div>
+      </div>
+
+      <div class="tool-card" data-admin-only="true">
+        <div class="tool-hdr"><span class="tool-icon">📈</span>
+          <div><div class="tool-title">KPI 2026</div>
+          <div class="tool-desc-hdr">SUMPRODUCT formulas from SETTINGS!F</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge warn">⚠ Overwrites sheet</span>
+          <p>Rebuilds KPI 2026 weekly tracker. Reads visitor roster from SETTINGS!F and writes pipe-aware SUMPRODUCT formulas.</p>
+          <button class="tool-run" onclick="runTool('rebuildKPI2026','stat-KPI')">▶ Rebuild KPI 2026</button>
+          <div class="tool-stat idle" id="stat-KPI">Ready</div>
+          <div class="tool-lock" id="lock-KPI" hidden>🔒 Admin access required to run this tool.</div>
+        </div>
+      </div>
+
+      <div class="srm-hdr" style="grid-column:1/-1;margin-top:4px">✅ Validation &amp; Repair</div>
+
+      <div class="tool-card" data-admin-only="true">
+        <div class="tool-hdr"><span class="tool-icon">✅</span>
+          <div><div class="tool-title">Validate MASTER_LOG</div>
+          <div class="tool-desc-hdr">Check for missing or invalid data</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge safe">✓ Read-only · safe</span>
+          <p>Scans MASTER_LOG for rows with missing required fields, invalid dates, or unrecognized brand names. Changes nothing.</p>
+          <button class="tool-run" onclick="runTool('validateMasterLog','stat-VAL')">▶ Run Validation</button>
+          <div class="tool-stat idle" id="stat-VAL">Ready</div>
+          <div class="tool-lock" id="lock-VAL" hidden>🔒 Admin access required to run this tool.</div>
+        </div>
+      </div>
+
+      <div class="tool-card" data-admin-only="true">
+        <div class="tool-hdr"><span class="tool-icon">🗂</span>
+          <div><div class="tool-title">Data Sheet Headers</div>
+          <div class="tool-desc-hdr">MASTER_LOG + SETTINGS headers</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge warn">⚠ Rewrites headers</span>
+          <p>Restores MASTER_LOG row 1 headers with brand color rules. Restores SETTINGS headers and rebuilds col D formula. Data rows untouched.</p>
+          <button class="tool-run" onclick="runTool('rebuildDataHeaders','stat-DH')">▶ Rebuild Data Headers</button>
+          <div class="tool-stat idle" id="stat-DH">Ready</div>
+          <div class="tool-lock" id="lock-DH" hidden>🔒 Admin access required to run this tool.</div>
+        </div>
+      </div>
+
+      <div class="srm-hdr" style="grid-column:1/-1;margin-top:4px">🗄️ Legacy Data Setup</div>
+
+      <div class="tool-card" data-admin-only="true" style="grid-column:1/-1">
+        <div class="tool-hdr"><span class="tool-icon">🗄️</span>
+          <div><div class="tool-title">Migrate Legacy SETTINGS Data</div>
+          <div class="tool-desc-hdr">One-time import into Configuration</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge safe">✓ Additive only — never edits or deletes SETTINGS/MASTER_LOG; safe to re-run</span>
+          <p>Stores, Visitors, and Purposes are now created and edited in one place: <b>Admin → Configuration → Stores / Visitors / Purposes</b>. The old "Store & Roster Manager" card that used to write directly to the legacy SETTINGS sheet has been removed.</p>
+          <p class="hint">Anything already sitting in the legacy SETTINGS sheet from before this change (an existing store, visitor, or purpose that was never entered through Configuration) needs to be imported once so Configuration knows about it too. This tool reads the current SETTINGS sheet and MASTER_LOG, and creates a matching Configuration entry for anything not already there — entries that already exist are skipped, so running this more than once (e.g. after fixing a typo in SETTINGS by hand) only imports what's new. Nothing in SETTINGS or MASTER_LOG is changed by this action.</p>
+          <button class="tool-run" onclick="runSettingsMigration()">📥 Migrate Legacy Data</button>
+          <div class="tool-stat idle" id="stat-MIGRATE">Ready</div>
+          <div class="tool-lock" id="lock-MIGRATE" hidden>🔒 Admin access required to run this tool.</div>
+        </div>
+      </div>
+
+      <div class="log-panel">
+        <div class="log-hdr">
+          <span>📟 Activity Log</span>
+          <button class="log-clr" onclick="clearLog()">clear</button>
+        </div>
+        <div class="log-body" id="actLog">
+          <div class="log-entry info">System ready.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- IDENTITY (Phase 1H-C) — registration approval + role/permission/
+       scope assignment. Visible to anyone who can see the Admin tab
+       (existing sl_isAdmin() convenience gate), but every action below
+       is independently re-checked server-side against the NEW,
+       separate permission system (SVMKPI_IDENTITY_CORE.gs) — being an
+       existing SETTINGS!G admin does not, by itself, grant any
+       identity-admin permission; see DECISIONS.md D-026. -->
+  <div class="admin-sub" id="adminPane-identity">
+    <div class="admin-config-layout">
+      <div class="admin-entity-col">
+        <div class="admin-entity-hdr">Pending Registrations</div>
+        <div class="admin-entity-list" id="identityPendingList"></div>
+        <button class="btn-navy" onclick="loadPendingRegistrations()" style="margin-top:8px">↻ Refresh</button>
+        <hr class="divider">
+        <div class="admin-entity-hdr">Look Up a User</div>
+        <input type="text" class="fi" id="identityLookupInput" placeholder="Email or User ID" style="min-height:32px">
+        <button class="btn-gold" onclick="identityLookup()" style="margin-top:6px">🔍 Look Up</button>
+      </div>
+      <div class="admin-detail-col" id="identityDetailCol">
+        <div class="state-msg"><span class="icon">👤</span><div class="title">Identity Administration</div>
+          <div>Approve or reject a pending registration on the left, or look up an existing user to manage their role, permissions, and access scope.</div></div>
       </div>
     </div>
   </div>
@@ -1094,6 +1127,66 @@ function loadAdminStatus() {
     .withSuccessHandler(applyAdminGating)
     .withFailureHandler(function(){ applyAdminGating(false); })   // fail closed
     .sl_isAdmin();
+  loadAdminMfaBanner();
+}
+
+// Security Fix R2 (DECISIONS.md D-032): sl_isAdmin() alone no longer
+// distinguishes "not an admin" from "admin, MFA not yet satisfied" — both
+// return false, by design (nothing here can reveal SETTINGS!G list
+// membership to a non-admin). This separate, finer-grained call is what
+// lets the banner tell those two cases apart for the CALLER's own
+// account only.
+function loadAdminMfaBanner() {
+  google.script.run
+    .withSuccessHandler(renderAdminMfaBanner)
+    .withFailureHandler(function(){})   // leave the banner hidden on error
+    .sl_getAdminMfaStatus();
+}
+
+function renderAdminMfaBanner(status) {
+  var banner = document.getElementById('adminMfaBanner');
+  if (!status || !status.onAdminList || status.mfaSatisfied) { banner.hidden = true; return; }
+  banner.hidden = false;
+  if (!status.mfaEnrolled) {
+    banner.innerHTML = '<div class="risk-badge warn">⚠ Admin MFA required — not yet enrolled</div>'
+      + '<div class="hint" style="margin-top:6px">Your account is on the admin list, but System Tools and the Admin tab stay locked until you enroll multi-factor authentication.</div>'
+      + '<button class="btn-gold" style="margin-top:8px" onclick="adminMfaEnroll()">🔐 Enroll Admin MFA</button>';
+    return;
+  }
+  banner.innerHTML = '<div class="risk-badge warn">⚠ Admin MFA verification required to continue</div>'
+    + '<div class="hint" style="margin-top:6px">Enter the current code from your authenticator app to unlock System Tools and the Admin tab.</div>'
+    + '<div class="fg"><div class="fg-head"><label>6-digit code</label></div>'
+    + '<input type="text" class="fi" id="adminMfaVerifyCode" placeholder="000000" maxlength="6"></div>'
+    + '<button class="btn-primary" id="adminMfaVerifyBtn" onclick="adminMfaVerifySubmit()">Verify</button>'
+    + '<div class="status-line" id="adminMfaVerifyStatus"></div>'
+    + '<button class="btn-navy" style="margin-top:8px" onclick="adminMfaEnroll()">↻ Lost access? Reset admin MFA</button>';
+}
+
+function adminMfaEnroll() {
+  callServer('enrollAdminMfa', [], function(result) {
+    if (!result.success) { document.getElementById('adminMfaBanner').innerHTML = '<div class="hint">' + esc(result.message) + '</div>'; return; }
+    var banner = document.getElementById('adminMfaBanner');
+    banner.innerHTML = '<div class="hint">Scan this into your authenticator app, or enter the secret manually:</div>'
+      + '<div class="status-line" style="word-break:break-all">' + esc(result.secret) + '</div>'
+      + '<div class="fg"><div class="fg-head"><label>Enter the 6-digit code from your app</label></div>'
+      + '<input type="text" class="fi" id="adminMfaVerifyCode" placeholder="000000" maxlength="6"></div>'
+      + '<button class="btn-primary" id="adminMfaVerifyBtn" onclick="adminMfaVerifySubmit()">Confirm</button>'
+      + '<div class="status-line" id="adminMfaVerifyStatus"></div>';
+  }, function(msg) { document.getElementById('adminMfaBanner').innerHTML = '<div class="hint">' + esc(msg) + '</div>'; });
+}
+
+function adminMfaVerifySubmit() {
+  var btn = document.getElementById('adminMfaVerifyBtn');
+  withButtonLoading(btn, 'Verifying…', function(restore) {
+    var code = document.getElementById('adminMfaVerifyCode').value;
+    callServer('verifyAdminMfa', [code], function(result) {
+      restore();
+      document.getElementById('adminMfaVerifyStatus').textContent = result.message;
+      if (result.success) {
+        setTimeout(function() { loadAdminStatus(); }, 1000);
+      }
+    }, function(msg) { restore(); document.getElementById('adminMfaVerifyStatus').textContent = msg; });
+  });
 }
 
 // Shows who's actually signed in — confirms the Web App is running as the
@@ -1132,6 +1225,7 @@ function switchTab(name) {
   closeNavDrawer();
   if (name === 'Visits') loadCompliance();
   if (name === 'Reports' && !reportsLoadedOnce) { reportsLoadedOnce = true; loadCurrentReport(); }
+  if (name === 'Account') loadAccountPanel();
 }
 
 // ═══════════════════════════════════════
@@ -1882,16 +1976,46 @@ function visOnRender(rows, allRows) {
   }
 }
 
+// Rows whose Store text in MASTER_LOG doesn't resolve to a current
+// Settings roster entry — sl_getVisitedThisMonth() surfaces these
+// instead of silently dropping them, so this total plus the resolved
+// table's total reconciles with Executive Summary's raw per-month count.
+function visRenderUnmapped(unmapped) {
+  if (!unmapped || !unmapped.length) return '';
+  var totalUnmapped = unmapped.reduce(function(n, u){ return n + (u.visits||0); }, 0);
+  var rowsHtml = unmapped.map(function(u) {
+    return '<tr><td>'+esc(u.name)+'</td><td class="c">'+(u.visits||0)+'</td><td>'+esc(u.lastVisitDate)+'</td></tr>';
+  }).join('');
+  return '<div class="profile-full" style="margin-top:14px;padding:10px 12px;border:1px solid var(--gold);border-radius:6px;background:rgba(212,175,55,0.06)">'
+    +'<div style="font-weight:700;color:var(--gold);font-size:12px;margin-bottom:6px">'
+    +'⚠ '+totalUnmapped+' visit'+(totalUnmapped!==1?'s':'')+' not matched to a current store ('+unmapped.length+' name'+(unmapped.length!==1?'s':'')+') — needs Settings review</div>'
+    +'<table style="width:100%;font-size:11px"><thead><tr><th>Store text in MASTER_LOG</th><th>Visits</th><th>Last Visit</th></tr></thead>'
+    +'<tbody>'+rowsHtml+'</tbody></table></div>';
+}
+
 function loadVisited() {
   var brand = gBrands;
+  var moEl  = document.getElementById('visMonthSel');
+  var mo    = moEl ? parseInt(moEl.value) : 0;
+  var lblEl = document.getElementById('visMonthLbl');
+  if (lblEl) {
+    var now = new Date();
+    lblEl.textContent = (!mo ? MONTHS[now.getMonth()]+' '+now.getFullYear() : MONTHS[mo-1]+' '+dataYear);
+  }
   document.getElementById('coverageHint').textContent = 'Loading…';
   document.getElementById('siMain').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
   google.script.run
-    .withSuccessHandler(function(rows) {
-      rows = rows || [];
+    .withSuccessHandler(function(data) {
+      data = data || {};
+      var rows     = data.resolved || [];
+      var unmapped = data.unmapped || [];
+      var totalVisits = rows.reduce(function(n, r){ return n + (r.visits||0); }, 0)
+        + unmapped.reduce(function(n, u){ return n + (u.visits||0); }, 0);
       document.getElementById('coverageHint').textContent =
-        rows.length+' store'+(rows.length!==1?'s':'')+' visited this month';
-      if (!rows.length) {
+        rows.length+' store'+(rows.length!==1?'s':'')+' visited'
+        + (unmapped.length ? ', '+unmapped.length+' unmatched name'+(unmapped.length!==1?'s':'') : '')
+        + ' ('+totalVisits+' total visit'+(totalVisits!==1?'s':'')+')';
+      if (!rows.length && !unmapped.length) {
         document.getElementById('siMain').innerHTML = stateMsg('📭','No Visits Logged','No stores have been visited yet this month.');
         return;
       }
@@ -1899,7 +2023,9 @@ function loadVisited() {
         '<div style="padding:12px 14px 20px">'
         +'<h3 style="margin-bottom:3px;color:var(--navy);font-size:13px">Stores Visited This Month ('+rows.length+')</h3>'
         +'<div id="visSummary" style="font-size:10px;color:var(--muted);margin-bottom:10px"></div>'
-        +'<div id="visBody"></div></div>';
+        +'<div id="visBody"></div>'
+        +'<div id="visUnmapped">'+visRenderUnmapped(unmapped)+'</div>'
+        +'</div>';
       // Same filter/sort engine as the Unvisited tab — headers filter and sort here too.
       ftCreate('vis', {
         cols:      VIS_COLS,
@@ -1914,7 +2040,7 @@ function loadVisited() {
       document.getElementById('coverageHint').textContent = '';
       document.getElementById('siMain').innerHTML = stateMsg('⚠️','Error',esc(err.message||String(err)));
     })
-    .sl_getVisitedThisMonth(brand);
+    .sl_getVisitedThisMonth(brand, mo);
 }
 
 // ═══════════════════════════════════════
@@ -2573,180 +2699,51 @@ function clearLog() {
 }
 
 // ═══════════════════════════════════════
-// SYSTEM TOOLS — STORE & ROSTER MANAGER
-// Writes straight into SETTINGS (A/B/C/E for stores, F for the visitor
-// roster, H for the purpose list) — no sheet rebuild involved. Admin-only
-// server-side (portal_saveStore()/managePurpose() both call sl_isAdmin()
-// themselves), same as every other System Tool.
+// SYSTEM TOOLS — MIGRATE LEGACY DATA
+// One-time import of whatever the legacy SETTINGS sheet already held
+// (Stores/Visitors/Purposes) into Admin Configuration's versioned
+// CONFIG_STORES/CONFIG_VISITORS/CONFIG_PURPOSES — see
+// SVMKPI_SETTINGS_MIGRATION.gs. The "Store & Roster Manager" card that
+// used to write straight into SETTINGS is gone; Admin → Configuration is
+// now the only place a Store/Visitor/Purpose is created or edited.
 // ═══════════════════════════════════════
-var srmOpen = false;
-
-function toggleStoreManager() {
-  srmOpen = !srmOpen;
-  document.getElementById('srmPanel').hidden = !srmOpen;
-  if (srmOpen) srmInit();
-}
-
-function srmInit() {
-  google.script.run
-    .withSuccessHandler(function(opts) {
-      srmFillSelect('srmBrand', opts.brands);
-      srmFillSelect('srmRegion', opts.regions);
-      srmFillSelect('srmCategory', opts.categories);
-    })
-    .withFailureHandler(function(){})
-    .sl_getStoreFormOptions();
-  srmShowPurposeList();
-}
-
-function srmFillSelect(id, values) {
-  document.getElementById(id).innerHTML = '<option value="">Select…</option>'
-    + (values || []).map(function(v){ return '<option value="'+esc(v)+'">'+esc(v)+'</option>'; }).join('');
-}
-
-// Type-to-search over the same allStores/storeData loadPortalData() already
-// populates for Input Portal — picking a row auto-fills its current
-// brand/region/category; typing a name that doesn't match anything is a
-// brand-new store, left for the admin to fill in fresh.
-function srmFilterStores() {
-  var q = document.getElementById('srmStoreSearch').value.trim().toUpperCase();
-  var drop = document.getElementById('srmStoreDrop');
-  var list = (allStores || []).filter(function(s) {
-    return !q || s.store.indexOf(q) !== -1;
-  }).slice(0, 40);
-  if (!list.length) { drop.classList.remove('open'); return; }
-  drop.innerHTML = list.map(function(s) {
-    return '<div class="ss-opt" data-v="'+esc(s.store)+'" onmousedown="srmPickStore(this)">'
-      + '<span class="opt-name">'+esc(s.store)+'</span>'
-      + (s.brand ? '<span class="opt-brand">'+esc(s.brand)+'</span>' : '')
-      + '</div>';
-  }).join('');
-  drop.classList.add('open');
-}
-
-function srmPickStore(el) {
-  var name = el.dataset.v;
-  document.getElementById('srmStoreSearch').value = name;
-  document.getElementById('srmStoreDrop').classList.remove('open');
-  var info = storeData[name];
-  if (info) {
-    document.getElementById('srmBrand').value    = info.brand    || '';
-    document.getElementById('srmRegion').value   = info.region   || '';
-    document.getElementById('srmCategory').value = info.category || '';
-  }
-}
-
-function srmSaveStore() {
-  var store    = document.getElementById('srmStoreSearch').value.trim();
-  var brand    = document.getElementById('srmBrand').value;
-  var region   = document.getElementById('srmRegion').value;
-  var category = document.getElementById('srmCategory').value;
-  var stat     = document.getElementById('srmStoreStat');
-
-  if (!store) { stat.textContent = 'Enter a store name.'; stat.className = 'tool-stat error'; return; }
-  if (!brand || !region || !category) {
-    stat.textContent = 'Brand, Region and Category are all required.';
-    stat.className = 'tool-stat error';
+function runSettingsMigration() {
+  var stat = document.getElementById('stat-MIGRATE');
+  if (!confirm('Import anything in the legacy SETTINGS sheet that is not yet in Configuration?\n\nThis only ADDS Configuration entries — it never edits or deletes SETTINGS or MASTER_LOG, and anything already migrated is skipped.')) {
     return;
   }
-
-  stat.textContent = '⏳ Saving…'; stat.className = 'tool-stat running';
+  stat.textContent = '⏳ Migrating…'; stat.className = 'tool-stat running';
   google.script.run
     .withSuccessHandler(function(r) {
-      if (r.success) {
-        stat.textContent = '✅ ' + r.message; stat.className = 'tool-stat success';
-        addLog('ok', '✅ Store & Roster Manager: ' + r.message);
-        loadPortalData();   // refresh allStores/storeData so the new/edited row shows up everywhere
+      if (r && r.success) {
+        var s = r.stores || {}, v = r.visitors || {}, p = r.purposes || {};
+        var failedCount = (s.failed || []).length + (v.failed || []).length + (p.failed || []).length;
+        var summary = 'Stores: +' + ((s.createdStoreIds || []).length) + ' (already had ' + ((s.alreadyMigrated || []).length) + ') · '
+          + 'Visitors: +' + ((v.createdNames || []).length) + ' (already had ' + ((v.alreadyMigrated || []).length) + ') · '
+          + 'Purposes: +' + ((p.createdNames || []).length) + ' (already had ' + ((p.alreadyMigrated || []).length) + ')'
+          + (failedCount ? ' · ' + failedCount + ' FAILED' : '');
+        stat.textContent = (failedCount ? '⚠ Done with errors — ' : '✅ Done — ') + summary;
+        stat.className = failedCount ? 'tool-stat error' : 'tool-stat success';
+        addLog(failedCount ? 'warn' : 'ok', (failedCount ? '⚠' : '✅') + ' Migrate Legacy Data: ' + summary);
+        if (s.unmappedCount) addLog('warn', '⚠ ' + s.unmappedCount + ' MASTER_LOG store name(s) could not be confidently matched — see CONFIG_UNMAPPED_STORES.');
+        // A SETTINGS row this migration could not create (most commonly:
+        // a blank required field — Brand/Region/Category for a Store,
+        // SVMKPI_CONFIG.gs's own validation) never becomes a CONFIG_*
+        // entity at all — never silently drop that, since it's exactly
+        // the "SETTINGS has it, Configuration doesn't" mismatch an admin
+        // needs to go fix in SETTINGS itself.
+        (s.failed || []).forEach(function(f) { addLog('warn', '⚠ Store "' + f.name + '" not migrated: ' + f.message); });
+        (v.failed || []).forEach(function(f) { addLog('warn', '⚠ Visitor "' + f.name + '" not migrated: ' + f.message); });
+        (p.failed || []).forEach(function(f) { addLog('warn', '⚠ Purpose "' + f.name + '" not migrated: ' + f.message); });
       } else {
-        stat.textContent = '❌ ' + r.message; stat.className = 'tool-stat error';
+        stat.textContent = '❌ ' + ((r && r.message) || 'Migration failed.'); stat.className = 'tool-stat error';
       }
     })
     .withFailureHandler(function(err) {
       var msg = err.message || String(err);
       stat.textContent = '❌ ' + msg; stat.className = 'tool-stat error';
     })
-    .portal_saveStore(store, brand, region, category);
-}
-
-// Removing a store only hides it from the active Store dropdowns/type-to-
-// search going forward — every historical visit stays in Store Health
-// (portal_removeStore() clears just the SETTINGS row, MASTER_LOG is never
-// touched). Confirms first since, unlike add/edit, this can't be undone
-// from the UI (re-adding the store is possible, but its old brand/region/
-// category have to be re-entered by hand).
-function srmRemoveStore() {
-  var store = document.getElementById('srmStoreSearch').value.trim();
-  var stat  = document.getElementById('srmStoreStat');
-  if (!store) { stat.textContent = 'Enter a store name.'; stat.className = 'tool-stat error'; return; }
-  if (!confirm('Remove "' + store.toUpperCase() + '" from the active store list?\n\nIts historical visits stay in Store Health — this only hides it from future selection.')) {
-    return;
-  }
-
-  stat.textContent = '⏳ Removing…'; stat.className = 'tool-stat running';
-  google.script.run
-    .withSuccessHandler(function(r) {
-      if (r.success) {
-        stat.textContent = '✅ ' + r.message; stat.className = 'tool-stat success';
-        addLog('ok', '✅ Store & Roster Manager: ' + r.message);
-        document.getElementById('srmStoreSearch').value = '';
-        document.getElementById('srmBrand').value = '';
-        document.getElementById('srmRegion').value = '';
-        document.getElementById('srmCategory').value = '';
-        loadPortalData();   // refresh allStores/storeData so it drops out of the dropdown
-      } else {
-        stat.textContent = '❌ ' + r.message; stat.className = 'tool-stat error';
-      }
-    })
-    .withFailureHandler(function(err) {
-      var msg = err.message || String(err);
-      stat.textContent = '❌ ' + msg; stat.className = 'tool-stat error';
-    })
-    .portal_removeStore(store);
-}
-
-function srmManageVisitor(action) {
-  var input = document.getElementById('srmVisitorInput');
-  var name  = input.value.trim();
-  var msg   = document.getElementById('srmVisitorMsg');
-  if (!name) { msg.textContent = 'Enter a visitor name.'; msg.className = 'vm-msg err'; return; }
-  google.script.run
-    .withSuccessHandler(function(r) {
-      if (r.success) {
-        allVisitors = (r.visitors || []).map(function(x, i) { return { name: x, color: VCOLS[i % VCOLS.length] }; });
-        input.value = '';
-        msg.textContent = '"' + name.toUpperCase() + '" ' + (action === 'add' ? 'added.' : 'removed.');
-        msg.className = 'vm-msg ok';
-      } else {
-        msg.textContent = r.message; msg.className = 'vm-msg err';
-      }
-    })
-    .withFailureHandler(function(e) { msg.textContent = e.message || String(e); msg.className = 'vm-msg err'; })
-    .manageVisitor(action, name);
-}
-
-function srmManagePurpose(action) {
-  var input = document.getElementById('srmPurposeInput');
-  var name  = input.value.trim();
-  var msg   = document.getElementById('srmPurposeMsg');
-  if (!name) { msg.textContent = 'Enter a purpose name.'; msg.className = 'vm-msg err'; return; }
-  google.script.run
-    .withSuccessHandler(function(r) {
-      if (r.success) {
-        allPurposes = r.purposes || [];
-        input.value = '';
-        msg.textContent = '"' + name.toUpperCase() + '" ' + (action === 'add' ? 'added.' : 'removed.');
-        msg.className = 'vm-msg ok';
-        srmShowPurposeList();
-      } else {
-        msg.textContent = r.message; msg.className = 'vm-msg err';
-      }
-    })
-    .withFailureHandler(function(e) { msg.textContent = e.message || String(e); msg.className = 'vm-msg err'; })
-    .managePurpose(action, name);
-}
-
-function srmShowPurposeList() {
-  document.getElementById('srmPurposeList').textContent = (allPurposes && allPurposes.length) ? allPurposes.join(', ') : '—';
+    .settingsMigration_run();
 }
 
 // ═══════════════════════════════════════
@@ -2847,6 +2844,64 @@ var ADMIN_AREAS = [
   { key: 'SYSTEM',     label: 'System' }
 ];
 
+// One-line, administrator-facing explanation of what each Configuration
+// area actually controls and how it reaches the rest of the app — shown
+// above the entity list. Grounded strictly in the existing implementation
+// (SVMKPI_CONFIG.gs's CFG_AREA_SCHEMAS, and each area's own *_CONFIG.gs
+// consumer wiring); never invents a setting or rule this area doesn't
+// already have.
+var ADMIN_AREA_NOTES = {
+  STORES: 'The one authoritative place to create or edit a store. A new or reactivated store appears in the Input Portal\'s Store picker immediately; deactivating one removes it from that picker while every past visit stays in Store Health.',
+  VISITORS: 'The one authoritative place to add or retire a name from the Visitor Roster. An active visitor appears in the Input Portal\'s "Visited By" picker; deactivating one removes it from that picker, without affecting any visit already recorded under their name.',
+  PURPOSES: 'The one authoritative place to add a visit Purpose beyond the 4 built-in ones (Store Visit, TLTC, Failed QA/MS, Curing/Support), and to give any purpose a deliberate Risk Weight. A purpose with no Risk Weight here simply scores 0 toward Store Health\'s risk total — it is never silently assigned another purpose\'s weight.',
+  RISK: 'Global thresholds and per-purpose risk weights Store Health\'s scoring engine reads. There is one active rule set for the whole system (no per-store variation exists in the underlying algorithm) — creating a new version replaces which thresholds/weights apply from its Effective From date onward.',
+  COMPLIANCE: 'Per-category visit-cadence rules (how many visits are expected, how often, with how much grace) that drive Store Health\'s compliance status and the Unvisited-This-Month view. Each category (NCR, Provincial, etc.) has its own independent rule set.',
+  KPI: 'Storage for a future KPI target/weight per named KPI. No KPI calculation in this app currently reads a target or weight — creating an entry here records the intent for later, it does not change any number on today\'s KPI 2026 sheet.',
+  SYSTEM: 'Reserved for a genuinely new business-configurable system setting. Nothing here today — settings that already work fine as code constants (timeouts, row limits) or that already live in SETTINGS (admin emails, guest password) were deliberately left where they are rather than moved here without being asked to.',
+};
+
+// Per-field, plain-language help shown under each Configuration form
+// field: what it controls, what to enter, and any save-time effect.
+// Keyed 'AREA.fieldKey'. Grounded in the exact validation/consumption
+// each field already has (SVMKPI_CONFIG.gs's cfg_validateConfiguration(),
+// and the area's own *_CONFIG.gs/engine file) — see this file's own
+// admin-note conventions elsewhere for the established tone/format.
+var ADMIN_FIELD_HELP = {
+  'STORES.storeName': 'The store\'s display name on reports and the Input Portal. Example: ACME MALL - MAIN. Editing this later adds a new version under the same store (its identity/history never changes) — the old name stops appearing anywhere current.',
+  'STORES.brand': 'Which brand this store belongs to — pick from the list. Drives Executive Summary/KPI 2026 brand grouping and the col D validation formula on the legacy SETTINGS mirror.',
+  'STORES.region': 'The store\'s region — pick from the list.',
+  'STORES.category': 'The store\'s visit-frequency category — pick from the list. Drives how many days Store Health allows between visits before marking the store overdue.',
+  'STORES.status': 'Store Status. Leave blank on a brand-new store (defaults to ACTIVE). Prefer the ⏸ Deactivate/▶ Reactivate button on an existing store\'s detail view instead of typing this directly — it fills in today\'s date and asks for a reason for you.',
+  'VISITORS.visitorName': 'The visitor\'s name as it should appear in the Input Portal\'s "Visited By" picker. Example: JUAN DELA CRUZ. Free text — there is no approved-names list to match against.',
+  'PURPOSES.riskWeight': 'Optional. A number added to a store\'s risk score each time a visit is logged with this purpose. Leave blank for a purpose that should contribute nothing to risk scoring (this is never inherited from another purpose). The 4 built-in purposes already have a working weight without needing an entry here — only set this to override one, or to give a brand-new purpose a weight.',
+  'RISK.lowThreshold': 'Stored for completeness; the current scoring algorithm does not compare against it (only Medium/High are actually used to assign a risk tier).',
+  'RISK.mediumThreshold': 'A store\'s total risk score at or above this value (and below High) is tier MEDIUM. Must be less than High Threshold. Example: 5.',
+  'RISK.highThreshold': 'A store\'s total risk score at or above this value is tier HIGH. Example: 10.',
+  'RISK.weightFailedQaMs': 'Risk points added per visit logged with purpose "Failed QA/MS". Optional — leave blank to keep the built-in default.',
+  'RISK.weightStoreVisit': 'Risk points added per visit logged with purpose "Store Visit". Optional — leave blank to keep the built-in default.',
+  'RISK.weightCuringSupport': 'Risk points added per visit logged with purpose "Curing/Support". Optional — leave blank to keep the built-in default.',
+  'RISK.weightTltc': 'Risk points added per visit logged with purpose "TLTC". Optional — leave blank to keep the built-in default.',
+  'COMPLIANCE.cadenceType': 'How often a visit is expected for this category. Must be exactly one of: MONTHLY, QUARTERLY, SEMI_ANNUAL.',
+  'COMPLIANCE.cadenceDays': 'The rolling-day threshold Store Health\'s risk score uses for this category (e.g. 30). Must be a positive number.',
+  'COMPLIANCE.periodDefinition': 'The calendar-period family the period-to-date compliance view uses for this category. Must be one of the supported period families (e.g. MONTH, QUARTER, SEMI_ANNUAL) — leave blank if unsure.',
+  'COMPLIANCE.requiredCount': 'Optional. How many visits are required per period for this category. Leave blank for the default of 1. Must be a positive whole number.',
+  'COMPLIANCE.graceDays': 'Optional. Extra days of grace added after a period ends before a missed visit counts against compliance.',
+  'KPI.targetValue': 'Optional. The numeric target this KPI is meant to hit. Not read by any calculation yet — recorded for a future feature.',
+  'KPI.targetType': 'Optional. NUMERIC, PERCENTAGE, or COUNT — describes how to interpret Target Value (a PERCENTAGE must be 0–100).',
+  'KPI.weight': 'Optional. Must be numeric if set. Not read by any calculation yet.',
+  'KPI.purposeRef': 'Optional. A Purpose name this KPI relates to, for your own reference only — not validated against the Purpose list.',
+  'SYSTEM.settingKey': 'A fixed, code-recognized identifier — not free text. Only meaningful once a specific setting is actually added to the app; there is nothing to enter here today.',
+  'SYSTEM.settingValue': 'The value for the Setting Key above.',
+  'SYSTEM.settingLabel': 'Optional. A human-readable label for the setting above.',
+};
+
+// Cached once per session — the same brand list ("in use", not the full
+// approved list) plus the fixed region/category enums the removed Store
+// & Roster Manager card used to show, reused here so the Admin
+// Configuration Store form offers the exact same guided choices instead
+// of unvalidated free text.
+var adminStoreFormOptions = null;
+
 // ── Generic helpers ─────────────────────────────────────────────────
 function callServer(fnName, args, onSuccess, onError) {
   var runner = google.script.run
@@ -2904,11 +2959,296 @@ function initAdminTabOnce() {
   loadAdminArea('STORES');
   loadReportingYearsForAdmin();
 }
+var identityTabLoadedOnce = false;
 function switchAdminSub(name) {
   document.querySelectorAll('#content-Admin .toolbar .rep-btn').forEach(function(b){ b.classList.remove('active'); });
   document.getElementById('adminSub-' + name).classList.add('active');
   document.querySelectorAll('#content-Admin .admin-sub').forEach(function(p){ p.classList.remove('active'); });
   document.getElementById('adminPane-' + name).classList.add('active');
+  if (name === 'identity' && !identityTabLoadedOnce) {
+    identityTabLoadedOnce = true;
+    loadPendingRegistrations();
+  }
+}
+
+// ═══════════════════════════════════════
+// IDENTITY (Phase 1H-C) — Account tab (self-service) + Admin > Identity
+// sub-tab (approval / role / permission / scope). Every function below
+// calls exactly one named SVMKPI_IDENTITY_*.gs service via callServer()
+// — no Sheet/row/column name ever appears here, per the frontend/
+// service boundary rule (reviews/006-phase-1h-c-planning.md).
+// ═══════════════════════════════════════
+
+// ── Account tab (self-service) ──────────────────────────────────────
+function loadAccountPanel() {
+  document.getElementById('accountPanel').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
+  callServer('getCurrentUser', [], function(info) {
+    if (!info.linked) { renderAccountRegister(info.googleEmail); return; }
+    renderAccountForStatus(info.user);
+  }, function(msg) { adminShowError('accountPanel', msg); });
+}
+
+function renderAccountRegister(googleEmail) {
+  document.getElementById('accountPanel').innerHTML =
+    '<div class="fg"><div class="fg-head"><label>Full Name <span class="req">*</span></label></div>'
+    + '<input type="text" class="fi" id="regName" placeholder="Your full name"></div>'
+    + '<div class="fg"><div class="fg-head"><label>Email <span class="req">*</span></label></div>'
+    + '<input type="email" class="fi" id="regEmail" placeholder="you@example.com" value="' + esc(googleEmail || '') + '"></div>'
+    + '<div class="fg"><div class="fg-head"><label>Department <span class="req">*</span></label></div>'
+    + '<input type="text" class="fi" id="regDept" placeholder="e.g. Training &amp; Development"></div>'
+    + '<button class="btn-primary" id="regSubmitBtn" onclick="identityRegisterSubmit()">Register</button>'
+    + '<div class="status-line" id="regStatus"></div>';
+}
+
+function identityRegisterSubmit() {
+  var btn = document.getElementById('regSubmitBtn');
+  withButtonLoading(btn, 'Registering…', function(restore) {
+    var name = document.getElementById('regName').value;
+    var email = document.getElementById('regEmail').value;
+    var dept = document.getElementById('regDept').value;
+    callServer('registerUser', [name, email, dept], function(result) {
+      restore();
+      if (!result.success) { document.getElementById('regStatus').textContent = result.message; return; }
+      renderAccountVerify(email);
+    }, function(msg) { restore(); document.getElementById('regStatus').textContent = msg; });
+  });
+}
+
+function renderAccountVerify(email) {
+  document.getElementById('accountPanel').innerHTML =
+    '<div class="state-msg" style="padding:10px 0"><div class="title">Check your email</div>'
+    + '<div>Enter the 6-digit code sent to ' + esc(email) + '.</div></div>'
+    + '<input type="hidden" id="verifyEmail" value="' + esc(email) + '">'
+    + '<div class="fg"><div class="fg-head"><label>Verification Code</label></div>'
+    + '<input type="text" class="fi" id="verifyCode" placeholder="000000" maxlength="6"></div>'
+    + '<button class="btn-primary" id="verifySubmitBtn" onclick="identityVerifySubmit()">Verify</button>'
+    + '<div class="status-line" id="verifyStatus"></div>';
+}
+
+function identityVerifySubmit() {
+  var btn = document.getElementById('verifySubmitBtn');
+  withButtonLoading(btn, 'Verifying…', function(restore) {
+    var email = document.getElementById('verifyEmail').value;
+    var code = document.getElementById('verifyCode').value;
+    callServer('verifyRegistrationEmail', [email, code], function(result) {
+      restore();
+      document.getElementById('verifyStatus').textContent = result.message;
+      if (result.success) setTimeout(loadAccountPanel, 1200);
+    }, function(msg) { restore(); document.getElementById('verifyStatus').textContent = msg; });
+  });
+}
+
+function renderAccountForStatus(user) {
+  var panel = document.getElementById('accountPanel');
+  var head = '<div class="state-msg" style="padding:10px 0;text-align:left">'
+    + '<div class="title">' + esc(user.fullName) + '</div>'
+    + '<div>' + esc(user.email) + ' &middot; ' + esc(user.department) + '</div>'
+    + '<div style="margin-top:6px">Status: <b>' + esc(user.accountStatus) + '</b></div></div>';
+
+  if (user.accountStatus === 'PENDING_APPROVAL') {
+    panel.innerHTML = head + '<div class="hint">Your registration is verified and waiting for an administrator to approve it.</div>';
+    return;
+  }
+  if (user.accountStatus === 'REJECTED' || user.accountStatus === 'DISABLED') {
+    panel.innerHTML = head + '<div class="hint">Contact an administrator for details.</div>';
+    return;
+  }
+  if (user.accountStatus === 'SUSPENDED') {
+    panel.innerHTML = head + '<div class="hint">Your account is suspended. Contact an administrator to reactivate it.</div>';
+    return;
+  }
+  if (user.accountStatus === 'ACTIVE') {
+    panel.innerHTML = head + '<div id="mfaArea"><div class="spinner"></div></div>';
+    callServer('getAccessState', [], function(state) {
+      renderMfaArea(state);
+    }, function() { renderMfaArea({ mfaEnrolled: false, mfaSatisfied: false }); });
+    return;
+  }
+  panel.innerHTML = head;
+}
+
+// Security Fix R1: three distinct states now, not two — not enrolled;
+// enrolled but this Google identity hasn't satisfied MFA yet (server-
+// authoritative, PropertiesService-backed — see SVMKPI_IDENTITY_CORE.gs
+// §6.5); enrolled and currently satisfied. Only the third state can
+// actually use Admin → Identity actions or any other MFA-gated
+// function — this display is informational, matching every other
+// gating hint in this portal (real enforcement is server-side).
+function renderMfaArea(state) {
+  var area = document.getElementById('mfaArea');
+  if (!area) return;
+  if (!state.mfaEnrolled) {
+    area.innerHTML = '<div class="risk-badge warn">⚠ Multi-factor authentication required — not yet enrolled</div>'
+      + '<button class="btn-gold" style="margin-top:8px" onclick="identityEnrollMfa()">🔐 Enroll MFA</button>';
+    return;
+  }
+  if (!state.mfaSatisfied) {
+    area.innerHTML = '<div class="risk-badge warn">⚠ MFA verification required to continue</div>'
+      + '<div class="hint">Enter the current code from your authenticator app.</div>'
+      + '<div class="fg"><div class="fg-head"><label>6-digit code</label></div>'
+      + '<input type="text" class="fi" id="mfaVerifyCode" placeholder="000000" maxlength="6"></div>'
+      + '<button class="btn-primary" id="mfaVerifyBtn" onclick="identityVerifyMfaSubmit()">Verify</button>'
+      + '<div class="status-line" id="mfaVerifyStatus"></div>'
+      + '<button class="btn-navy" style="margin-top:8px" onclick="identityEnrollMfa()">↻ Lost access? Reset MFA</button>';
+    return;
+  }
+  area.innerHTML = '<div class="risk-badge safe">✓ Multi-factor authentication verified</div>'
+    + '<button class="btn-navy" style="margin-top:8px" onclick="identityEnrollMfa()">↻ Reset MFA</button>';
+}
+
+function identityEnrollMfa() {
+  callServer('enrollMfa', [], function(result) {
+    if (!result.success) { adminToast(result.message); return; }
+    var area = document.getElementById('mfaArea');
+    area.innerHTML = '<div class="hint">Scan this into your authenticator app (Google Authenticator, Authy, etc.), or enter the secret manually:</div>'
+      + '<div class="status-line" style="word-break:break-all">' + esc(result.secret) + '</div>'
+      + '<div class="fg"><div class="fg-head"><label>Enter the 6-digit code from your app</label></div>'
+      + '<input type="text" class="fi" id="mfaVerifyCode" placeholder="000000" maxlength="6"></div>'
+      + '<button class="btn-primary" id="mfaVerifyBtn" onclick="identityVerifyMfaSubmit()">Confirm</button>'
+      + '<div class="status-line" id="mfaVerifyStatus"></div>';
+  }, function(msg) { adminToast(msg); });
+}
+
+function identityVerifyMfaSubmit() {
+  var btn = document.getElementById('mfaVerifyBtn');
+  withButtonLoading(btn, 'Verifying…', function(restore) {
+    var code = document.getElementById('mfaVerifyCode').value;
+    callServer('verifyMfa', [code], function(result) {
+      restore();
+      document.getElementById('mfaVerifyStatus').textContent = result.message;
+      if (result.success) setTimeout(loadAccountPanel, 1000);
+    }, function(msg) { restore(); document.getElementById('mfaVerifyStatus').textContent = msg; });
+  });
+}
+
+// ── Admin > Identity sub-tab ─────────────────────────────────────────
+function loadPendingRegistrations() {
+  var listEl = document.getElementById('identityPendingList');
+  listEl.innerHTML = '<div class="state-msg" style="padding:10px 0"><div class="spinner"></div></div>';
+  callServer('listPendingRegistrations', [], function(result) {
+    if (!result.success) { listEl.innerHTML = '<div class="hint">' + esc(result.message) + '</div>'; return; }
+    if (!result.registrations.length) { listEl.innerHTML = '<div class="hint">No pending registrations.</div>'; return; }
+    listEl.innerHTML = result.registrations.map(function(r) {
+      return adminEntityRowHtml(r.userId, r.fullName, r.email + ' · ' + r.department, 'admin-badge-active');
+    }).join('');
+    listEl.querySelectorAll('.admin-entity-row').forEach(function(row, i) {
+      row.onclick = function() { renderPendingRegistrationDetail(result.registrations[i]); };
+    });
+  }, function(msg) { listEl.innerHTML = '<div class="hint">' + esc(msg) + '</div>'; });
+}
+
+function renderPendingRegistrationDetail(reg) {
+  document.getElementById('identityDetailCol').innerHTML =
+    '<div class="admin-detail-hdr">' + esc(reg.fullName) + '</div>'
+    + '<div class="hint">' + esc(reg.email) + ' &middot; ' + esc(reg.department) + '</div>'
+    + '<button class="btn-gold" style="margin-top:10px" onclick="identityApprove(\'' + esc(reg.userId) + '\')">✓ Approve</button>'
+    + '<button class="btn-navy" style="margin-top:8px" onclick="identityReject(\'' + esc(reg.userId) + '\')">✗ Reject</button>'
+    + '<div class="status-line" id="identityActionStatus"></div>';
+}
+
+function identityApprove(userId) {
+  callServer('approveRegistration', [userId], function(result) {
+    document.getElementById('identityActionStatus').textContent = result.message;
+    if (result.success) { adminToast('Registration approved.'); loadPendingRegistrations(); identityLookupById(userId); }
+  }, function(msg) { document.getElementById('identityActionStatus').textContent = msg; });
+}
+
+function identityReject(userId) {
+  var reason = window.prompt('Reason for rejecting this registration (optional):', '') || '';
+  callServer('rejectRegistration', [userId, reason], function(result) {
+    document.getElementById('identityActionStatus').textContent = result.message;
+    if (result.success) { adminToast('Registration rejected.'); loadPendingRegistrations(); }
+  }, function(msg) { document.getElementById('identityActionStatus').textContent = msg; });
+}
+
+function identityLookup() {
+  var q = document.getElementById('identityLookupInput').value;
+  identityLookupById(q);
+}
+
+function identityLookupById(userIdOrEmail) {
+  var col = document.getElementById('identityDetailCol');
+  col.innerHTML = '<div class="state-msg"><div class="spinner"></div></div>';
+  callServer('identityAdmin_getUserDetail', [userIdOrEmail], function(result) {
+    if (!result.success) { adminShowError('identityDetailCol', result.message); return; }
+    renderIdentityUserDetail(result);
+  }, function(msg) { adminShowError('identityDetailCol', msg); });
+}
+
+function renderIdentityUserDetail(detail) {
+  var u = detail.user;
+  var html = '<div class="admin-detail-hdr">' + esc(u.fullName) + '</div>'
+    + '<div class="hint">' + esc(u.email) + ' &middot; ' + esc(u.department) + ' &middot; ' + esc(u.accountStatus) + '</div>';
+
+  html += '<div class="admin-note" style="margin-top:10px">Roles</div>';
+  ['ADMIN', 'USER'].forEach(function(r) {
+    var has = detail.roles.indexOf(r) !== -1;
+    html += '<label class="colf-opt"><input type="checkbox" ' + (has ? 'checked' : '')
+      + ' onchange="identityAssignRole(\'' + esc(u.userId) + '\',\'' + r + '\',this.checked)"><span>' + r + '</span></label>';
+  });
+
+  html += '<div class="admin-note" style="margin-top:10px">Direct Permissions (beyond role)</div>';
+  ['REGISTRATION_APPROVE', 'USER_MANAGE', 'ROLE_ASSIGN', 'PERMISSION_ASSIGN', 'SCOPE_ASSIGN', 'IDENTITY_AUDIT_VIEW'].forEach(function(p) {
+    var has = detail.directPermissions.indexOf(p) !== -1;
+    html += '<label class="colf-opt"><input type="checkbox" ' + (has ? 'checked' : '')
+      + ' onchange="identityAssignPermission(\'' + esc(u.userId) + '\',\'' + p + '\',this.checked)"><span>' + p + '</span></label>';
+  });
+
+  html += '<div class="admin-note" style="margin-top:10px">Access Scope</div>'
+    + '<div id="identityScopeList">' + (detail.scope.length
+        ? detail.scope.map(function(s) { return '<div class="hint">' + esc(s.scopeType) + (s.scopeValue ? ': ' + esc(s.scopeValue) : '') + '</div>'; }).join('')
+        : '<div class="hint">No scope grants — SYSTEM-wide by role default.</div>') + '</div>'
+    + '<select class="sel-dark" id="scopeTypeSel" style="margin-top:6px"><option value="SYSTEM">SYSTEM</option><option value="REGION">REGION</option><option value="STORE">STORE</option></select>'
+    + '<input type="text" class="fi" id="scopeValueInput" placeholder="Region name or Store ID (blank for SYSTEM)" style="min-height:32px;margin-top:6px">'
+    + '<button class="btn-navy" style="margin-top:6px" onclick="identityGrantScope(\'' + esc(u.userId) + '\')">+ Grant Scope</button>';
+
+  html += '<div class="admin-note" style="margin-top:10px">MFA: ' + esc(detail.mfaStatus) + '</div>';
+
+  html += '<div class="admin-note" style="margin-top:10px">Account</div>';
+  if (u.accountStatus === 'ACTIVE') {
+    html += '<button class="btn-navy" onclick="identitySuspend(\'' + esc(u.userId) + '\')">Suspend</button>';
+  } else if (u.accountStatus === 'SUSPENDED') {
+    html += '<button class="btn-gold" onclick="identityReactivate(\'' + esc(u.userId) + '\')">Reactivate</button>';
+  }
+  if (u.accountStatus === 'ACTIVE' || u.accountStatus === 'SUSPENDED') {
+    html += '<button class="btn-navy" onclick="identityDisable(\'' + esc(u.userId) + '\')">Disable</button>';
+  }
+  html += '<div class="status-line" id="identityActionStatus"></div>';
+
+  document.getElementById('identityDetailCol').innerHTML = html;
+}
+
+function identityAssignRole(userId, roleId, grant) {
+  callServer('assignRole', [userId, roleId, grant], function(result) {
+    adminToast(result.message);
+    if (result.success) identityLookupById(userId);
+  }, function(msg) { adminToast(msg); });
+}
+function identityAssignPermission(userId, key, grant) {
+  callServer('assignPermissions', [userId, key, grant], function(result) {
+    adminToast(result.message);
+    if (result.success) identityLookupById(userId);
+  }, function(msg) { adminToast(msg); });
+}
+function identityGrantScope(userId) {
+  var type = document.getElementById('scopeTypeSel').value;
+  var value = document.getElementById('scopeValueInput').value;
+  callServer('assignScope', [userId, type, value, true], function(result) {
+    adminToast(result.message);
+    if (result.success) identityLookupById(userId);
+  }, function(msg) { adminToast(msg); });
+}
+function identitySuspend(userId) {
+  var reason = window.prompt('Reason for suspending this account (optional):', '') || '';
+  callServer('suspendAccount', [userId, reason], function(result) { adminToast(result.message); if (result.success) identityLookupById(userId); }, function(msg) { adminToast(msg); });
+}
+function identityReactivate(userId) {
+  callServer('reactivateAccount', [userId, ''], function(result) { adminToast(result.message); if (result.success) identityLookupById(userId); }, function(msg) { adminToast(msg); });
+}
+function identityDisable(userId) {
+  var reason = window.prompt('Reason for disabling this account:', '') || '';
+  if (!window.confirm('Disable this account? This cannot be undone from this screen.')) return;
+  callServer('disableAccount', [userId, reason], function(result) { adminToast(result.message); if (result.success) identityLookupById(userId); }, function(msg) { adminToast(msg); });
 }
 
 // ── CONFIGURATION ────────────────────────────────────────────────────
@@ -2923,6 +3263,7 @@ function loadAdminArea(area) {
   adminSelectedEntity = null;
   renderAdminAreaBar();
   document.getElementById('adminEntityHdr').textContent = ADMIN_AREAS.filter(function(a){ return a.key === area; })[0].label;
+  document.getElementById('adminAreaNote').textContent = ADMIN_AREA_NOTES[area] || '';
   document.getElementById('adminNewEntityBtn').hidden = (area === 'RISK' || area === 'SYSTEM');
   document.getElementById('adminDetailCol').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
   document.getElementById('adminEntityList').innerHTML = '<div class="state-msg" style="padding:10px 0"><div class="spinner"></div></div>';
@@ -3066,6 +3407,18 @@ function renderAdminDetail(area, entityId, detail) {
 // never offers a field those backend functions can't accept.
 function areaSupportsEffectiveTo(area) { return area === 'VISITORS'; }
 
+// STORES' brand/region/category are closed lists in the underlying data
+// (APPROVED_REGIONS/APPROVED_CATEGORIES, plus whichever brands are
+// actually in use) — rendered as <select> here, same guided-choice
+// fidelity the removed Store & Roster Manager card's own dropdowns gave,
+// rather than free text a typo could silently slip past.
+var ADMIN_SELECT_FIELDS = {
+  'STORES.brand': function() { return (adminStoreFormOptions && adminStoreFormOptions.brands) || []; },
+  'STORES.region': function() { return (adminStoreFormOptions && adminStoreFormOptions.regions) || []; },
+  'STORES.category': function() { return (adminStoreFormOptions && adminStoreFormOptions.categories) || []; },
+  'STORES.status': function() { return ['ACTIVE', 'INACTIVE']; },
+};
+
 function renderAdminCreateForm(area, entityId, isNewEntity) {
   if (!adminSchema) return '';
   var needsEntityIdField = (area !== 'STORES' && area !== 'RISK');
@@ -3073,23 +3426,42 @@ function renderAdminCreateForm(area, entityId, isNewEntity) {
     .filter(function(f) { return !(area === 'PURPOSES' && f.key === 'purposeName') && !(area === 'KPI' && f.key === 'kpiName'); })
     .map(function(f) {
       var required = adminSchema.required.indexOf(f.key) !== -1;
-      return '<div class="admin-form-row"><label>' + esc(f.header) + (required ? ' *' : '') + '</label>'
-        + '<input type="text" class="fi" id="af_' + f.key + '" placeholder="' + esc(f.header) + '"></div>';
+      var help = ADMIN_FIELD_HELP[area + '.' + f.key];
+      var selectOptions = ADMIN_SELECT_FIELDS[area + '.' + f.key];
+      var input = selectOptions
+        ? '<select class="fi" id="af_' + f.key + '"><option value="">Select…</option>'
+          + selectOptions().map(function(v) { return '<option value="' + esc(v) + '">' + esc(v) + '</option>'; }).join('')
+          + '</select>'
+        : '<input type="text" class="fi" id="af_' + f.key + '" placeholder="' + esc(f.header) + '">';
+      return '<div class="admin-form-row"><label>' + esc(f.header) + (required ? ' <span class="req">*</span>' : '') + '</label>'
+        + input
+        + (help ? '<div class="hint">' + help + '</div>' : '')
+        + '</div>';
     }).join('');
 
   var entityIdField = needsEntityIdField
-    ? '<div class="admin-form-row"><label>Entity ID' + (isNewEntity ? '' : ' (existing — versions accumulate under this ID)') + ' *</label>'
-      + '<input type="text" class="fi" id="af_entityId" value="' + esc(isNewEntity ? '' : (entityId || '')) + '"' + (isNewEntity ? '' : ' readonly') + '></div>'
+    ? '<div class="admin-form-row"><label>Entity ID' + (isNewEntity ? '' : ' (existing — versions accumulate under this ID)') + ' <span class="req">*</span></label>'
+      + '<input type="text" class="fi" id="af_entityId" value="' + esc(isNewEntity ? '' : (entityId || '')) + '"' + (isNewEntity ? '' : ' readonly') + '>'
+      + (isNewEntity ? '<div class="hint">' + (area === 'VISITORS' ? 'The visitor\'s name — this IS their identity, so it can never be changed later (add a new one instead of trying to rename).' : area === 'PURPOSES' ? 'The purpose name — this IS its identity, so it can never be changed later.' : 'A unique identifier for this entity — cannot be changed later.') + '</div>' : '')
+      + '</div>'
     : '';
+
+  if (area === 'STORES' && !adminStoreFormOptions) {
+    callServer('sl_getStoreFormOptions', [], function(opts) {
+      adminStoreFormOptions = opts;
+      if (adminArea === 'STORES') { if (isNewEntity) adminOpenCreateForm(); else selectAdminEntity(entityId); }
+    }, function() {});
+  }
 
   return '<div class="p-card" style="margin-top:14px"><div class="p-card-hdr">' + (isNewEntity ? '➕ Create New ' + esc(ADMIN_AREAS.filter(function(a){return a.key===area;})[0].label) : '📝 Add New Version') + '</div>'
     + '<div class="p-card-body">'
     + '<div class="admin-note">Creating this does not rewrite any existing version — it always adds a new one. Historical versions are never edited or deleted.</div>'
     + entityIdField
     + fieldsHtml
-    + '<div class="admin-form-row"><label>Effective From *</label><input type="date" class="fi" id="af_effFrom" value="' + todayDateStr() + '"></div>'
-    + (areaSupportsEffectiveTo(area) ? '<div class="admin-form-row"><label>Effective To (optional)</label><input type="date" class="fi" id="af_effTo"></div>' : '')
-    + '<div class="admin-form-row"><label>Reason</label><textarea class="fi" id="af_reason" placeholder="Why is this change being made?"></textarea></div>'
+    + '<div class="admin-form-row"><label>Effective From <span class="req">*</span></label><input type="date" class="fi" id="af_effFrom" value="' + todayDateStr() + '">'
+    + '<div class="hint">The date this version takes effect. Today is pre-filled. A past date requires an explicit confirmation and a reason (never applied silently).</div></div>'
+    + (areaSupportsEffectiveTo(area) ? '<div class="admin-form-row"><label>Effective To (optional)</label><input type="date" class="fi" id="af_effTo"><div class="hint">Leave blank for open-ended (the normal case). Only set this for a rule that should deliberately stop applying on a known date before anything else replaces it.</div></div>' : '')
+    + '<div class="admin-form-row"><label>Reason</label><textarea class="fi" id="af_reason" placeholder="Why is this change being made?"></textarea><div class="hint">Optional unless this change is backdated, in which case it\'s required. Always shown in the Audit log either way.</div></div>'
     + '<div class="status-line" id="af_error"></div>'
     + '<button class="btn-primary" id="af_submitBtn" onclick="adminSubmitCreate(\'' + area + '\', ' + (isNewEntity ? 'true' : 'false') + ')">' + (isNewEntity ? 'Create' : 'Save New Version') + '</button>'
     + '</div></div>';

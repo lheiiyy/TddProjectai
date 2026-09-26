@@ -308,7 +308,13 @@ function _sl_attentionReason(activeFailedPenalty, complianceStatus, categoryLabe
  * them, so per-EVENT historical weight resolution isn't achievable
  * without restructuring that aggregation itself, which is out of this
  * phase's scope (documented in DEPLOY.md).
- * @param {object[]} monthBuckets — 12 entries: {failedCount, storeVisitCount, curingCount, tltcCount}
+ * @param {object[]} monthBuckets — 12 entries: {failedCount, storeVisitCount,
+ *   curingCount, tltcCount, otherCounts}. `otherCounts` (Phase 2C) is an
+ *   OPTIONAL {[purposeName]: count} map for any purpose beyond the 4
+ *   legacy names above — omitted entirely by every pre-Phase-2C caller
+ *   (e.g. this file's own tests construct buckets without it), which is
+ *   why its handling below is additive-only and never changes a bucket
+ *   with no `otherCounts` at all.
  * @param {number} monthLimit — 0-based index of the last month to include
  * @param {Date} [dateRef] - weight-resolution date; omit for today
  * @returns {{basePurposeScore:number, activeFailedPenalty:number, totalPurposeScore:number}}
@@ -326,6 +332,33 @@ function _sl_computeMonthlyPurposeScores(monthBuckets, monthLimit, dateRef) {
   const wTltc = _weightOf('TLTC');
   const wFailed = _weightOf('FAILED QA/MS');
 
+  // Phase 2C: a purpose beyond the 4 legacy names is never matched by
+  // name here — it's discovered purely from whatever key(s) actually show
+  // up in a bucket's `otherCounts` (built from real visit data, never a
+  // hardcoded list) and its weight resolves through the exact same
+  // risk_resolvePurposeWeight() fallback chain the 4 legacy weights above
+  // already use — memoized once per purpose per call, same as
+  // wStoreVisit/wCuring/wTltc/wFailed already are. A purpose
+  // risk_resolvePurposeWeight() cannot resolve at all (no deliberate
+  // CONFIG_PURPOSES weight, no legacy CONFIG_RISK field, no hardcoded
+  // RISK_PURPOSE_SCORE default — i.e. null, exactly that function's own
+  // documented "no configuration at all" case) contributes exactly 0 —
+  // never fabricated, never borrowed from another purpose's weight.
+  const otherWeightCache = {};
+  const _otherWeightOf = (purpose) => {
+    if (!(purpose in otherWeightCache)) {
+      let w = null;
+      if (typeof risk_resolvePurposeWeight === 'function') {
+        const r = risk_resolvePurposeWeight(purpose, dateRef);
+        w = r ? r.weight : null;
+      } else if (typeof RISK_PURPOSE_SCORE !== 'undefined' && RISK_PURPOSE_SCORE[purpose] != null) {
+        w = RISK_PURPOSE_SCORE[purpose];
+      }
+      otherWeightCache[purpose] = w;
+    }
+    return otherWeightCache[purpose];
+  };
+
   let activeFailedPenalty = 0;
   let basePurposeScore = 0;
 
@@ -336,6 +369,13 @@ function _sl_computeMonthlyPurposeScores(monthBuckets, monthLimit, dateRef) {
     basePurposeScore += (b.storeVisitCount * wStoreVisit);
     basePurposeScore += (b.curingCount * wCuring);
     basePurposeScore += (b.tltcCount * wTltc);
+
+    if (b.otherCounts) {
+      Object.keys(b.otherCounts).forEach(purpose => {
+        const w = _otherWeightOf(purpose);
+        if (w != null) basePurposeScore += (b.otherCounts[purpose] * w);
+      });
+    }
 
     if (b.failedCount > 0) {
       activeFailedPenalty += (b.failedCount * wFailed);
@@ -381,7 +421,7 @@ function _computeStoreRisk(data, today, year) {
     ? today.getMonth()
     : 11;
 
-  const freshBucket = () => ({ failedCount: 0, storeVisitCount: 0, curingCount: 0, tltcCount: 0 });
+  const freshBucket = () => ({ failedCount: 0, storeVisitCount: 0, curingCount: 0, tltcCount: 0, otherCounts: {} });
   const freshStore = (name, meta) => ({
     store: name,
     brand: (meta && meta.brand !== '—') ? meta.brand : '—',
@@ -448,18 +488,25 @@ function _computeStoreRisk(data, today, year) {
         s.storeYTD++;
         s.storeVisitCount++;
         s.monthlyBuckets[monthIdx].storeVisitCount++;
-      }
-      if (purpose === 'FAILED QA/MS') {
+      } else if (purpose === 'FAILED QA/MS') {
         s.failedCount++;
         s.monthlyBuckets[monthIdx].failedCount++;
-      }
-      if (purpose === 'CURING/SUPPORT') {
+      } else if (purpose === 'CURING/SUPPORT') {
         s.curingCount++;
         s.monthlyBuckets[monthIdx].curingCount++;
-      }
-      if (purpose === 'TLTC') {
+      } else if (purpose === 'TLTC') {
         s.tltcCount++;
         s.monthlyBuckets[monthIdx].tltcCount++;
+      } else if (purpose) {
+        // Phase 2C: any OTHER purpose — discovered directly from the data,
+        // never a hardcoded name — still counts toward this store's
+        // totalYTD (above, unchanged) AND now feeds its own weighted
+        // contribution to the risk score generically (see
+        // _sl_computeMonthlyPurposeScores()'s otherCounts handling),
+        // instead of being silently invisible to scoring the way it was
+        // before this purpose had a named bucket slot.
+        const bucket = s.monthlyBuckets[monthIdx];
+        bucket.otherCounts[purpose] = (bucket.otherCounts[purpose] || 0) + 1;
       }
     }
   }
@@ -602,15 +649,34 @@ function populateRiskEngine(sheet, data, year) {
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * refreshRiskEngine(year)
+ * refreshRiskEngine(year, __systemToken)
  * Sole externally-called entry point. Builds the sheet (if needed)
  * and repopulates it from MASTER_LOG via CORE.gs's _getData().
+ *
+ * Phase 1H-B.1 (Required finding 2, reviews/003 §H): same
+ * unwrapped-engine gap as buildExecutiveSummaryLayout() etc.
+ * (SVMKPI_LAYOUT.gs), but this one has a legitimate unattended caller —
+ * the daily `triggerRefreshDashboard()` time trigger (SVMKPI_ADMIN.gs),
+ * which runs with no interactive Google sign-in to check sl_isAdmin()
+ * against. `__systemToken` lets ONLY that trigger bypass the check: it's
+ * an unguessable value generated fresh per script execution
+ * (`_SYSTEM_TRIGGER_TOKEN_`, SVMKPI_ADMIN.gs), never sent to any client
+ * and never accepted as a plain "isAdmin"-style flag — a caller has to
+ * already know the exact live value to pass it, which no RPC caller can,
+ * so this is not the "trust a client-supplied role flag" pattern the
+ * remediation task explicitly forbids.
  * @param {number} [year] - Reporting year (Phase 1C); omit for
  *   getDefaultReportingYear() (SVMKPI_REPORTING_YEAR.gs) — the latest
  *   year actually present in MASTER_LOG, never a hardcoded literal.
- * @returns {{ success: boolean, rows: number }}
+ * @param {string} [__systemToken] - internal use only; see above.
+ * @returns {{ success: boolean, rows: number, message?: string }}
  */
-function refreshRiskEngine(year) {
+function refreshRiskEngine(year, __systemToken) {
+  const isSystemTrigger = (typeof _SYSTEM_TRIGGER_TOKEN_ !== 'undefined') &&
+    !!__systemToken && __systemToken === _SYSTEM_TRIGGER_TOKEN_;
+  if (!isSystemTrigger && typeof sl_isAdmin === 'function' && !sl_isAdmin()) {
+    return { success: false, rows: 0, message: 'Admin access required.' };
+  }
   const masterLog = _getSheet(SHEET.MASTER_LOG);
   const data      = _getData(masterLog);
   const sheet     = buildRiskEngineSheet();

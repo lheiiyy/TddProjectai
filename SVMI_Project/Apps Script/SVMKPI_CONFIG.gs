@@ -710,10 +710,58 @@ function cfg_createConfiguration(area, entityId, fields, effectiveFromStr, effec
       _cfg_summarize(schema, { fields }),
       effectiveFrom, effectiveTo, reason || '', versionNum, actor);
 
+    _cfg_syncLegacyMirror(area, entity);
+
     return { success: true, versionId, version: versionNum };
   } catch (e) {
     logError('cfg_createConfiguration', e);
     return { success: false, message: e.message };
+  }
+}
+
+/**
+ * _cfg_syncLegacyMirror(area, entityId)
+ * Phase 1G — Admin Configuration is now the ONLY place that creates,
+ * activates, deactivates, or rolls back a Store/Visitor/Purpose (the old
+ * "Store & Roster Manager" write path is gone). This is the single choke
+ * point all three of those mutations pass through (cfg_createConfiguration/
+ * _cfg_setStatus/cfg_rollbackConfiguration — every area-specific wrapper
+ * for STORES/VISITORS/PURPOSES ultimately calls one of these, and Admin's
+ * own client-side code calls two of them directly for VISITORS, which has
+ * no dedicated wrapper), so hooking it here — rather than in each of
+ * SVMKPI_STORE_CONFIG.gs/SVMKPI_VISITOR_CONFIG.gs/SVMKPI_PURPOSE_CONFIG.gs's
+ * own create/activate/deactivate functions — guarantees every mutation
+ * path is covered exactly once, including a raw cfg_rollbackConfiguration()
+ * call that bypasses any area wrapper entirely.
+ *
+ * This file stays domain-agnostic on purpose (see the file header: a
+ * generic, reusable versioning engine, not where SETTINGS column
+ * knowledge belongs) — it only soft-dispatches, by name, to a same-named
+ * per-area sync function defined in that area's OWN file, guarded by
+ * typeof so a test sandbox that loads SVMKPI_CONFIG.gs alone (e.g.
+ * config-service.test.js) never hits a ReferenceError. Each per-area sync
+ * function is what actually knows how to keep the legacy SETTINGS sheet's
+ * Store/Visitor/Purpose columns looking like a correct, read-only,
+ * derived snapshot of CONFIG_STORES/CONFIG_VISITORS/CONFIG_PURPOSES —
+ * never the other way around; nothing here or downstream ever treats
+ * SETTINGS as authoritative again.
+ *
+ * Best-effort: a sync failure is logged, never allowed to fail the
+ * CONFIG_* mutation that already succeeded and was already audited —
+ * same "side effect, not source of truth" discipline the pre-existing
+ * refreshRiskEngine()/buildKPI2026() auto-refresh triggers use.
+ */
+function _cfg_syncLegacyMirror(area, entityId) {
+  try {
+    if (area === CFG_AREA.STORES && typeof _storeSync_toSettings === 'function') {
+      _storeSync_toSettings(entityId);
+    } else if (area === CFG_AREA.VISITORS && typeof _visitorSync_toSettings === 'function') {
+      _visitorSync_toSettings(entityId);
+    } else if (area === CFG_AREA.PURPOSES && typeof _purposeSync_toSettings === 'function') {
+      _purposeSync_toSettings(entityId);
+    }
+  } catch (e) {
+    logError('_cfg_syncLegacyMirror', e);
   }
 }
 
@@ -745,6 +793,8 @@ function _cfg_setStatus(area, versionId, newStatus, reason) {
         const effTo = _parseDateCell(raw[i][CFG_ENV_COL.EFFECTIVE_TO - 1]);
         const action = newStatus === CFG_STATUS.ACTIVE ? CFG_ACTION.ACTIVATE : CFG_ACTION.DEACTIVATE;
         _cfg_writeAudit(area, entity, action, 'status=' + prevStatus, 'status=' + newStatus, effFrom, effTo, reason || '', versionNum, sl_getCurrentUser());
+
+        _cfg_syncLegacyMirror(area, entity);
 
         return { success: true, versionId, status: newStatus };
       }
@@ -831,6 +881,8 @@ function cfg_rollbackConfiguration(area, entityId, targetVersionId, reason, effe
       previousActive ? _cfg_summarize(schema, previousActive) : '(none)',
       _cfg_summarize(schema, target),
       effectiveFrom, null, fullReason, versionNum, actor);
+
+    _cfg_syncLegacyMirror(area, entity);
 
     return { success: true, versionId, version: versionNum, restoredFrom: targetVersionId };
   } catch (e) {

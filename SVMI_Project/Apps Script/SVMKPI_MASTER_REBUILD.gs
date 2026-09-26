@@ -204,6 +204,12 @@ function rebuildSettingsHeaders() {
  * @returns {{ success: boolean, results: object[] }}
  */
 function rebuildDataSheetHeaders() {
+  // Phase 1H-B.1 (Required finding 2, reviews/003 §H) — see
+  // buildExecutiveSummaryLayout() in SVMKPI_LAYOUT.gs for the full
+  // rationale; same fix, same typeof-guard, applied here.
+  if (typeof sl_isAdmin === 'function' && !sl_isAdmin()) {
+    throw new Error('Admin access required.');
+  }
   const results = [];
   try {
     results.push(rebuildMasterLogHeaders());
