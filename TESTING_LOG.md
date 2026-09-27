@@ -7,26 +7,35 @@ demo; dry-run tooling is pure-function/synthetic-data only).
 
 ## Apps Script track — `SVMI_Project/tests/`
 
-**⚠ Not re-verified this session (2026-09-27):** the pilot-testing MFA
-enforcement toggle (`DECISIONS.md` D-033, `reviews/010-pilot-mfa-
-enforcement-toggle.md`) updated `identity.test.js` and
-`identity-legacy-admin-mfa.test.js` to match the new default behavior,
-but this session's Bash tool was denied for test-execution commands by
-an environment policy specific to that security-sensitive change,
-including the plain `node tests/identity.test.js` invocation itself. The
-updates were reasoned through line-by-line against the mocked sandbox
-behavior (see that review's §5), not run. **Before relying on this
-change, run:**
-```
-node "SVMI_Project/tests/identity.test.js"
-node "SVMI_Project/tests/identity-legacy-admin-mfa.test.js"
-```
-and ideally the full suite below, and update the counts in this file
-from the actual output rather than trusting the pre-toggle figures that
-follow, which are the last figures actually verified (Phase 1H-C
-Security Fix R2, 2026-09-26).
+**Verified this session (2026-09-27): 26 files, 1306 assertions, 0
+failures**, including a full live re-run of everything — no result in
+this file is carried over unverified. This also resolves the earlier
+disclosed gap from the D-033 pilot-MFA-toggle pass: the updated
+`identity.test.js`/`identity-legacy-admin-mfa.test.js` were reasoned
+through but not executed when first written (an environment policy
+denied Bash test-execution for that specific security-sensitive change);
+both now confirmed actually passing — `identity.test.js` 109/109 (grew
+from 100),  `identity-legacy-admin-mfa.test.js` 52/52 (grew from 44) —
+while investigating and fixing an unrelated bug (D-034, the legacy-data
+migration performance fix — see `reviews/011-migration-performance-fix.md`),
+whose own changes needed no test file to change: `settings-config-
+migration.test.js`'s existing `settingsMigration_run()` idempotency/
+failure-reporting assertions pass unmodified against the refactored
+implementation (same external contract), still 45/45. `responsive-
+check.js` (66/66) and `portal-ui.test.js` (173/173, incl. phone-viewport
+checks) also re-run clean — both against the standalone demo file per
+this repo's disclosed testing-architecture limitation (`ARCHITECTURE.md`
+§8), so they confirm no regression to the existing harness/UI patterns
+but do not directly exercise the real portal's date-field/empty-list
+markup from the Input Portal fix earlier this session. No automated test
+was added for the migration performance fix itself — disclosed in
+`reviews/011-...md` §5 as a real, deliberate gap: the mocked-sheet test
+harness has no notion of Apps Script's real execution-time limit or
+`SpreadsheetApp` round-trip cost, so "this used to time out and now
+doesn't" cannot be meaningfully expressed there; only re-running the
+real tool against the real spreadsheet confirms the actual timing fix.
 
-**Verified through Phase 1H-C Security Fix R2 (2026-09-26): 26 files, 1289 assertions, 0 failures.** Phase
+Prior baseline (2026-09-26, Phase 1H-C Security Fix R2): 26 files, 1289 assertions, 0 failures. Phase
 1H-C Security Fix R1 grew `identity.test.js` from 62 to 100 assertions
 (38 new, covering the 10 required MFA-enforcement proof points — see
 `reviews/008-phase-1h-c-security-fix-r1.md`); Phase 1H-C Security Fix R2
@@ -67,8 +76,8 @@ touched or added in Phase 1G are from today's direct run.
 | `config-service.test.js` | `SVMKPI_CONFIG.gs` end-to-end: validation, effective-dating, versioning, audit, security, backdating, rollback, portability | 71 |
 | `date-parsing.test.js` | `_parseDateCell()` + duplicate-check integration | — |
 | `duplicate-prevention.test.js` | Exact-duplicate-visit blocking under concurrent submission | — |
-| `identity.test.js` | **Phase 1H-C** — registration/email-OTP verification (incl. attempt lockout), approval/rejection (permission-gated, fails closed, no self-escalation), account-lifecycle transition validity, role/direct-permission/scope assignment, suspend/reactivate/disable, the external-disablement offboarding hook, MFA TOTP enrollment/verification (real RFC 6238 round-trip + clock-drift tolerance), confirms no secret value ever appears in `IDENTITY_AUDIT`. **Phase 1H-C Security Fix R1** — server-authoritative MFA enforcement: ACTIVE-without-MFA rejected, ACTIVE-with-MFA succeeds, invalid/expired/replayed TOTP codes rejected, spoofed client-supplied MFA/role/permission/status state has no effect, existing ADMIN permission checks intact, TOTP secret never returned to client or written to `IDENTITY_AUDIT`. **Pilot MFA toggle (D-033, this session, ⚠ not executed — see banner above)** — R1.1/R1.4/R1.6 and the Grace/isActive-after-reset assertions now force `IDENTITY_MFA_ENFORCED = true` on their own sandbox first (proving R1 is intact/reversible); new "D-033" section proves the pilot default (no MFA required) and live re-toggling | 100 pre-toggle; count after the new "D-033" section not yet verified |
-| `identity-legacy-admin-mfa.test.js` | **Phase 1H-C Security Fix R2** — MFA now also gates the pre-existing `sl_isAdmin()` legacy admin path (`SVMKPI_ACCESS.gs`), proven against 4 representative protected operations across 4 categories (Store/Compliance configuration, Report snapshot admin, System Tools): non-MFA-satisfied admin rejected, MFA-satisfied admin passes the gate, invalid/expired/replayed TOTP codes rejected, forged client-supplied MFA/admin state has no effect, non-admin-listed users still rejected + Phase 1H-B.1 findings intact, admin TOTP secret never returned to client or written to `IDENTITY_AUDIT`, static confirmation no second legacy admin-check mechanism exists anywhere, the unattended daily-trigger bypass is unaffected, graceful no-throw degradation when the identity subsystem isn't loaded. **Pilot MFA toggle (D-033, this session, ⚠ not executed — see banner above)** — R2.1/R2.3/R2.4/R2.6 now force `IDENTITY_MFA_ENFORCED = true` on their own sandbox first; R2.10's exact-shape assertion updated for the new `mfaRequired` field; new "D-033" section proves the pilot default and live re-toggling | 44 pre-toggle; count after the new "D-033" section not yet verified |
+| `identity.test.js` | **Phase 1H-C** — registration/email-OTP verification (incl. attempt lockout), approval/rejection (permission-gated, fails closed, no self-escalation), account-lifecycle transition validity, role/direct-permission/scope assignment, suspend/reactivate/disable, the external-disablement offboarding hook, MFA TOTP enrollment/verification (real RFC 6238 round-trip + clock-drift tolerance), confirms no secret value ever appears in `IDENTITY_AUDIT`. **Phase 1H-C Security Fix R1** — server-authoritative MFA enforcement: ACTIVE-without-MFA rejected, ACTIVE-with-MFA succeeds, invalid/expired/replayed TOTP codes rejected, spoofed client-supplied MFA/role/permission/status state has no effect, existing ADMIN permission checks intact, TOTP secret never returned to client or written to `IDENTITY_AUDIT`. **Pilot MFA toggle (D-033)** — R1.1/R1.4/R1.6 and the Grace/isActive-after-reset assertions force `IDENTITY_MFA_ENFORCED = true` on their own sandbox first (proving R1 is intact/reversible); a "D-033" section proves the pilot default (no MFA required) and live re-toggling | 109 (confirmed this session, grew from 100) |
+| `identity-legacy-admin-mfa.test.js` | **Phase 1H-C Security Fix R2** — MFA now also gates the pre-existing `sl_isAdmin()` legacy admin path (`SVMKPI_ACCESS.gs`), proven against 4 representative protected operations across 4 categories (Store/Compliance configuration, Report snapshot admin, System Tools): non-MFA-satisfied admin rejected, MFA-satisfied admin passes the gate, invalid/expired/replayed TOTP codes rejected, forged client-supplied MFA/admin state has no effect, non-admin-listed users still rejected + Phase 1H-B.1 findings intact, admin TOTP secret never returned to client or written to `IDENTITY_AUDIT`, static confirmation no second legacy admin-check mechanism exists anywhere, the unattended daily-trigger bypass is unaffected, graceful no-throw degradation when the identity subsystem isn't loaded. **Pilot MFA toggle (D-033)** — R2.1/R2.3/R2.4/R2.6 force `IDENTITY_MFA_ENFORCED = true` on their own sandbox first; R2.10's exact-shape assertion covers the new `mfaRequired` field; a "D-033" section proves the pilot default and live re-toggling | 52 (confirmed this session, grew from 44) |
 | `kpi-purpose-config.test.js` | Versioned KPI config (infra-only) + deliberate Purpose KPI/risk config, no inheritance | 44 |
 | `kpi-roster-history.test.js` | KPI 2026 roster-removal history retention | — |
 | `purpose-generic-reporting.test.js` | No source file re-adds a hardcoded CAPAR-style purpose branch | — |
@@ -79,7 +88,7 @@ touched or added in Phase 1G are from today's direct run.
 | `risk-scoring.test.js` | Store Health scoring engine | — |
 | `roster-auto-refresh.test.js` | Adding a roster member auto-rebuilds KPI 2026 | — |
 | `security-remediation.test.js` | **Phase 1H-B.1** — the 3 Required security findings: `_getAdminEmails`/`_getGuestPassword` no longer directly RPC-callable, the 5 rebuild engines + daily trigger, the 5 Sheets-menu handlers | 34 (added this session) |
-| `settings-config-migration.test.js` | **Phase 1G** — CONFIG_* → SETTINGS mirror sync (create/deactivate/rename), legacy-purpose fallback, `getSidebarData()` sourcing from CONFIG_*, migration idempotency, no-SRM-reference check. **Bug fix (this session)** — a row that fails `store_create()`/`cfg_createConfiguration()`/`purpose_create()` validation during `settingsMigration_run()` is now reported in a `failed` array with its reason, instead of silently vanishing (a live-deployment admin hit exactly this: the tool reported success while some SETTINGS rows never became CONFIG_* entities) | 45 (grew from 34 this session) |
+| `settings-config-migration.test.js` | **Phase 1G** — CONFIG_* → SETTINGS mirror sync (create/deactivate/rename), legacy-purpose fallback, `getSidebarData()` sourcing from CONFIG_*, migration idempotency, no-SRM-reference check. **Bug fix (2026-09-26)** — a row that fails `store_create()`/`cfg_createConfiguration()`/`purpose_create()` validation during `settingsMigration_run()` is now reported in a `failed` array with its reason, instead of silently vanishing (a live-deployment admin hit exactly this: the tool reported success while some SETTINGS rows never became CONFIG_* entities). **Migration performance fix (D-034, 2026-09-27)** — `settingsMigration_run()` was refactored onto shared helpers and its underlying `store_migrateFromSettings()`/`visitor_migrateFromSettings()` now use in-memory indexes and a single deferred rebuild instead of per-candidate sheet re-reads and a per-entity report rebuild (the actual cause of a real "Migrate Legacy Data" timeout) — same external contract, confirmed by this file's own idempotency/failure-reporting assertions passing unmodified | 45 (unchanged — same assertions, now also verifying the refactored implementation) |
 | `store-identity.test.js` | Store ID identity/immutability, historical resolution, migration + UNMAPPED tracking, security | 51 |
 | `store-lookup-date-handling.test.js` | Date-handling consistency across `SVMKPI_STORE_LOOKUP.gs` call sites. **Bug fix (this session)** — `sl_getVisitedThisMonth()` now surfaces `MASTER_LOG` rows that don't resolve to a current SETTINGS entry in an `unmapped` bucket instead of silently dropping them (the cause of a live Store Insights-vs-Executive-Summary undercount), and gained optional `monthNumber`/`reportingYear` params | 27 (grew from 22 this session) |
 | `store-remove-history.test.js` | Remove Store preserves history, row isolation, admin gate | — |

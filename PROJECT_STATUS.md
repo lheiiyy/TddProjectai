@@ -1,6 +1,15 @@
 # SVMI — Project Status
 
-Last updated: 2026-09-27, recording **the pilot-testing MFA enforcement
+Last updated: 2026-09-27, recording **a bug-fix pass on the Input
+Portal, tracing "Visitors list won't show / can't type the date" all
+the way to a real backend performance defect in the legacy SETTINGS→
+CONFIG_* migration** (`DECISIONS.md` D-034,
+`reviews/011-migration-performance-fix.md`) — see "What has been
+completed" below for the full chain. **⚠ Code-complete, tests passing,
+NOT yet deployed to the test copy** — the project owner set an explicit
+gate ("do not deploy until…") on this work; see "Immediate next task."
+
+Also this session, earlier: **the pilot-testing MFA enforcement
 toggle: TOTP MFA (D-028/D-031/D-032) is temporarily OFF for the
 duration of pilot testing**, at the project owner's explicit request,
 after being walked through each distinct layer of the pilot's login/
@@ -9,11 +18,11 @@ admin-list gate are UNCHANGED. See `reviews/010-pilot-mfa-enforcement-
 toggle.md` and `DECISIONS.md` D-033 — implemented as a single toggle
 (`IDENTITY_MFA_ENFORCED`, `SVMKPI_IDENTITY_CORE.gs`), not a removal of
 any MFA mechanism; flipping it back to `true` fully restores prior
-behavior. **⚠ The updated test files (`identity.test.js`,
-`identity-legacy-admin-mfa.test.js`) were reasoned through but NOT
-executed in this session** — an environment policy denied Bash
-test-execution for this change — see `TESTING_LOG.md` and that review's
-§6 for what to run before relying on this in the pilot deployment.
+behavior. Its test files were reasoned-through but not executed when
+first written (an environment policy denied Bash test-execution for
+that specific security-sensitive change) — **now confirmed actually
+passing** (109/109, 52/52) as part of this session's later work; see
+`TESTING_LOG.md`.
 
 Prior state (2026-09-25): **Phase 1H-C Security Fix R2: MFA now
 also applies to the pre-existing `sl_isAdmin()` legacy admin path**, not
@@ -360,20 +369,30 @@ Unknown items `reviews/003` §H never asked any of these tasks to fix:
 
 ## Immediate next task
 
-**Run the two updated identity test files** (`node
-"SVMI_Project/tests/identity.test.js"` and `node
-"SVMI_Project/tests/identity-legacy-admin-mfa.test.js"`, ideally the
-full suite) to confirm the pilot MFA enforcement toggle (D-033,
-`reviews/010-...md`) behaves as reasoned through — not yet done in this
-environment (Bash test-execution was denied by an environment policy
-for this change) — and update `TESTING_LOG.md`'s counts from the actual
-output. After that: **project-owner review of
-`reviews/009-phase-1h-c-security-fix-r2.md`** (and `reviews/007`/
-`reviews/008` alongside it) and a decision on what comes next: either
-(a) select an external identity provider and scope the OIDC/SAML
-integration behind the provider-neutral boundary Phase 1H-C built, (b)
-address one of the still-open System Peripherals items below (an Admin
-Configuration screen for admin access, `reviews/001`/`002`,
-`DECISIONS.md` D-007), or (c) decide when to re-enable
+**Deploy and verify the migration performance fix (D-034,
+`reviews/011-migration-performance-fix.md`) on the test copy** — code
+complete and the full 26-file test suite (1306 assertions) plus
+responsive/portal-UI checks all pass, but the project owner set an
+explicit gate on this specific work ("do not deploy until the root
+cause is identified, migration is completed when genuinely required,
+Admin Configuration → Visitors works, Portal → Visited By works, and
+regression tests pass") and has not yet given the go-ahead to push. Once
+authorized: `clasp push` + redeploy to the test copy, then have the
+project owner (a) run "Migrate Legacy Data" (now three sequential
+Visitors → Purposes → Stores calls) and confirm it completes without
+timing out, (b) confirm Admin → Configuration → Visitors and Portal →
+Visited By both show real visitor names, (c) spot-check the date field
+and mobile tap fix are still working, all on an actual phone as well as
+desktop.
+
+After that: this session's earlier identity-test confirmation (D-033,
+109/109 and 52/52 passing) closes that loose end too. Then:
+**project-owner review of `reviews/009-phase-1h-c-security-fix-r2.md`**
+(and `reviews/007`/`reviews/008` alongside it) and a decision on what
+comes next: either (a) select an external identity provider and scope
+the OIDC/SAML integration behind the provider-neutral boundary Phase
+1H-C built, (b) address one of the still-open System Peripherals items
+below (an Admin Configuration screen for admin access, `reviews/001`/
+`002`, `DECISIONS.md` D-007), or (c) decide when to re-enable
 `IDENTITY_MFA_ENFORCED` as pilot testing winds down. No application work
 has begun on (a) or (b).

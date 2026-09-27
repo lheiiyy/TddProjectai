@@ -73,10 +73,10 @@ function visitor_getOperationalList(dateStr) {
  * _storeSync_toSettings() makes for portal_saveStore()/portal_removeStore().
  * typeof-guarded for sandboxes that load this file without INPUT_PORTAL.gs.
  */
-function _visitorSync_toSettings(visitorName) {
+function _visitorSync_toSettings(visitorName, suppressRebuild) {
   if (typeof manageVisitor !== 'function') return;
   const status = visitor_getConfigurationStatus(visitorName);
-  manageVisitor(status.active ? 'add' : 'remove', visitorName);
+  manageVisitor(status.active ? 'add' : 'remove', visitorName, suppressRebuild);
 }
 
 /**
@@ -97,6 +97,19 @@ function _visitorSync_toSettings(visitorName) {
  * Admin-gated.
  * @param {string[]} settingsVisitorNames
  * @returns {{success:boolean, message?:string, createdNames?:string[], alreadyMigrated?:string[], failed?:{name:string, message:string}[]}}
+ *
+ * Performance fix (DECISIONS.md D-034): this used to call
+ * cfg_resolveConfigurationAsOf() once per incoming name — which re-reads
+ * the whole CONFIG_VISITORS sheet on every call (O(existing) per call,
+ * O(existing^2) total) — and triggered a full KPI 2026 rebuild (a
+ * MASTER_LOG scan) after every single visitor created. Combined with the
+ * equivalent issue in store_migrateFromSettings() (which runs first,
+ * inside the same settingsMigration_run() call — see
+ * reviews/011-migration-performance-fix.md), this meant the visitors
+ * step frequently never even got a chance to run before the whole
+ * request timed out. Fixed the same way: one bulk read up front, one
+ * rebuild after the batch instead of one per visitor. Output/behavior is
+ * otherwise unchanged.
  */
 function visitor_migrateFromSettings(settingsVisitorNames) {
   if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
@@ -108,23 +121,42 @@ function visitor_migrateFromSettings(settingsVisitorNames) {
   const failed = [];
   const seen = {};
 
+  // ONE sheet read total (cfg_getConfiguration), not one per incoming
+  // name — cfg_resolveConfigurationAsOf()/admin_listConfigEntityIds()
+  // would each re-read the whole sheet per call if used in this loop.
+  const existingNames = {};
+  const byEntity = {};
+  cfg_getConfiguration(CFG_AREA.VISITORS).forEach(v => {
+    (byEntity[v.entityId] || (byEntity[v.entityId] = [])).push(v);
+  });
+  Object.keys(byEntity).forEach(id => {
+    if (_cfg_resolveAsOf(byEntity[id], today)) existingNames[id] = true;
+  });
+
   (settingsVisitorNames || []).forEach(raw => {
     const name = String(raw || '').trim().toUpperCase();
     if (!name || seen[name]) return;
     seen[name] = true;
 
-    if (cfg_resolveConfigurationAsOf(CFG_AREA.VISITORS, name)) {
+    if (existingNames[name]) {
       alreadyMigrated.push(name);
       return;
     }
 
-    const result = cfg_createConfiguration(CFG_AREA.VISITORS, name, { visitorName: name }, todayStr, null, 'Migrated from SETTINGS', {});
+    const result = cfg_createConfiguration(CFG_AREA.VISITORS, name, { visitorName: name }, todayStr, null, 'Migrated from SETTINGS', { suppressRebuild: true });
     if (result.success) {
       created.push(name);
     } else {
       failed.push({ name, message: result.message || 'Unknown error.' });
     }
   });
+
+  if (created.length && typeof buildKPI2026 === 'function') {
+    try {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      if (typeof _kpiSheetName === 'function' && ss.getSheetByName(_kpiSheetName())) buildKPI2026();
+    } catch (e) { logError('visitor_migrateFromSettings (KPI 2026 rebuild)', e); }
+  }
 
   return { success: true, createdNames: created, alreadyMigrated, failed };
 }
