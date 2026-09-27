@@ -58,6 +58,12 @@ const SMI_COL = {
 const SMI_TOTAL_COLS = SMI_COLS.length;
 
 function rebuildStoreMasterInsight() {
+  // Phase 1H-B.1 (Required finding 2, reviews/003 §H) — see
+  // buildExecutiveSummaryLayout() in SVMKPI_LAYOUT.gs for the full
+  // rationale; same fix, same typeof-guard, applied here.
+  if (typeof sl_isAdmin === 'function' && !sl_isAdmin()) {
+    throw new Error('Admin access required.');
+  }
   const ss  = SpreadsheetApp.getActiveSpreadsheet();
   const tz  = ss.getSpreadsheetTimeZone();
   const now = new Date();

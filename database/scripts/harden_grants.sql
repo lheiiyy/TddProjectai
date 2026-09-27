@@ -48,3 +48,10 @@ BEGIN
   END LOOP;
 END
 $$;
+
+-- Phase 1H-C (013_identity_extension.sql): identity_audit_log is
+-- append-only in exactly the same sense as audit_logs above — no
+-- application code path ever corrects or removes an identity/access
+-- audit event.
+GRANT SELECT, INSERT ON identity_audit_log TO svmi_app;
+REVOKE UPDATE, DELETE ON identity_audit_log FROM svmi_app;

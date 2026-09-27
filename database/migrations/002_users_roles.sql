@@ -15,6 +15,16 @@
 -- is NOT a general RBAC system; it exists so the CURRENT one-role reality
 -- has an explicit row instead of an implicit hardcoded email list, never
 -- to invent multiple roles/permissions the app doesn't have.
+--
+-- ⚠ HISTORICAL — the paragraph above described the reality at the time
+-- this file was written. As of Phase 1H-C (see DECISIONS.md D-026,
+-- D-030), SVMI's approved scope now includes an extensible role/
+-- permission/scope model. This file is left exactly as originally
+-- written (D-030's append-only-correction discipline) — the extension
+-- lives in 013_identity_extension.sql, which adds a USER role,
+-- `permissions`/`role_permissions`/`user_scope` tables, account-lifecycle
+-- columns on `users`, and the identity/access audit and MFA tables. Read
+-- 013 alongside this file, not as a replacement for it.
 
 CREATE TABLE users (
   user_id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),

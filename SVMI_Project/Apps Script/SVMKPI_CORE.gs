@@ -401,6 +401,11 @@ function validateMasterLog() {
   const log     = _getSheet(SHEET.MASTER_LOG);
   const lastRow = log.getLastRow();
   const errors  = [];
+  // Phase 2C-continued: never affects `valid`/`errors` — a purpose row
+  // that is genuinely recognized (legacy OR deliberately configured) but
+  // not yet analytics-complete is a READINESS note, not a data-integrity
+  // failure. See the Purpose (G) check below.
+  const warnings = [];
 
   if (lastRow < 2) {
     return { valid: true, errors: [], summary: 'MASTER_LOG is empty — no rows to validate.' };
@@ -472,17 +477,44 @@ function validateMasterLog() {
     if (!normPurpose) {
       err('G', 'Purpose', purpose, 'BLANK_PURPOSE', 'Purpose is required.');
     } else if (!APPROVED_PURPOSES.includes(normPurpose)) {
-      err('G', 'Purpose', purpose, 'INVALID_PURPOSE',
-        'Purpose value "' + normPurpose + '" is not in the approved list.');
+      // Phase 2C-continued: absence from the legacy hardcoded list is no
+      // longer automatically INVALID_PURPOSE — the app now supports a
+      // genuinely new purpose reaching this far via deliberate
+      // configuration (SVMKPI_PURPOSE_CONFIG.gs's
+      // purpose_getConfigurationStatus()). Only a purpose with NO
+      // recognition anywhere (not legacy, no CONFIG_PURPOSES version at
+      // all) is still a real structural error — that check is never
+      // weakened. A recognized-but-not-yet-analytics-complete purpose is
+      // reported as a WARNING (never blocks validity), distinguishing it
+      // from a genuinely unknown/unrecognized value. The try/catch and
+      // typeof guard keep this file loadable/testable standalone when
+      // the config layer isn't present — same defensive fallback pattern
+      // already used throughout this project (e.g. SVMKPI_RISK.gs's
+      // risk_resolvePurposeWeight() call sites).
+      let status = null;
+      if (typeof purpose_getConfigurationStatus === 'function') {
+        try { status = purpose_getConfigurationStatus(normPurpose); } catch (e) { status = null; }
+      }
+      if (!status || !status.exists) {
+        err('G', 'Purpose', purpose, 'INVALID_PURPOSE',
+          'Purpose value "' + normPurpose + '" is not in the approved list and has no configuration.');
+      } else if (status.incomplete) {
+        warnings.push({
+          row: r, col: 'G', field: 'Purpose', value: String(purpose),
+          rule: 'PURPOSE_ANALYTICS_PENDING',
+          message: 'Purpose value "' + normPurpose + '" is recognized via configuration but its KPI/Risk analytics configuration is incomplete.',
+        });
+      }
     }
   });
 
   const valid   = errors.length === 0;
   const summary = valid
-    ? 'Validation passed. ' + dataRows + ' rows checked. No errors found.'
+    ? 'Validation passed. ' + dataRows + ' rows checked. No errors found.' +
+      (warnings.length ? ' ' + warnings.length + ' row(s) reference a purpose pending analytics configuration.' : '')
     : 'Validation failed. ' + errors.length + ' error(s) found across ' + dataRows + ' rows.';
 
-  return { valid, errors, summary };
+  return { valid, errors, warnings, summary };
 }
 
 
