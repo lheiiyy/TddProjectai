@@ -710,7 +710,7 @@ function cfg_createConfiguration(area, entityId, fields, effectiveFromStr, effec
       _cfg_summarize(schema, { fields }),
       effectiveFrom, effectiveTo, reason || '', versionNum, actor);
 
-    _cfg_syncLegacyMirror(area, entity);
+    _cfg_syncLegacyMirror(area, entity, options && options.suppressRebuild);
 
     return { success: true, versionId, version: versionNum };
   } catch (e) {
@@ -751,12 +751,23 @@ function cfg_createConfiguration(area, entityId, fields, effectiveFromStr, effec
  * same "side effect, not source of truth" discipline the pre-existing
  * refreshRiskEngine()/buildKPI2026() auto-refresh triggers use.
  */
-function _cfg_syncLegacyMirror(area, entityId) {
+/**
+ * `suppressRebuild` (bulk-migration performance fix — see
+ * DECISIONS.md D-034): STORES/VISITORS sync each trigger a full Store
+ * Health / KPI 2026 rebuild by design (see those functions' own
+ * comments) — correct and cheap for a single interactive admin edit,
+ * but catastrophic when this fires once PER ENTITY inside a bulk
+ * migration loop (each rebuild rescans all of MASTER_LOG). Passed
+ * through unchanged from cfg_createConfiguration()'s own `options`;
+ * every interactive single-entity call site omits it, so its default
+ * (falsy = rebuild as before) is exactly the pre-existing behavior.
+ */
+function _cfg_syncLegacyMirror(area, entityId, suppressRebuild) {
   try {
     if (area === CFG_AREA.STORES && typeof _storeSync_toSettings === 'function') {
-      _storeSync_toSettings(entityId);
+      _storeSync_toSettings(entityId, suppressRebuild);
     } else if (area === CFG_AREA.VISITORS && typeof _visitorSync_toSettings === 'function') {
-      _visitorSync_toSettings(entityId);
+      _visitorSync_toSettings(entityId, suppressRebuild);
     } else if (area === CFG_AREA.PURPOSES && typeof _purposeSync_toSettings === 'function') {
       _purposeSync_toSettings(entityId);
     }

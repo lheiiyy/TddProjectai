@@ -7,7 +7,29 @@ demo; dry-run tooling is pure-function/synthetic-data only).
 
 ## Apps Script track — `SVMI_Project/tests/`
 
-**Verified this session: 26 files, 1289 assertions, 0 failures.** Phase
+**Verified this session (2026-09-27): 26 files, 1293 assertions, 0
+failures**, including a full live re-run of everything — no result in
+this file is carried over unverified. Investigating and fixing a bug
+(D-034, the legacy-data migration performance fix — see
+`reviews/011-migration-performance-fix.md`) needed no test file to
+change: `settings-config-migration.test.js`'s existing
+`settingsMigration_run()` idempotency/failure-reporting assertions pass
+unmodified against the refactored implementation (same external
+contract), still 45/45. `responsive-check.js` (66/66) and
+`portal-ui.test.js` (173/173, incl. phone-viewport checks) also re-run
+clean — both against the standalone demo file per this repo's disclosed
+testing-architecture limitation (`ARCHITECTURE.md` §8), so they confirm
+no regression to the existing harness/UI patterns but do not directly
+exercise the real portal's date-field/empty-list markup from the Input
+Portal fix earlier this session. No automated test was added for the
+migration performance fix itself — disclosed in `reviews/011-...md` §5
+as a real, deliberate gap: the mocked-sheet test harness has no notion
+of Apps Script's real execution-time limit or `SpreadsheetApp`
+round-trip cost, so "this used to time out and now doesn't" cannot be
+meaningfully expressed there; only re-running the real tool against the
+real spreadsheet confirms the actual timing fix.
+
+Prior baseline (2026-09-26, Phase 1H-C Security Fix R2): 26 files, 1289 assertions, 0 failures. Phase
 1H-C Security Fix R1 grew `identity.test.js` from 62 to 100 assertions
 (38 new, covering the 10 required MFA-enforcement proof points — see
 `reviews/008-phase-1h-c-security-fix-r1.md`); Phase 1H-C Security Fix R2
@@ -60,7 +82,7 @@ touched or added in Phase 1G are from today's direct run.
 | `risk-scoring.test.js` | Store Health scoring engine | — |
 | `roster-auto-refresh.test.js` | Adding a roster member auto-rebuilds KPI 2026 | — |
 | `security-remediation.test.js` | **Phase 1H-B.1** — the 3 Required security findings: `_getAdminEmails`/`_getGuestPassword` no longer directly RPC-callable, the 5 rebuild engines + daily trigger, the 5 Sheets-menu handlers | 34 (added this session) |
-| `settings-config-migration.test.js` | **Phase 1G** — CONFIG_* → SETTINGS mirror sync (create/deactivate/rename), legacy-purpose fallback, `getSidebarData()` sourcing from CONFIG_*, migration idempotency, no-SRM-reference check. **Bug fix (this session)** — a row that fails `store_create()`/`cfg_createConfiguration()`/`purpose_create()` validation during `settingsMigration_run()` is now reported in a `failed` array with its reason, instead of silently vanishing (a live-deployment admin hit exactly this: the tool reported success while some SETTINGS rows never became CONFIG_* entities) | 45 (grew from 34 this session) |
+| `settings-config-migration.test.js` | **Phase 1G** — CONFIG_* → SETTINGS mirror sync (create/deactivate/rename), legacy-purpose fallback, `getSidebarData()` sourcing from CONFIG_*, migration idempotency, no-SRM-reference check. **Bug fix (2026-09-26)** — a row that fails `store_create()`/`cfg_createConfiguration()`/`purpose_create()` validation during `settingsMigration_run()` is now reported in a `failed` array with its reason, instead of silently vanishing (a live-deployment admin hit exactly this: the tool reported success while some SETTINGS rows never became CONFIG_* entities). **Migration performance fix (D-034, 2026-09-27)** — `settingsMigration_run()` was refactored onto shared helpers and its underlying `store_migrateFromSettings()`/`visitor_migrateFromSettings()` now use in-memory indexes and a single deferred rebuild instead of per-candidate sheet re-reads and a per-entity report rebuild (the actual cause of a real "Migrate Legacy Data" timeout) — same external contract, confirmed by this file's own idempotency/failure-reporting assertions passing unmodified | 45 (unchanged — same assertions, now also verifying the refactored implementation) |
 | `store-identity.test.js` | Store ID identity/immutability, historical resolution, migration + UNMAPPED tracking, security | 51 |
 | `store-lookup-date-handling.test.js` | Date-handling consistency across `SVMKPI_STORE_LOOKUP.gs` call sites. **Bug fix (this session)** — `sl_getVisitedThisMonth()` now surfaces `MASTER_LOG` rows that don't resolve to a current SETTINGS entry in an `unmapped` bucket instead of silently dropping them (the cause of a live Store Insights-vs-Executive-Summary undercount), and gained optional `monthNumber`/`reportingYear` params | 27 (grew from 22 this session) |
 | `store-remove-history.test.js` | Remove Store preserves history, row isolation, admin gate | — |

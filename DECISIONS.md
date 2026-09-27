@@ -619,3 +619,72 @@ Admin-list logic, or Phase 1H-B.1 protection was removed or weakened —
 reusing the Account tab's visual pattern) so a legacy admin actually has
 a way to complete this requirement — without it, R2 would have locked
 every admin out with no interactive path back in.
+
+---
+
+## Pilot bug fix — legacy-data migration performance, and the Input Portal bugs it explains
+
+### D-034 — Bulk `cfg_createConfiguration()` callers must suppress the per-entity legacy-mirror rebuild; the SETTINGS→CONFIG_* migration is now three independently-callable steps
+**Status:** Settled (bug fix)
+**Decision:** Two related, compounding performance defects in the
+Phase 1G SETTINGS→CONFIG_* migration path are fixed:
+1. `cfg_createConfiguration()` (`SVMKPI_CONFIG.gs`) now accepts
+   `options.suppressRebuild`, threaded through `_cfg_syncLegacyMirror()`
+   → `_storeSync_toSettings()`/`_visitorSync_toSettings()` →
+   `portal_saveStore()`/`portal_removeStore()`/`manageVisitor()`, to skip
+   the full `refreshRiskEngine()`/`buildKPI2026()` rebuild that function
+   triggers by default on every single call. That rebuild is correct and
+   cheap for one interactive admin edit; triggered once per entity inside
+   a bulk migration loop (hundreds of stores/visitors), it was the
+   dominant cost by a wide margin — each rebuild rescans all of
+   `MASTER_LOG`.
+2. `store_migrateFromSettings()`/`visitor_migrateFromSettings()`
+   (`SVMKPI_STORE_CONFIG.gs`/`SVMKPI_VISITOR_CONFIG.gs`) no longer
+   re-read their whole `CONFIG_*`/`CONFIG_UNMAPPED_STORES` sheet once
+   per candidate name to check "already migrated" (an O(n²) sheet-read
+   pattern — `store_resolveIdByCurrentName()`/
+   `cfg_resolveConfigurationAsOf()` each independently re-read the
+   entire sheet per call) or re-scan all of `masterLogRows` per store to
+   find its earliest visit date (O(stores × rows)). Each now builds one
+   in-memory index up front (`_store_buildCurrentNameIndex_()`, an
+   `earliestByName` map, `_store_recordUnmappedBulk_()`) and does O(1)
+   lookups per candidate instead.
+3. `settingsMigration_run()`'s single combined call (all three areas in
+   one Apps Script execution) is unchanged and still supported, but the
+   Admin UI now calls three new, independently-admin-gated entry points
+   — `settingsMigration_runStores()`/`_runVisitors()`/`_runPurposes()`
+   — one after another, so a problem in one area (Stores is the
+   heaviest of the three, being the only one that also scans
+   `MASTER_LOG`) can never prevent the other two from running, and each
+   gets its own Apps Script execution-time budget.
+**Rationale:** A project-owner report ("Input Portal can't show the
+Visitors list, can't type the date") traced through several rounds of
+investigation (see `reviews/011-migration-performance-fix.md`) to: the
+test-copy spreadsheet's `CONFIG_VISITORS` was never populated from the
+still-intact legacy `SETTINGS!F` roster, because the one existing,
+already-idempotent migration tool (`settingsMigration_run()` /
+"Migrate Legacy Data") was timing out against Apps Script's execution
+limit before it ever reached the Visitors step — confirmed by direct
+code inspection of every layer in the chain (not assumed), landing on
+the per-entity full-report-rebuild as the dominant, multiply-compounding
+cost.
+**Impact:** No `CONFIG_*` mutation's correctness or audit behavior
+changed — `suppressRebuild` only elides a *side effect* (a downstream
+report re-render), never the write itself, its audit row, or the
+legacy-mirror sync. Every interactive single-entity call site (Admin UI
+create/edit) omits the new option, so its default (rebuild immediately,
+exactly as before) is unchanged there. `settingsMigration_run()`'s
+external contract (used directly by `settings-config-migration.test.js`)
+is unchanged — same inputs, same output shape, same idempotency, same
+per-row failure reporting — verified by the full existing suite passing
+unmodified. No duplicate visitor/store source was introduced; `SETTINGS`
+remains a generated, read-only-in-practice mirror (D-006), never made
+authoritative again. Separately, this pass also fixed two "silently does
+nothing" UI defects it found while tracing the report: `filterStores()`/
+`filterVisitors()` (`SVMI_PORTAL.html`) now show an explicit message
+distinguishing "nothing configured yet" from "no match for your search"
+instead of closing the dropdown with no feedback at all, and
+`loadAdminArea()`'s Admin Configuration schema-load failure handler now
+clears *both* loading panes instead of leaving the entity list stuck on
+its spinner indefinitely — a defect that applies uniformly to every
+`CFG_AREA`, since they all share this one entry point.

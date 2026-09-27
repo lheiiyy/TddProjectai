@@ -461,7 +461,7 @@ function checkDuplicateVisit(payload) {
 //  Returns { success: true, visitors: [string] }
 //       or { success: false, message: string }
 // ============================================================
-function manageVisitor(action, visitorName) {
+function manageVisitor(action, visitorName, suppressRebuild) {
   try {
     if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
 
@@ -506,9 +506,16 @@ function manageVisitor(action, visitorName) {
       // now (only triggered by this relatively rare admin action, never by
       // an ordinary visit submission) means their next visit shows up
       // without anyone having to remember to run "Rebuild KPI 2026" by hand.
-      try {
-        if (ss.getSheetByName(_kpiSheetName())) buildKPI2026();
-      } catch (e) { logError('manageVisitor (KPI 2026 auto-refresh)', e); }
+      // suppressRebuild (DECISIONS.md D-034): bulk migration creates many
+      // visitors in one loop — rebuilding KPI 2026 (a full MASTER_LOG scan)
+      // after EVERY one of them is what timed the migration out. The
+      // migration orchestrator suppresses this per-call rebuild and runs it
+      // once, after the whole batch, instead.
+      if (!suppressRebuild) {
+        try {
+          if (ss.getSheetByName(_kpiSheetName())) buildKPI2026();
+        } catch (e) { logError('manageVisitor (KPI 2026 auto-refresh)', e); }
+      }
 
     } else if (action === 'remove') {
       if (!roster[name]) {
@@ -628,7 +635,7 @@ function managePurpose(action, purposeName) {
 //  Returns { success: true, message: string, isNew: boolean }
 //       or { success: false, message: string }
 // ============================================================
-function portal_saveStore(store, brand, region, category) {
+function portal_saveStore(store, brand, region, category, suppressRebuild) {
   try {
     if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
 
@@ -680,9 +687,15 @@ function portal_saveStore(store, brand, region, category) {
     // triggered by this relatively rare admin action, never by an
     // ordinary visit submission) means a new or edited store shows up
     // without anyone having to remember to run "Rebuild Store Health".
-    try {
-      if (ss.getSheetByName(RISK_SHEET_NAME)) refreshRiskEngine();
-    } catch (e) { logError('portal_saveStore (Store Health auto-refresh)', e); }
+    // suppressRebuild (DECISIONS.md D-034): see manageVisitor()'s matching
+    // comment — bulk migration creates many stores in one loop, and
+    // refreshRiskEngine() firing after EVERY one of them (each a full
+    // MASTER_LOG scan) is what timed the migration out.
+    if (!suppressRebuild) {
+      try {
+        if (ss.getSheetByName(RISK_SHEET_NAME)) refreshRiskEngine();
+      } catch (e) { logError('portal_saveStore (Store Health auto-refresh)', e); }
+    }
 
     return {
       success: true,
@@ -721,7 +734,7 @@ function portal_saveStore(store, brand, region, category) {
 //  Returns { success: true, message: string }
 //       or { success: false, message: string }
 // ============================================================
-function portal_removeStore(storeName) {
+function portal_removeStore(storeName, suppressRebuild) {
   try {
     if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
 
@@ -754,10 +767,12 @@ function portal_removeStore(storeName) {
 
     // Reflect the removal in Store Health immediately, same as add/edit —
     // its numbers are plain computed values with nothing to recalculate
-    // on their own.
-    try {
-      if (ss.getSheetByName(RISK_SHEET_NAME)) refreshRiskEngine();
-    } catch (e) { logError('portal_removeStore (Store Health auto-refresh)', e); }
+    // on their own. suppressRebuild: see portal_saveStore()'s comment.
+    if (!suppressRebuild) {
+      try {
+        if (ss.getSheetByName(RISK_SHEET_NAME)) refreshRiskEngine();
+      } catch (e) { logError('portal_removeStore (Store Health auto-refresh)', e); }
+    }
 
     return {
       success: true,

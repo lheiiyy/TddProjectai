@@ -1439,6 +1439,18 @@ function loadPortalData() {
 
 // Store search — matches store name OR brand, and shows the brand on every
 // row so the right branch is identifiable without selecting it first.
+// Bug report: an empty result here used to close the dropdown with zero
+// visible feedback — indistinguishable from "nothing happened at all"
+// (the actual complaint that led to the CONFIG_VISITORS investigation —
+// see reviews/011-migration-performance-fix.md). Now shown as an actual
+// message, and distinguishes "the underlying roster is empty" (a data
+// problem — see hint) from "your search matched nothing in a non-empty
+// roster" (just keep typing / clear the box).
+function _emptyDropMessage(drop, sourceEmpty, emptyHint) {
+  drop.innerHTML = '<div class="admin-note">' + esc(sourceEmpty ? emptyHint : 'No matches.') + '</div>';
+  drop.classList.add('open');
+}
+
 function filterStores() {
   var q = document.getElementById('storeSearch').value.trim().toUpperCase();
   var drop = document.getElementById('storeDrop');
@@ -1446,7 +1458,10 @@ function filterStores() {
     if (!q) return true;                       // empty box on focus = browse the whole roster
     return s.store.indexOf(q) !== -1 || String(s.brand || '').toUpperCase().indexOf(q) !== -1;
   }).slice(0, 40);
-  if (!list.length) { drop.classList.remove('open'); return; }
+  if (!list.length) {
+    _emptyDropMessage(drop, !allStores.length, 'No stores configured yet — add one in Admin → Configuration → Stores.');
+    return;
+  }
   drop.innerHTML = list.map(function(s) {
     return '<div class="ss-opt" data-v="'+esc(s.store)+'" data-m="'+esc(s.store+' '+(s.brand||''))+'" onmousedown="pickStore(this)">'
       +'<span class="opt-name">'+esc(s.store)+'</span>'
@@ -1479,7 +1494,10 @@ function filterVisitors() {
   var list = allVisitors.filter(function(v){
     return v.name.indexOf(q) !== -1 && selVisitors.indexOf(v.name) === -1;
   });
-  if (!list.length) { drop.classList.remove('open'); return; }
+  if (!list.length) {
+    _emptyDropMessage(drop, !allVisitors.length, 'No visitors configured yet — add one in Admin → Configuration → Visitors.');
+    return;
+  }
   drop.innerHTML = list.map(function(v) {
     return '<div class="ss-opt" data-v="'+esc(v.name)+'" data-m="'+esc(v.name)+'" data-c="'+esc(v.color)+'" onmousedown="pickVisitor(this)">'
       +'<span class="opt-name">'
@@ -2795,43 +2813,92 @@ function clearLog() {
 // used to write straight into SETTINGS is gone; Admin → Configuration is
 // now the only place a Store/Visitor/Purpose is created or edited.
 // ═══════════════════════════════════════
+// D-034: three separate google.script.run calls, not one — each gets its
+// own Apps Script execution-time budget, so a slow/failing step can never
+// prevent the others from running (Stores is the heaviest of the three,
+// since it's the only one that also scans MASTER_LOG — run last, after
+// the smaller/faster Visitors and Purposes steps have already landed).
+// See reviews/011-migration-performance-fix.md.
 function runSettingsMigration() {
   var stat = document.getElementById('stat-MIGRATE');
   if (!confirm('Import anything in the legacy SETTINGS sheet that is not yet in Configuration?\n\nThis only ADDS Configuration entries — it never edits or deletes SETTINGS or MASTER_LOG, and anything already migrated is skipped.')) {
     return;
   }
-  stat.textContent = '⏳ Migrating…'; stat.className = 'tool-stat running';
+  stat.className = 'tool-stat running';
+
+  var results = { stores: {}, visitors: {}, purposes: {} };
+  var stepErrors = [];
+
+  function finish() {
+    var s = results.stores, v = results.visitors, p = results.purposes;
+    var failedCount = (s.failed || []).length + (v.failed || []).length + (p.failed || []).length;
+    var summary = 'Stores: +' + ((s.createdStoreIds || []).length) + ' (already had ' + ((s.alreadyMigrated || []).length) + ') · '
+      + 'Visitors: +' + ((v.createdNames || []).length) + ' (already had ' + ((v.alreadyMigrated || []).length) + ') · '
+      + 'Purposes: +' + ((p.createdNames || []).length) + ' (already had ' + ((p.alreadyMigrated || []).length) + ')'
+      + (failedCount ? ' · ' + failedCount + ' FAILED' : '')
+      + (stepErrors.length ? ' · ' + stepErrors.length + ' STEP ERROR' + (stepErrors.length > 1 ? 'S' : '') : '');
+    var hasIssue = failedCount || stepErrors.length;
+    stat.textContent = (hasIssue ? '⚠ Done with errors — ' : '✅ Done — ') + summary;
+    stat.className = hasIssue ? 'tool-stat error' : 'tool-stat success';
+    addLog(hasIssue ? 'warn' : 'ok', (hasIssue ? '⚠' : '✅') + ' Migrate Legacy Data: ' + summary);
+    if (s.unmappedCount) addLog('warn', '⚠ ' + s.unmappedCount + ' MASTER_LOG store name(s) could not be confidently matched — see CONFIG_UNMAPPED_STORES.');
+    // A SETTINGS row this migration could not create (most commonly:
+    // a blank required field — Brand/Region/Category for a Store,
+    // SVMKPI_CONFIG.gs's own validation) never becomes a CONFIG_*
+    // entity at all — never silently drop that, since it's exactly
+    // the "SETTINGS has it, Configuration doesn't" mismatch an admin
+    // needs to go fix in SETTINGS itself.
+    (s.failed || []).forEach(function(f) { addLog('warn', '⚠ Store "' + f.name + '" not migrated: ' + f.message); });
+    (v.failed || []).forEach(function(f) { addLog('warn', '⚠ Visitor "' + f.name + '" not migrated: ' + f.message); });
+    (p.failed || []).forEach(function(f) { addLog('warn', '⚠ Purpose "' + f.name + '" not migrated: ' + f.message); });
+    // A step that itself failed/errored (as opposed to a per-row failure
+    // within a successful step) — e.g. a timeout — is reported the same
+    // way, never silently.
+    stepErrors.forEach(function(msg) { addLog('warn', '⚠ ' + msg); });
+  }
+
+  function runStores() {
+    stat.textContent = '⏳ Migrating Stores…';
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.success) results.stores = r.stores || {};
+        else stepErrors.push('Stores step failed: ' + ((r && r.message) || 'unknown error'));
+        finish();
+      })
+      .withFailureHandler(function(err) {
+        stepErrors.push('Stores step failed: ' + (err.message || String(err)));
+        finish();
+      })
+      .settingsMigration_runStores();
+  }
+
+  function runPurposes() {
+    stat.textContent = '⏳ Migrating Purposes…';
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.success) results.purposes = r.purposes || {};
+        else stepErrors.push('Purposes step failed: ' + ((r && r.message) || 'unknown error'));
+        runStores();
+      })
+      .withFailureHandler(function(err) {
+        stepErrors.push('Purposes step failed: ' + (err.message || String(err)));
+        runStores();
+      })
+      .settingsMigration_runPurposes();
+  }
+
+  stat.textContent = '⏳ Migrating Visitors…';
   google.script.run
     .withSuccessHandler(function(r) {
-      if (r && r.success) {
-        var s = r.stores || {}, v = r.visitors || {}, p = r.purposes || {};
-        var failedCount = (s.failed || []).length + (v.failed || []).length + (p.failed || []).length;
-        var summary = 'Stores: +' + ((s.createdStoreIds || []).length) + ' (already had ' + ((s.alreadyMigrated || []).length) + ') · '
-          + 'Visitors: +' + ((v.createdNames || []).length) + ' (already had ' + ((v.alreadyMigrated || []).length) + ') · '
-          + 'Purposes: +' + ((p.createdNames || []).length) + ' (already had ' + ((p.alreadyMigrated || []).length) + ')'
-          + (failedCount ? ' · ' + failedCount + ' FAILED' : '');
-        stat.textContent = (failedCount ? '⚠ Done with errors — ' : '✅ Done — ') + summary;
-        stat.className = failedCount ? 'tool-stat error' : 'tool-stat success';
-        addLog(failedCount ? 'warn' : 'ok', (failedCount ? '⚠' : '✅') + ' Migrate Legacy Data: ' + summary);
-        if (s.unmappedCount) addLog('warn', '⚠ ' + s.unmappedCount + ' MASTER_LOG store name(s) could not be confidently matched — see CONFIG_UNMAPPED_STORES.');
-        // A SETTINGS row this migration could not create (most commonly:
-        // a blank required field — Brand/Region/Category for a Store,
-        // SVMKPI_CONFIG.gs's own validation) never becomes a CONFIG_*
-        // entity at all — never silently drop that, since it's exactly
-        // the "SETTINGS has it, Configuration doesn't" mismatch an admin
-        // needs to go fix in SETTINGS itself.
-        (s.failed || []).forEach(function(f) { addLog('warn', '⚠ Store "' + f.name + '" not migrated: ' + f.message); });
-        (v.failed || []).forEach(function(f) { addLog('warn', '⚠ Visitor "' + f.name + '" not migrated: ' + f.message); });
-        (p.failed || []).forEach(function(f) { addLog('warn', '⚠ Purpose "' + f.name + '" not migrated: ' + f.message); });
-      } else {
-        stat.textContent = '❌ ' + ((r && r.message) || 'Migration failed.'); stat.className = 'tool-stat error';
-      }
+      if (r && r.success) results.visitors = r.visitors || {};
+      else stepErrors.push('Visitors step failed: ' + ((r && r.message) || 'unknown error'));
+      runPurposes();
     })
     .withFailureHandler(function(err) {
-      var msg = err.message || String(err);
-      stat.textContent = '❌ ' + msg; stat.className = 'tool-stat error';
+      stepErrors.push('Visitors step failed: ' + (err.message || String(err)));
+      runPurposes();
     })
-    .settingsMigration_run();
+    .settingsMigration_runVisitors();
 }
 
 // ═══════════════════════════════════════
@@ -3356,10 +3423,20 @@ function loadAdminArea(area) {
   document.getElementById('adminDetailCol').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
   document.getElementById('adminEntityList').innerHTML = '<div class="state-msg" style="padding:10px 0"><div class="spinner"></div></div>';
 
+  // Bug (found auditing the Admin Configuration loading path for every
+  // area, not just Visitors — see reviews/011-migration-performance-fix.md):
+  // this failure handler only ever cleared adminDetailCol's spinner. If
+  // admin_getAreaSchema() itself ever fails, for ANY area, adminEntityList's
+  // spinner above was never touched again — the list pane looked stuck
+  // loading forever, no matter what the actual error was. Both panes must
+  // always leave their loading state on failure.
   callServer('admin_getAreaSchema', [area], function(schema) {
     adminSchema = schema;
     loadAdminEntityList(area);
-  }, function(msg) { adminShowError('adminDetailCol', msg); });
+  }, function(msg) {
+    adminShowError('adminDetailCol', msg);
+    adminShowError('adminEntityList', msg);
+  });
 }
 
 function adminEntityRowHtml(id, label, sub, badgeClass) {
