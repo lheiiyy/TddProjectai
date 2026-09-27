@@ -14,6 +14,12 @@
 //      credential too, closing the dual-authorization-path gap Security
 //      Fix R1 left open. See SECTION 5 below and
 //      reviews/009-phase-1h-c-security-fix-r2.md.
+//      Pilot-testing toggle (D-033, SVMKPI_IDENTITY_CORE.gs's
+//      IDENTITY_MFA_ENFORCED): that MFA requirement is currently OFF —
+//      sl_isAdmin() is back to its pre-R2, admin-list-only check — until
+//      the toggle is switched back on. The bridge itself (this section)
+//      is untouched and still fully usable by an admin who wants to
+//      enroll voluntarily.
 // ------------------------------------------------------------
 // Two independent layers protect this Web App:
 //   - Google sign-in (appsscript.json access:"ANYONE") — real identity,
@@ -145,21 +151,28 @@ function _isOnLegacyAdminList_(email) {
  * editing any of those call sites (mirrors how Security Fix R1
  * strengthened _identity_currentUserHasPermission_() for the new
  * identity surface).
- * Fails closed: no email visible, not on the admin list, or MFA not
- * satisfied ⇒ not an admin, never the reverse. The MFA check is
- * typeof-guarded so a test sandbox that never loads
- * SVMKPI_IDENTITY_CORE.gs (this file's MFA dependency) degrades to the
- * pre-R2 admin-list-only check instead of throwing — in the real
+ * Fails closed: no email visible, not on the admin list, or (when MFA
+ * enforcement is on) MFA not satisfied ⇒ not an admin, never the
+ * reverse. The MFA check is typeof-guarded so a test sandbox that never
+ * loads SVMKPI_IDENTITY_CORE.gs (this file's MFA dependency) degrades to
+ * the pre-R2 admin-list-only check instead of throwing — in the real
  * deployed app all files share one project, so
- * _identity_hasSatisfiedMfa_ is always present and this check always
- * applies (same established precedent as the `typeof sl_isAdmin ===
- * 'function'` guards elsewhere in this codebase, e.g. SVMKPI_LAYOUT.gs).
+ * _identity_hasSatisfiedMfa_ is always present (same established
+ * precedent as the `typeof sl_isAdmin === 'function'` guards elsewhere
+ * in this codebase, e.g. SVMKPI_LAYOUT.gs).
+ * Pilot-testing toggle (D-033, SVMKPI_IDENTITY_CORE.gs's
+ * IDENTITY_MFA_ENFORCED): the MFA check below is currently OFF for
+ * pilot testing — admin-list membership alone is sufficient, exactly
+ * the pre-R2 behavior — until it's switched back on. Only the MFA layer
+ * is affected; Google sign-in and the admin-list check itself are
+ * unchanged.
  * @returns {boolean}
  */
 function sl_isAdmin() {
   const email = sl_getCurrentUser();
   if (!_isOnLegacyAdminList_(email)) return false;
-  if (typeof _identity_hasSatisfiedMfa_ === 'function' &&
+  if (typeof IDENTITY_MFA_ENFORCED !== 'undefined' && IDENTITY_MFA_ENFORCED &&
+      typeof _identity_hasSatisfiedMfa_ === 'function' &&
       !_identity_hasSatisfiedMfa_(_legacyAdminMfaKey_(email))) {
     return false;
   }
@@ -457,16 +470,21 @@ function verifyAdminMfa(code) {
  * never the underlying SETTINGS!G list itself (that stays unreachable
  * via google.script.run, per Phase 1H-B.1). Safe to call whether or not
  * the caller is on the admin list.
- * @returns {{onAdminList:boolean, mfaEnrolled:boolean, mfaSatisfied:boolean}}
+ * `mfaRequired` reflects the pilot-testing toggle (D-033) — false while
+ * MFA enforcement is off, so the portal banner (SVMI_PORTAL.html) knows
+ * not to nag an admin to enroll/verify something that isn't currently
+ * gating anything.
+ * @returns {{onAdminList:boolean, mfaEnrolled:boolean, mfaSatisfied:boolean, mfaRequired:boolean}}
  */
 function sl_getAdminMfaStatus() {
   const email = sl_getCurrentUser();
   const onAdminList = _isOnLegacyAdminList_(email);
-  if (!onAdminList) return { onAdminList: false, mfaEnrolled: false, mfaSatisfied: false };
+  const mfaRequired = typeof IDENTITY_MFA_ENFORCED !== 'undefined' && IDENTITY_MFA_ENFORCED;
+  if (!onAdminList) return { onAdminList: false, mfaEnrolled: false, mfaSatisfied: false, mfaRequired: mfaRequired };
 
   const found = _legacyAdminMfaRow_(email);
   const mfaEnrolled = !!(found.record && found.record[IDENTITY_MFA_COL.STATUS - 1] === 'ENROLLED');
   const mfaSatisfied = typeof _identity_hasSatisfiedMfa_ === 'function' &&
     _identity_hasSatisfiedMfa_(_legacyAdminMfaKey_(email));
-  return { onAdminList: true, mfaEnrolled: mfaEnrolled, mfaSatisfied: mfaSatisfied };
+  return { onAdminList: true, mfaEnrolled: mfaEnrolled, mfaSatisfied: mfaSatisfied, mfaRequired: mfaRequired };
 }

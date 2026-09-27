@@ -7,7 +7,26 @@ demo; dry-run tooling is pure-function/synthetic-data only).
 
 ## Apps Script track — `SVMI_Project/tests/`
 
-**Verified this session: 26 files, 1289 assertions, 0 failures.** Phase
+**⚠ Not re-verified this session (2026-09-27):** the pilot-testing MFA
+enforcement toggle (`DECISIONS.md` D-033, `reviews/010-pilot-mfa-
+enforcement-toggle.md`) updated `identity.test.js` and
+`identity-legacy-admin-mfa.test.js` to match the new default behavior,
+but this session's Bash tool was denied for test-execution commands by
+an environment policy specific to that security-sensitive change,
+including the plain `node tests/identity.test.js` invocation itself. The
+updates were reasoned through line-by-line against the mocked sandbox
+behavior (see that review's §5), not run. **Before relying on this
+change, run:**
+```
+node "SVMI_Project/tests/identity.test.js"
+node "SVMI_Project/tests/identity-legacy-admin-mfa.test.js"
+```
+and ideally the full suite below, and update the counts in this file
+from the actual output rather than trusting the pre-toggle figures that
+follow, which are the last figures actually verified (Phase 1H-C
+Security Fix R2, 2026-09-26).
+
+**Verified through Phase 1H-C Security Fix R2 (2026-09-26): 26 files, 1289 assertions, 0 failures.** Phase
 1H-C Security Fix R1 grew `identity.test.js` from 62 to 100 assertions
 (38 new, covering the 10 required MFA-enforcement proof points — see
 `reviews/008-phase-1h-c-security-fix-r1.md`); Phase 1H-C Security Fix R2
@@ -48,8 +67,8 @@ touched or added in Phase 1G are from today's direct run.
 | `config-service.test.js` | `SVMKPI_CONFIG.gs` end-to-end: validation, effective-dating, versioning, audit, security, backdating, rollback, portability | 71 |
 | `date-parsing.test.js` | `_parseDateCell()` + duplicate-check integration | — |
 | `duplicate-prevention.test.js` | Exact-duplicate-visit blocking under concurrent submission | — |
-| `identity.test.js` | **Phase 1H-C** — registration/email-OTP verification (incl. attempt lockout), approval/rejection (permission-gated, fails closed, no self-escalation), account-lifecycle transition validity, role/direct-permission/scope assignment, suspend/reactivate/disable, the external-disablement offboarding hook, MFA TOTP enrollment/verification (real RFC 6238 round-trip + clock-drift tolerance), confirms no secret value ever appears in `IDENTITY_AUDIT`. **Phase 1H-C Security Fix R1** — server-authoritative MFA enforcement: ACTIVE-without-MFA rejected, ACTIVE-with-MFA succeeds, invalid/expired/replayed TOTP codes rejected, spoofed client-supplied MFA/role/permission/status state has no effect, existing ADMIN permission checks intact, TOTP secret never returned to client or written to `IDENTITY_AUDIT` | 100 (grew from 62 this session) |
-| `identity-legacy-admin-mfa.test.js` | **Phase 1H-C Security Fix R2** — MFA now also gates the pre-existing `sl_isAdmin()` legacy admin path (`SVMKPI_ACCESS.gs`), proven against 4 representative protected operations across 4 categories (Store/Compliance configuration, Report snapshot admin, System Tools): non-MFA-satisfied admin rejected, MFA-satisfied admin passes the gate, invalid/expired/replayed TOTP codes rejected, forged client-supplied MFA/admin state has no effect, non-admin-listed users still rejected + Phase 1H-B.1 findings intact, admin TOTP secret never returned to client or written to `IDENTITY_AUDIT`, static confirmation no second legacy admin-check mechanism exists anywhere, the unattended daily-trigger bypass is unaffected, graceful no-throw degradation when the identity subsystem isn't loaded | 44 (new file, added this session) |
+| `identity.test.js` | **Phase 1H-C** — registration/email-OTP verification (incl. attempt lockout), approval/rejection (permission-gated, fails closed, no self-escalation), account-lifecycle transition validity, role/direct-permission/scope assignment, suspend/reactivate/disable, the external-disablement offboarding hook, MFA TOTP enrollment/verification (real RFC 6238 round-trip + clock-drift tolerance), confirms no secret value ever appears in `IDENTITY_AUDIT`. **Phase 1H-C Security Fix R1** — server-authoritative MFA enforcement: ACTIVE-without-MFA rejected, ACTIVE-with-MFA succeeds, invalid/expired/replayed TOTP codes rejected, spoofed client-supplied MFA/role/permission/status state has no effect, existing ADMIN permission checks intact, TOTP secret never returned to client or written to `IDENTITY_AUDIT`. **Pilot MFA toggle (D-033, this session, ⚠ not executed — see banner above)** — R1.1/R1.4/R1.6 and the Grace/isActive-after-reset assertions now force `IDENTITY_MFA_ENFORCED = true` on their own sandbox first (proving R1 is intact/reversible); new "D-033" section proves the pilot default (no MFA required) and live re-toggling | 100 pre-toggle; count after the new "D-033" section not yet verified |
+| `identity-legacy-admin-mfa.test.js` | **Phase 1H-C Security Fix R2** — MFA now also gates the pre-existing `sl_isAdmin()` legacy admin path (`SVMKPI_ACCESS.gs`), proven against 4 representative protected operations across 4 categories (Store/Compliance configuration, Report snapshot admin, System Tools): non-MFA-satisfied admin rejected, MFA-satisfied admin passes the gate, invalid/expired/replayed TOTP codes rejected, forged client-supplied MFA/admin state has no effect, non-admin-listed users still rejected + Phase 1H-B.1 findings intact, admin TOTP secret never returned to client or written to `IDENTITY_AUDIT`, static confirmation no second legacy admin-check mechanism exists anywhere, the unattended daily-trigger bypass is unaffected, graceful no-throw degradation when the identity subsystem isn't loaded. **Pilot MFA toggle (D-033, this session, ⚠ not executed — see banner above)** — R2.1/R2.3/R2.4/R2.6 now force `IDENTITY_MFA_ENFORCED = true` on their own sandbox first; R2.10's exact-shape assertion updated for the new `mfaRequired` field; new "D-033" section proves the pilot default and live re-toggling | 44 pre-toggle; count after the new "D-033" section not yet verified |
 | `kpi-purpose-config.test.js` | Versioned KPI config (infra-only) + deliberate Purpose KPI/risk config, no inheritance | 44 |
 | `kpi-roster-history.test.js` | KPI 2026 roster-removal history retention | — |
 | `purpose-generic-reporting.test.js` | No source file re-adds a hardcoded CAPAR-style purpose branch | — |

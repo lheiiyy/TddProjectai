@@ -19,6 +19,16 @@
 // files, so the new MFA check is a documented no-op there (see its own
 // "REQUIRED FINDING 1" section, still passing unchanged) — exactly the
 // same typeof-guard precedent this fix reuses.
+//
+// Pilot-testing toggle (DECISIONS.md D-033): SVMKPI_IDENTITY_CORE.gs's
+// IDENTITY_MFA_ENFORCED now defaults to `false` for the duration of
+// pilot testing, so sl_isAdmin() is back to its pre-R2, admin-list-only
+// check by default. Every block below whose assertions specifically
+// prove "MFA is required" sets `sandbox.IDENTITY_MFA_ENFORCED = true`
+// on its own sandbox first, proving the R2 mechanism is fully intact
+// and exactly reversible. A new section (search "D-033") proves the
+// pilot DEFAULT directly: an admin-listed user with no MFA at all
+// passes sl_isAdmin().
 
 const fs = require('fs');
 const path = require('path');
@@ -197,6 +207,7 @@ console.log('\n── R2.1 — a non-MFA-satisfied admin cannot call a protected
 {
   const { sandbox, settings, state } = newSandbox();
   setAdminList(settings, ['admin@example.com']);
+  sandbox.IDENTITY_MFA_ENFORCED = true; // D-033: prove MFA is still required when the pilot toggle is on
   state.email = 'admin@example.com';
 
   check('sl_isAdmin() is false before any MFA enrollment, even though the email IS on the admin list', sandbox.sl_isAdmin() === false);
@@ -234,6 +245,7 @@ console.log('\n── R2.3 — invalid admin MFA code is rejected ──');
 {
   const { sandbox, settings, state } = newSandbox();
   setAdminList(settings, ['admin@example.com']);
+  sandbox.IDENTITY_MFA_ENFORCED = true; // D-033: sl_isAdmin() only cares about code validity when enforcement is on
   state.email = 'admin@example.com';
   const enrollment = sandbox.enrollAdminMfa();
 
@@ -246,6 +258,7 @@ console.log('\n── R2.4 — expired admin MFA satisfaction is rejected ──
 {
   const { sandbox, settings, state } = newSandbox();
   setAdminList(settings, ['admin@example.com']);
+  sandbox.IDENTITY_MFA_ENFORCED = true; // D-033: expiry only blocks anything when enforcement is on
   state.email = 'admin@example.com';
   completeAdminMfaEnrollment(sandbox);
   check('sl_isAdmin() is true immediately after verification', sandbox.sl_isAdmin() === true);
@@ -277,6 +290,7 @@ console.log('\n── R2.6 — client-supplied MFA/admin state cannot bypass the
 {
   const { sandbox, settings, state } = newSandbox();
   setAdminList(settings, ['admin@example.com']);
+  sandbox.IDENTITY_MFA_ENFORCED = true; // D-033: a spoof must fail to bypass MFA when it's actually required
   state.email = 'admin@example.com';
 
   // sl_isAdmin() takes no arguments at all — there is no parameter an
@@ -378,7 +392,34 @@ console.log('\n── R2.10 — sl_getAdminMfaStatus() reveals nothing about the
   state.email = 'nobody@example.com';
 
   const status = sandbox.sl_getAdminMfaStatus();
-  check('a non-admin-listed caller gets onAdminList:false, mfaEnrolled:false, mfaSatisfied:false — nothing else', JSON.stringify(status) === JSON.stringify({ onAdminList: false, mfaEnrolled: false, mfaSatisfied: false }));
+  check('a non-admin-listed caller gets onAdminList:false, mfaEnrolled:false, mfaSatisfied:false, and today\'s mfaRequired — nothing else', JSON.stringify(status) === JSON.stringify({ onAdminList: false, mfaEnrolled: false, mfaSatisfied: false, mfaRequired: sandbox.IDENTITY_MFA_ENFORCED }));
+}
+
+// ═══════════════════════════════════════════════════════════════
+console.log('\n── D-033: sl_isAdmin() requires no MFA while IDENTITY_MFA_ENFORCED is off (pilot default) ──');
+{
+  const { sandbox, settings, state } = newSandbox();
+  setAdminList(settings, ['admin@example.com']);
+  state.email = 'admin@example.com';
+  check('IDENTITY_MFA_ENFORCED defaults to false (loaded straight from source, untouched)', sandbox.IDENTITY_MFA_ENFORCED === false);
+
+  // No enrollAdminMfa()/verifyAdminMfa() at all — never touched MFA.
+  check('sl_isAdmin() is true for an admin-listed email with NO MFA at all while enforcement is off', sandbox.sl_isAdmin() === true);
+
+  PROTECTED_OPS.forEach(op => {
+    let result, threw = false;
+    try { result = op.call(sandbox); } catch (e) { threw = true; result = e; }
+    const passedGate = threw || !wasRejectedByAdminGate(result);
+    check(op.name + ': passes the sl_isAdmin() gate with no MFA at all while enforcement is off', passedGate, JSON.stringify(result && result.message));
+  });
+
+  const status = sandbox.sl_getAdminMfaStatus();
+  check('sl_getAdminMfaStatus().mfaRequired reports false while the toggle is off', status.mfaRequired === false, JSON.stringify(status));
+
+  // Flip the switch back on, on the SAME sandbox/user — proves this is a
+  // live re-check every call, not something baked in only at load time.
+  sandbox.IDENTITY_MFA_ENFORCED = true;
+  check('re-enabling the toggle immediately restores the MFA requirement, same sandbox/user', sandbox.sl_isAdmin() === false);
 }
 
 // ═══════════════════════════════════════════════════════════════
