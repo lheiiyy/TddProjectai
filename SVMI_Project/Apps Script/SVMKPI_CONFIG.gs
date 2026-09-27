@@ -667,7 +667,17 @@ function cfg_createConfiguration(area, entityId, fields, effectiveFromStr, effec
     if (effectiveToStr && !effectiveTo) return { success: false, message: 'Invalid Effective To date.' };
 
     const sheet = _cfg_ensureSheet(area);
-    const existingVersions = _cfg_readVersions(sheet, schema, entity);
+    // Performance fix (DECISIONS.md D-035): _cfg_readVersions() always
+    // reads the ENTIRE sheet, regardless of entityId — every call here
+    // re-reads a sheet that just keeps growing as a bulk-create loop
+    // (migration) adds more rows, an O(n^2) cost independent of anything
+    // the CALLER does. A caller that already knows, by construction, this
+    // entity cannot possibly have an existing version (a freshly-minted
+    // UUID nobody has ever seen — see store_create()'s own comment for
+    // the specific guarantee) can pass options.knownNewEntity to use `[]`
+    // directly instead — mathematically identical to what the full read
+    // would have found, computed in O(1) instead of O(existing rows).
+    const existingVersions = (options && options.knownNewEntity) ? [] : _cfg_readVersions(sheet, schema, entity);
 
     const validation = cfg_validateConfiguration(area, entity, fields, effectiveFrom, effectiveTo, existingVersions);
     if (!validation.valid) {
@@ -703,14 +713,25 @@ function cfg_createConfiguration(area, entityId, fields, effectiveFromStr, effec
     }, fields);
 
     sheet.appendRow(row);
-    SpreadsheetApp.flush();
+    // deferFlush (D-035): bulk callers flush once after the whole batch
+    // instead of once per entity — appendRow()'s own cost doesn't grow
+    // with sheet size the way a read does, but each flush() is still a
+    // real synchronous round-trip, worth batching too.
+    if (!(options && options.deferFlush)) SpreadsheetApp.flush();
 
     _cfg_writeAudit(area, entity, CFG_ACTION.CREATE,
       previousActive ? _cfg_summarize(schema, previousActive) : '(none)',
       _cfg_summarize(schema, { fields }),
-      effectiveFrom, effectiveTo, reason || '', versionNum, actor);
+      effectiveFrom, effectiveTo, reason || '', versionNum, actor, options && options.deferFlush);
 
-    _cfg_syncLegacyMirror(area, entity, options && options.suppressRebuild);
+    // suppressLegacyMirror (D-035): skips the SETTINGS-mirror sync
+    // entirely, not just the rebuild inside it — used only when the
+    // caller already knows SETTINGS doesn't need it this time (bulk
+    // migration's source data IS SETTINGS itself — see
+    // store_migrateFromSettings()'s own comment).
+    if (!(options && options.suppressLegacyMirror)) {
+      _cfg_syncLegacyMirror(area, entity, options && options.suppressRebuild);
+    }
 
     return { success: true, versionId, version: versionNum };
   } catch (e) {
@@ -908,7 +929,14 @@ function cfg_rollbackConfiguration(area, entityId, targetVersionId, reason, effe
 // has fully succeeded (never on a validation failure or rejected change)
 // ═══════════════════════════════════════════════════════════════
 
-function _cfg_writeAudit(area, entityId, action, previousValue, newValue, effectiveFrom, effectiveTo, reason, version, actor) {
+/**
+ * `deferFlush` (D-035): optional, backward-compatible — every pre-existing
+ * call site omits it and keeps flushing immediately, exactly as before.
+ * Only bulk callers (cfg_createConfiguration() with options.deferFlush)
+ * pass it, and are themselves responsible for flushing once after their
+ * whole batch.
+ */
+function _cfg_writeAudit(area, entityId, action, previousValue, newValue, effectiveFrom, effectiveTo, reason, version, actor, deferFlush) {
   const sheet = _cfg_ensureAuditSheet();
   const auditId = area + '-' + entityId + '-' + action + '-' + new Date().getTime();
   sheet.appendRow([
@@ -925,7 +953,7 @@ function _cfg_writeAudit(area, entityId, action, previousValue, newValue, effect
     reason || '',
     version,
   ]);
-  SpreadsheetApp.flush();
+  if (!deferFlush) SpreadsheetApp.flush();
 }
 
 /**

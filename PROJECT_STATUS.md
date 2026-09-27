@@ -1,13 +1,25 @@
 # SVMI — Project Status
 
-Last updated: 2026-09-27, recording **a bug-fix pass on the Input
-Portal, tracing "Visitors list won't show / can't type the date" all
-the way to a real backend performance defect in the legacy SETTINGS→
-CONFIG_* migration** (`DECISIONS.md` D-034,
-`reviews/011-migration-performance-fix.md`) — see "What has been
-completed" below for the full chain. **⚠ Code-complete, tests passing,
-NOT yet deployed to the test copy** — the project owner set an explicit
-gate ("do not deploy until…") on this work; see "Immediate next task."
+Last updated: 2026-09-27, recording **a second-round fix to the
+SETTINGS→CONFIG_* migration performance defect** (`DECISIONS.md` D-035,
+`reviews/012-store-migration-performance-fix.md`). D-034 was deployed
+(v16) and live-verified by the project owner: Visitors (12 entities) and
+Purposes (4 entities) now migrate and work correctly end-to-end in the
+live Input Portal, but Stores still hit "Exceeded maximum execution
+time" — a real store roster is large enough to expose a second,
+deeper layer of the same O(n²) defect, this time inside the shared
+`cfg_createConfiguration()` write primitive itself rather than in the
+migration function's own pre-checks. D-035 fixes that layer. **⚠
+Code-complete, full test suite passing (1312 assertions/26 files,
+including a new mechanical read-count proof), NOT yet deployed to the
+test copy** — the project owner's standing instruction was not to mark
+Stores migration complete until live/test behavior actually verifies
+it; see "Immediate next task."
+
+Visitors and Purposes migration/display are working, live-verified, and
+were **not modified** in this D-035 pass, per the project owner's
+explicit instruction not to touch a working path absent a discovered
+regression.
 
 Also this session, earlier: **the pilot-testing MFA enforcement
 toggle: TOTP MFA (D-028/D-031/D-032) is temporarily OFF for the
@@ -247,12 +259,15 @@ Nothing is mid-implementation. Phase 1G, Phase 1H-A, Phase 1H-B, Phase
 1H-B.1, Phase 1H-C, Phase 1H-C Security Fix R1, and Phase 1H-C Security
 Fix R2 are all complete, tested, documented, and pushed. The
 pilot-testing MFA enforcement toggle (D-033, `reviews/010-...md`) is
-code-complete and documented but **its updated tests have not been
-executed in this environment** — running them (and ideally the full
-suite) is the one loose end before this can be considered fully
-verified; see `TESTING_LOG.md`'s banner. Phase 1H-D/whatever comes next
-(external IdP selection, or further identity-surface work) has not been
-scoped — see "Immediate next task."
+code-complete, documented, and its tests are now confirmed actually
+passing (109/109, 52/52 — see `TESTING_LOG.md`). The migration
+performance fix, round 2 (D-035, `reviews/012-...md`) is code-complete
+and test-verified (mechanically, via a mocked-sheet read-count proof)
+but **not yet deployed or live-verified** — the actual Apps Script
+execution-time result can only be confirmed by the project owner
+re-running "Migrate Legacy Data" on the redeployed test copy; see
+"Immediate next task." Phase 1H-D/whatever comes next (external IdP
+selection, or further identity-surface work) has not been scoped.
 
 ## What remains unresolved
 
@@ -369,21 +384,21 @@ Unknown items `reviews/003` §H never asked any of these tasks to fix:
 
 ## Immediate next task
 
-**Deploy and verify the migration performance fix (D-034,
-`reviews/011-migration-performance-fix.md`) on the test copy** — code
-complete and the full 26-file test suite (1306 assertions) plus
-responsive/portal-UI checks all pass, but the project owner set an
-explicit gate on this specific work ("do not deploy until the root
-cause is identified, migration is completed when genuinely required,
-Admin Configuration → Visitors works, Portal → Visited By works, and
-regression tests pass") and has not yet given the go-ahead to push. Once
-authorized: `clasp push` + redeploy to the test copy, then have the
-project owner (a) run "Migrate Legacy Data" (now three sequential
-Visitors → Purposes → Stores calls) and confirm it completes without
-timing out, (b) confirm Admin → Configuration → Visitors and Portal →
-Visited By both show real visitor names, (c) spot-check the date field
-and mobile tap fix are still working, all on an actual phone as well as
-desktop.
+**Deploy and live-verify the migration performance fix, round 2 (D-035,
+`reviews/012-store-migration-performance-fix.md`) on the test copy** —
+code complete and the full 26-file test suite (1312 assertions, incl. a
+new mechanical read-count proof) plus responsive/portal-UI checks all
+pass, but per the project owner's own standing instruction, Stores
+migration is not to be marked complete until live/test behavior actually
+verifies it. `clasp push` + redeploy to the test copy, then have the
+project owner run "Migrate Legacy Data" again (Stores step specifically
+— Visitors/Purposes are already confirmed working and were not touched
+this pass) and report: whether it completes without timing out, how many
+stores were added/already-existing/remaining, and (if visible) the
+execution time. Once that comes back: fill in `reviews/012-...md` §6's
+Live verification report, confirm Admin → Configuration → Stores and any
+Store-picker UI in the Input Portal show real store data end-to-end, and
+close out D-035 the same way D-034 was closed out for Visitors/Purposes.
 
 After that: this session's earlier identity-test confirmation (D-033,
 109/109 and 52/52 passing) closes that loose end too. Then:
