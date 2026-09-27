@@ -99,6 +99,15 @@ textarea.fi{resize:vertical;min-height:50px}
 .ss-opt{padding:7px 10px;font-size:11px;cursor:pointer;color:var(--text)}
 .ss-opt:hover{background:#EAF4E1;color:var(--tld-d)}
 
+/* ── Date field: typable text + the real native picker, both at once ── */
+/* The native type="date" control sits invisibly on top of its own text
+   input, present only so openDatePicker()/showPicker() has something real
+   to call — pointer-events:none means a tap always reaches the typable
+   text field or the 📅 button underneath/beside it, never this control
+   directly (which is what makes phones show ONLY their native modal with
+   no typing, the exact complaint this fixes). */
+.date-native-proxy{position:absolute;inset:0;opacity:0;pointer-events:none;border:none;padding:0}
+
 /* ── Visitor chips ── */
 /* Selected visitors sit inside the same box you type in — one control, not a
    chip panel stacked on top of a separate search field. */
@@ -589,7 +598,7 @@ textarea.fi{padding-right:28px}
         <div class="ss-wrap">
           <input type="text" id="storeSearch" class="ss-input" placeholder="Search store or brand…"
             oninput="filterStores()" onfocus="filterStores()" onblur="comboBlur('storeDrop')"
-            onkeydown="comboKey(event,'storeDrop','storeSearch','dateVisited')"
+            onkeydown="comboKey(event,'storeDrop','storeSearch','dateVisitedText')"
             autocomplete="off">
           <button type="button" class="field-x" id="storeX" onclick="clearField('store')" title="Clear store" hidden>&times;</button>
           <button type="button" class="combo-caret" title="Show all stores"
@@ -609,7 +618,18 @@ textarea.fi{padding-right:28px}
           <label>Date Visited <span class="req">*</span></label>
           <button type="button" class="mini-x" onclick="clearField('date')">reset to today</button>
         </div>
-        <input type="date" id="dateVisited" class="fi" onkeydown="fieldKey(event,'visSearch')">
+        <div class="ss-wrap">
+          <input type="text" id="dateVisitedText" class="fi" placeholder="MM/DD/YYYY" inputmode="numeric" autocomplete="off"
+            oninput="onDateTextInput()" onblur="onDateTextBlur()" onkeydown="fieldKey(event,'visSearch')">
+          <button type="button" class="combo-caret" title="Open calendar"
+            onmousedown="event.preventDefault();openDatePicker()">📅</button>
+          <!-- The real type="date" control: kept fully functional (native picker on every
+               device) but never tapped directly — openDatePicker() invokes it via
+               showPicker(), and its own onchange writes back into the typable text field
+               above. Native type="date" inputs on phones only offer their picker UI with
+               no way to type into them at all; this lets both work at once, everywhere. -->
+          <input type="date" id="dateVisited" class="date-native-proxy" tabindex="-1" onchange="onNativeDateChange()">
+        </div>
       </div>
 
       <div class="fg">
@@ -1209,7 +1229,64 @@ function setToday() {
   var d = new Date();
   var m = String(d.getMonth()+1).padStart(2,'0');
   var day = String(d.getDate()).padStart(2,'0');
-  document.getElementById('dateVisited').value = d.getFullYear()+'-'+m+'-'+day;
+  var iso = d.getFullYear()+'-'+m+'-'+day;
+  document.getElementById('dateVisited').value = iso;
+  document.getElementById('dateVisitedText').value = _dateToText(iso);
+}
+
+// ── Date Visited: typable text field + native picker, both driving the
+// same #dateVisited (type="date", YYYY-MM-DD) every other function here
+// already reads — see the field's own HTML comment for why this exists.
+function _dateToText(iso) {
+  var parts = String(iso||'').split('-');
+  if (parts.length !== 3) return '';
+  return parts[1]+'/'+parts[2]+'/'+parts[0];
+}
+// Accepts M/D/YYYY or MM/DD/YYYY; rejects anything that isn't a real
+// calendar date (e.g. 02/31/2026), not just the right shape of digits.
+function _textToIso(txt) {
+  var m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(txt||'').trim());
+  if (!m) return '';
+  var mm = m[1].padStart(2,'0'), dd = m[2].padStart(2,'0'), yyyy = m[3];
+  var d = new Date(Number(yyyy), Number(mm)-1, Number(dd));
+  if (d.getFullYear() !== Number(yyyy) || d.getMonth()+1 !== Number(mm) || d.getDate() !== Number(dd)) return '';
+  return yyyy+'-'+mm+'-'+dd;
+}
+// Auto-inserts the slashes as digits are typed (12272026 -> 12/27/2026)
+// so typing on a phone's numeric keypad needs no punctuation at all.
+function onDateTextInput() {
+  var el = document.getElementById('dateVisitedText');
+  var digits = el.value.replace(/[^\d]/g,'').slice(0,8);
+  var out = digits;
+  if (digits.length > 4) out = digits.slice(0,2)+'/'+digits.slice(2,4)+'/'+digits.slice(4);
+  else if (digits.length > 2) out = digits.slice(0,2)+'/'+digits.slice(2);
+  el.value = out;
+  // Only a fully-valid date commits into the real #dateVisited value —
+  // mid-typing or an invalid date blanks it, same as clearing the old
+  // native field used to, so submitForm()'s existing "Please enter a
+  // Date Visited" check still catches an incomplete/bad date, not just
+  // a visibly-empty one.
+  var iso = _textToIso(out);
+  document.getElementById('dateVisited').value = iso;
+  if (iso) clearStatus();
+}
+function onDateTextBlur() {
+  var txt = document.getElementById('dateVisitedText').value.trim();
+  if (txt && !_textToIso(txt)) showStatus('Enter the date as MM/DD/YYYY, or use the 📅 button.', 'error');
+}
+// Fires when the user picks a date from the native picker (openDatePicker()) —
+// mirrors it back into the typable text field so both stay in sync.
+function onNativeDateChange() {
+  document.getElementById('dateVisitedText').value = _dateToText(document.getElementById('dateVisited').value);
+  clearStatus();
+}
+function openDatePicker() {
+  var native = document.getElementById('dateVisited');
+  if (typeof native.showPicker === 'function') {
+    try { native.showPicker(); return; } catch (e) { /* fall through */ }
+  }
+  native.focus();
+  native.click();
 }
 
 // ═══════════════════════════════════════
@@ -1425,9 +1502,15 @@ function pickVisitor(el) {
 
 // Chips go into their own holder so re-rendering them never blows away the
 // input sitting next to them (which would drop focus mid-typing).
+// Bug report: tapping this box on a phone did nothing — some mobile
+// browsers don't reliably fire the input's own onfocus from a
+// programmatic focus() call made here. Opening the list directly too
+// means a tap always shows the visitor list even if the keyboard/focus
+// itself doesn't visibly engage.
 function focusVisitors(e) {
   if (e.target.classList.contains('chip-x')) return;   // let the × do its job
   document.getElementById('visSearch').focus();
+  filterVisitors();
 }
 
 function renderChips() {
@@ -1726,10 +1809,15 @@ function submitForm() {
   clearStatus();
   var store   = document.getElementById('storeVal').value.trim();
   var date    = document.getElementById('dateVisited').value.trim();
+  var dateTxt = document.getElementById('dateVisitedText').value.trim();
   var purpose = document.getElementById('purpVal').value.trim();
   var remarks = document.getElementById('remarks').value.trim();
   if (!store)             return showStatus('Please select a Store.','error');
   if (!date)              return showStatus('Please enter a Date Visited.','error');
+  // Typed text that never resolved to a real date (e.g. mid-edit, or an
+  // invalid date like 02/31/2026) must block submission rather than
+  // silently submitting whatever #dateVisited was last set to.
+  if (dateTxt && _dateToText(date) !== dateTxt) return showStatus('That date doesn\'t look right — check MM/DD/YYYY, or use the 📅 button.','error');
   if (!selVisitors.length) return showStatus('Please add at least one Visitor.','error');
   if (!purpose)           return showStatus('Please select a Purpose.','error');
   pending = {
