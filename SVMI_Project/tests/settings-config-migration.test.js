@@ -55,6 +55,12 @@ function eq(name, actual, expected) {
 function makeSheet() {
   const cells = {};
   const key = (r, c) => r + ',' + c;
+  // D-035 regression instrumentation: counts genuine multi-row reads
+  // (getRange(...).getValues() with numRows > 1) — the shape of the
+  // "re-read the whole, growing sheet" pattern this fix eliminates from
+  // the bulk-migration hot loop. A single-cell getValue()/small getValues()
+  // doesn't count; this is specifically about the expensive kind of read.
+  let multiRowReadCount = 0;
   function makeRange(row, col, numRows, numCols) {
     const range = {};
     let proxy;
@@ -64,6 +70,7 @@ function makeSheet() {
     range.clearContent = () => { for (let r = 0; r < numRows; r++) for (let c = 0; c < numCols; c++) delete cells[key(row + r, col + c)]; return proxy; };
     range.getValue = () => { const v = cells[key(row, col)]; return v == null ? '' : v; };
     range.getValues = () => {
+      if (numRows > 1) multiRowReadCount++;
       const out = [];
       for (let r = 0; r < numRows; r++) {
         const rowArr = [];
@@ -84,6 +91,7 @@ function makeSheet() {
     },
     getRange(row, col, numRows, numCols) { return makeRange(row, col, numRows || 1, numCols || 1); },
     appendRow(rowArr) { const r = this.getLastRow() + 1; rowArr.forEach((v, i) => { cells[key(r, i + 1)] = v; }); },
+    getMultiRowReadCount: () => multiRowReadCount,
   };
   let sproxy;
   sproxy = new Proxy(sheet, { get(t, p) { if (p in t) return t[p]; if (typeof p !== 'string') return undefined; return () => sproxy; } });
@@ -333,6 +341,54 @@ console.log('\n── visitor_migrateFromSettings()/purpose_migrateFromSettings(
   const purResult = sandbox.purpose_migrateFromSettings(['GOOD PURPOSE']);
   eq('a valid purpose still migrates cleanly', purResult.createdNames, ['GOOD PURPOSE']);
   check('purpose_migrateFromSettings() returns a failed array (even if empty) instead of omitting it', Array.isArray(purResult.failed));
+}
+
+// ── D-035: bulk store_migrateFromSettings() no longer re-reads the whole,
+// growing CONFIG_STORES sheet once per store (the actual cause of a real
+// "Migrate Legacy Data" timeout on the test copy — see
+// reviews/012-store-migration-performance-fix.md). A live-execution-time
+// limit can't be expressed in this mocked-sheet harness, but the read
+// pattern that caused it can: getMultiRowReadCount() (added to the sheet
+// mock above) counts every genuine multi-row getValues() call, which is
+// exactly the "re-read the whole sheet" shape this fix eliminates.
+console.log('\n── D-035: store_migrateFromSettings() does not re-read CONFIG_STORES per store (mechanical proof of the fix) ──');
+{
+  const { sandbox, sheets } = newSandbox();
+  // Seed a few pre-existing stores first, the normal "some stores already
+  // migrated" case — this is the one read _store_buildCurrentNameIndex_()
+  // is expected to do, once, regardless of how many NEW stores follow.
+  ['EXISTING A', 'EXISTING B', 'EXISTING C'].forEach(name => {
+    sandbox.store_create({ storeName: name, brand: 'FIGARO', region: 'NCR', category: 'NCR' }, TODAY, 'seed', {});
+  });
+  const configStores = sheets['CONFIG_STORES'];
+  const readsAfterSeeding = configStores.getMultiRowReadCount();
+
+  const N = 40;
+  const newStores = [];
+  for (let i = 0; i < N; i++) {
+    newStores.push({ store: 'BULK STORE ' + i, brand: 'FIGARO', region: 'NCR', category: 'NCR' });
+  }
+  const result = sandbox.store_migrateFromSettings(newStores, []);
+  eq('all N new stores were created, none failed', result.createdStoreIds.length, N);
+  eq('no failures', result.failed.length, 0);
+
+  const readsAfterBulkMigration = configStores.getMultiRowReadCount();
+  check(
+    'migrating ' + N + ' brand-new stores added exactly ONE further multi-row CONFIG_STORES read — the one upfront index build, not one per store (was O(n) per store before this fix)',
+    readsAfterBulkMigration === readsAfterSeeding + 1,
+    'before bulk migration: ' + readsAfterSeeding + ', after: ' + readsAfterBulkMigration
+  );
+
+  // Idempotency: re-running with the exact same input creates nothing new,
+  // and still does not re-read CONFIG_STORES per candidate.
+  const secondRun = sandbox.store_migrateFromSettings(newStores, []);
+  eq('re-running creates zero new stores the second time', secondRun.createdStoreIds.length, 0);
+  eq('re-running reports every store as already migrated', secondRun.alreadyMigrated.length, N);
+
+  // Correctness, not just call counts: every migrated store is actually
+  // resolvable through the real Store ID identity, same as before D-035.
+  const anyBulkStore = sandbox.store_resolveIdByCurrentName('BULK STORE 17');
+  check('a migrated store resolves through Store ID identity like any other', !!anyBulkStore, anyBulkStore);
 }
 
 // ── 5. No Store & Roster Manager UI reference remains ──────────────────

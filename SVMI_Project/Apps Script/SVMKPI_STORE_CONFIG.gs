@@ -62,24 +62,42 @@ function _store_dateToStr(date) {
 /**
  * store_create(fields, effectiveFromStr, reason, options, explicitStoreId)
  * Creates a BRAND NEW store. Mints a fresh, immutable Store ID unless
- * `explicitStoreId` is supplied (used only by store_migrateFromSettings()
- * below, which needs the ID it generated during mapping to be the one
- * actually written) — and even then, rejects if that ID already has any
- * existing version (a duplicate-ID create attempt is an error, not a
- * silent update; use store_update() to modify an existing store).
+ * `explicitStoreId` is supplied — and even then, rejects if that ID
+ * already has any existing version (a duplicate-ID create attempt is an
+ * error, not a silent update; use store_update() to modify an existing
+ * store).
+ *
+ * Performance fix (DECISIONS.md D-035): when `explicitStoreId` is NOT
+ * supplied (the normal case — no current caller ever supplies one), the
+ * freshly-minted UUID from _store_generateId() cannot possibly already
+ * have a version: Utilities.getUuid() is exactly the collision-free
+ * guarantee this codebase already trusts everywhere else a Store ID is
+ * minted. The duplicate-ID check below is therefore skipped in that
+ * case (mathematically unnecessary, not merely assumed), and
+ * `knownNewEntity` is passed through so cfg_createConfiguration() can
+ * skip its own equivalent full-sheet read too — this is what keeps bulk
+ * creation (store_migrateFromSettings()) from re-reading an
+ * ever-growing CONFIG_STORES sheet once per store. An explicit Store ID
+ * has no such guarantee and keeps the real check, unchanged.
  * @returns {{success:boolean, message?:string, storeId?:string, versionId?:string, version?:number}}
  */
 function store_create(fields, effectiveFromStr, reason, options, explicitStoreId) {
   if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
 
   const storeId = _store_normalizeId(explicitStoreId ? explicitStoreId : _store_generateId());
-  const existing = cfg_getConfiguration(CFG_AREA.STORES, storeId);
-  if (existing.length > 0) {
-    return { success: false, message: 'Store ID already exists: ' + storeId + '. Use store_update() to modify an existing store.' };
+
+  let effectiveOptions = options;
+  if (explicitStoreId) {
+    const existing = cfg_getConfiguration(CFG_AREA.STORES, storeId);
+    if (existing.length > 0) {
+      return { success: false, message: 'Store ID already exists: ' + storeId + '. Use store_update() to modify an existing store.' };
+    }
+  } else {
+    effectiveOptions = Object.assign({}, options, { knownNewEntity: true });
   }
 
   const withDefaults = Object.assign({ status: CFG_STATUS.ACTIVE }, fields || {});
-  const result = cfg_createConfiguration(CFG_AREA.STORES, storeId, withDefaults, effectiveFromStr, null, reason, options);
+  const result = cfg_createConfiguration(CFG_AREA.STORES, storeId, withDefaults, effectiveFromStr, null, reason, effectiveOptions);
   if (!result.success) return result;
   return Object.assign({}, result, { storeId });
 }
@@ -496,8 +514,7 @@ function store_reconcileUnmapped(unmappedId, resolvedStoreId, notes) {
  * @param {{store:string, date:(Date|string)}[]} masterLogRows - only the
  *   fields this function needs, not a full MASTER_LOG row shape
  * @returns {{success:boolean, message?:string, createdStoreIds?:string[], mapping?:object, unmappedCount?:number, alreadyMigrated?:string[], failed?:{name:string, message:string}[]}}
- */
-/**
+ *
  * Performance fix (DECISIONS.md D-034): this function used to call
  * store_resolveIdByCurrentName() once per incoming SETTINGS row — and
  * THAT function itself re-reads the entire CONFIG_STORES sheet once per
@@ -505,16 +522,26 @@ function store_reconcileUnmapped(unmappedId, resolvedStoreId, notes) {
  * effectively O(existing^2)) — plus a full re-scan of `masterLogRows`
  * per store to find its earliest visit date (O(stores x rows)), plus a
  * Store Health rebuild (a full MASTER_LOG scan) after every single
- * store created. On a real pilot-sized dataset (hundreds of stores,
- * thousands of MASTER_LOG rows) this was more than enough to blow past
- * the Apps Script execution time limit before ever reaching the
- * Visitors/Purposes migration steps that ran after it — see
- * reviews/011-migration-performance-fix.md. Fixed by building both
- * lookups ONCE up front (O(existing) and O(rows) respectively, not
- * squared) and suppressing the per-store rebuild in favor of one rebuild
- * after the whole batch. Output/behavior is otherwise unchanged — same
- * skip-if-already-migrated, same backdate-to-earliest-visit, same
- * unmapped tracking, same failure reporting.
+ * store created. Fixed by building both lookups ONCE up front (O(existing)
+ * and O(rows) respectively, not squared) and suppressing the per-store
+ * rebuild in favor of one rebuild after the whole batch.
+ *
+ * D-034 alone was not enough on the real test copy: store_create() itself
+ * (via cfg_createConfiguration()) still re-read the ENTIRE, ever-growing
+ * CONFIG_STORES sheet on every single call (to compute existingVersions
+ * for validation), and _storeSync_toSettings() (the per-store legacy-
+ * mirror sync) did two MORE such full-sheet reads on top of that — still
+ * O(existing^2) overall, just moved rather than removed. This is why
+ * Visitors (12 entities) finished fine but Stores (far more) still timed
+ * out — see reviews/012-store-migration-performance-fix.md, DECISIONS.md
+ * D-035. Fixed by passing knownNewEntity (skips that read — mathematically
+ * safe, see store_create()'s own comment), suppressLegacyMirror (SETTINGS
+ * already has this exact data; nothing needs re-syncing during migration
+ * — see D-035), and deferFlush (one flush for the whole batch, not one
+ * per store) through to store_create()/cfg_createConfiguration(). Output/
+ * behavior is otherwise unchanged — same skip-if-already-migrated, same
+ * backdate-to-earliest-visit, same unmapped tracking, same failure
+ * reporting.
  */
 function store_migrateFromSettings(settingsStores, masterLogRows) {
   if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
@@ -551,7 +578,12 @@ function store_migrateFromSettings(settingsStores, masterLogRows) {
       { storeName: s.store || s.name, brand: s.brand, region: s.region, category: s.category, status: CFG_STATUS.ACTIVE },
       _store_dateToStr(effectiveFrom),
       'Migrated from SETTINGS',
-      { backdateConfirmed: true, suppressRebuild: true }
+      // D-035: suppressLegacyMirror is safe here specifically because
+      // `s` (this store's name/brand/region/category) came FROM SETTINGS
+      // in the first place — there is nothing new to mirror back into
+      // it. deferFlush: one flush for the whole batch, below, not one
+      // per store.
+      { backdateConfirmed: true, suppressRebuild: true, suppressLegacyMirror: true, deferFlush: true }
     );
     if (result.success) {
       mapping[name] = result.storeId;
@@ -578,6 +610,12 @@ function store_migrateFromSettings(settingsStores, masterLogRows) {
   });
 
   _store_recordUnmappedBulk_(unmappedStats); // ONE sheet read total, was one per distinct name
+
+  // deferFlush (D-035) above means every appended CONFIG_STORES/
+  // CONFIG_AUDIT row from this whole batch is still only pending —
+  // commit them all in one round-trip now, before anything (including
+  // the rebuild below) reads the sheet again.
+  if (created.length) SpreadsheetApp.flush();
 
   // The per-store rebuild was suppressed above — run it exactly once,
   // and only if this batch actually created anything.

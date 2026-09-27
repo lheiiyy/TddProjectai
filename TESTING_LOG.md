@@ -7,29 +7,54 @@ demo; dry-run tooling is pure-function/synthetic-data only).
 
 ## Apps Script track — `SVMI_Project/tests/`
 
-**Verified this session (2026-09-27): 26 files, 1293 assertions, 0
+**Verified this session (2026-09-27): 26 files, 1299 assertions, 0
 failures**, including a full live re-run of everything — no result in
-this file is carried over unverified. Investigating and fixing a bug
-(D-034, the legacy-data migration performance fix — see
-`reviews/011-migration-performance-fix.md`) needed no test file to
-change: `settings-config-migration.test.js`'s existing
-`settingsMigration_run()` idempotency/failure-reporting assertions pass
-unmodified against the refactored implementation (same external
-contract), still 45/45. `responsive-check.js` (66/66) and
-`portal-ui.test.js` (173/173, incl. phone-viewport checks) also re-run
-clean — both against the standalone demo file per this repo's disclosed
-testing-architecture limitation (`ARCHITECTURE.md` §8), so they confirm
-no regression to the existing harness/UI patterns but do not directly
-exercise the real portal's date-field/empty-list markup from the Input
-Portal fix earlier this session. No automated test was added for the
-migration performance fix itself — disclosed in `reviews/011-...md` §5
-as a real, deliberate gap: the mocked-sheet test harness has no notion
-of Apps Script's real execution-time limit or `SpreadsheetApp`
-round-trip cost, so "this used to time out and now doesn't" cannot be
-meaningfully expressed there; only re-running the real tool against the
-real spreadsheet confirms the actual timing fix.
+this file is carried over unverified. This round grew `settings-config-
+migration.test.js` from 45 to 51 assertions (6 new — see "D-035" in that
+file), added while fixing a follow-up to D-034: live testing confirmed
+Visitors/Purposes migrated correctly but Stores still timed out (D-035,
+`reviews/012-store-migration-performance-fix.md`). The new assertions
+mechanically prove the fix rather than just its symptom: the mock sheet
+gained a `getMultiRowReadCount()` instrumentation counter, and a new
+test seeds 3 stores (4 reads, matching hand-traced expectations), then
+migrates 40 brand-new stores via `store_migrateFromSettings()` and
+asserts the read count rises by **exactly 1** (not one per store) — the
+one legitimate upfront index build from D-034, proving the remaining
+per-entity full-sheet reads inside `cfg_createConfiguration()`'s own
+validation and `_storeSync_toSettings()`'s legacy-mirror sync are gone.
+Also re-verifies idempotency (re-run creates zero duplicates, reports
+all 40 as already-migrated) and that migrated stores resolve through
+real Store ID identity. `store-identity.test.js` re-run at 51/51,
+including the explicit-Store-ID duplicate-rejection test, confirming
+`store_create()`'s real validation path (used when an explicit Store ID
+is given) is unchanged by the new `knownNewEntity`/`suppressLegacyMirror`/
+`deferFlush` options. No automated test can express the real Apps
+Script execution-time result itself (same disclosed harness limitation
+as D-034) — the live re-run result is pending the project owner's next
+"Migrate Legacy Data" click against the redeployed test copy; see
+`reviews/012-...md` §6 for the Live verification report, to be
+completed once that result comes back.
 
-Prior baseline (2026-09-26, Phase 1H-C Security Fix R2): 26 files, 1289 assertions, 0 failures. Phase
+Prior baseline (2026-09-27, D-034 migration performance fix): 26 files,
+1293 assertions, 0 failures — investigating and fixing that bug (the
+legacy-data migration performance fix — see
+`reviews/011-migration-performance-fix.md`) needed no test file to
+change at the time: `settings-config-migration.test.js`'s existing
+`settingsMigration_run()` idempotency/failure-reporting assertions
+passed unmodified against the refactored implementation (same external
+contract), then 45/45. `responsive-check.js` (66/66) and
+`portal-ui.test.js` (173/173, incl. phone-viewport checks) also re-run
+clean this session — both against the standalone demo file per this
+repo's disclosed testing-architecture limitation (`ARCHITECTURE.md`
+§8), so they confirm no regression to the existing harness/UI patterns
+but do not directly exercise the real portal's date-field/empty-list
+markup from the Input Portal fix earlier this session. No automated
+test was added for the D-034 migration performance fix itself —
+disclosed in `reviews/011-...md` §5 as a real, deliberate gap, later
+partly closed by the mechanical read-count proof added for D-035
+above.
+
+Earlier baseline (2026-09-26, Phase 1H-C Security Fix R2): 26 files, 1289 assertions, 0 failures. Phase
 1H-C Security Fix R1 grew `identity.test.js` from 62 to 100 assertions
 (38 new, covering the 10 required MFA-enforcement proof points — see
 `reviews/008-phase-1h-c-security-fix-r1.md`); Phase 1H-C Security Fix R2
