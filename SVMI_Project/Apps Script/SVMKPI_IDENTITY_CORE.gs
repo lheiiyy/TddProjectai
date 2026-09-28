@@ -390,7 +390,7 @@ function _identity_authorizeCurrentUser_(permissionKey) {
   const current = _identity_currentUserRecord_();
   if (!current) return { authorized: false, reason: 'No SVMI identity linked to this Google account.' };
   if (current.accountStatus !== IDENTITY_STATUS.ACTIVE) return { authorized: false, reason: 'Account is not ACTIVE.' };
-  if (!_identity_hasSatisfiedMfa_(current.userId)) return { authorized: false, reason: 'MFA verification required.' };
+  if (IDENTITY_MFA_ENFORCED && !_identity_hasSatisfiedMfa_(current.userId)) return { authorized: false, reason: 'MFA verification required.' };
   if (!_identity_hasPermission_(current.userId, permissionKey)) return { authorized: false, reason: 'Permission required: ' + permissionKey + '.' };
   return { authorized: true };
 }
@@ -418,6 +418,22 @@ function _identity_authorizeCurrentUser_(permissionKey) {
 // itself — the boundary is "was a real TOTP code verified," this only
 // bounds how long that fact is trusted afterward.
 const IDENTITY_MFA_GATE_TTL_MINUTES = 720; // 12 hours
+
+// ── Pilot-testing toggle (DECISIONS.md D-033) ──────────────────────────
+// Security Fix R1 (D-031) made a satisfied MFA credential a hard
+// requirement for every _identity_authorizeCurrentUser_() call, and
+// Security Fix R2 (D-032) extended that requirement to sl_isAdmin()
+// (SVMKPI_ACCESS.gs). For the duration of pilot testing, the project
+// owner asked for that requirement removed so pilot testers aren't
+// blocked by an authenticator-app setup step — Google sign-in (D-025)
+// and the guest password/admin-list gate (SVMKPI_ACCESS.gs) are
+// UNCHANGED and still required either way. This is a single on/off
+// switch, not a removal of the MFA mechanism: every TOTP/anti-replay/
+// audit/PropertiesService primitive below is untouched, and flipping
+// this back to `true` immediately restores exact D-031/D-032 behavior.
+// `var`, not `const`, so a test sandbox can toggle it to prove both
+// states without needing two copies of the source.
+var IDENTITY_MFA_ENFORCED = false;
 
 function _identity_mfaGatePropertyKey_(userId) {
   return 'SVMI_MFA_SATISFIED_UNTIL_' + userId;

@@ -7,7 +7,7 @@ demo; dry-run tooling is pure-function/synthetic-data only).
 
 ## Apps Script track — `SVMI_Project/tests/`
 
-**Verified this session (2026-09-27): 26 files, 1299 assertions, 0
+**Verified this session (2026-09-27): 26 files, 1312 assertions, 0
 failures**, including a full live re-run of everything — no result in
 this file is carried over unverified. This round grew `settings-config-
 migration.test.js` from 45 to 51 assertions (6 new — see "D-035" in that
@@ -40,23 +40,29 @@ the 12 pre-existing `CONFIG_UNMAPPED_STORES` records the run flagged
 not a D-035 defect).
 
 Prior baseline (2026-09-27, D-034 migration performance fix): 26 files,
-1293 assertions, 0 failures — investigating and fixing that bug (the
-legacy-data migration performance fix — see
-`reviews/011-migration-performance-fix.md`) needed no test file to
-change at the time: `settings-config-migration.test.js`'s existing
-`settingsMigration_run()` idempotency/failure-reporting assertions
-passed unmodified against the refactored implementation (same external
-contract), then 45/45. `responsive-check.js` (66/66) and
-`portal-ui.test.js` (173/173, incl. phone-viewport checks) also re-run
-clean this session — both against the standalone demo file per this
-repo's disclosed testing-architecture limitation (`ARCHITECTURE.md`
-§8), so they confirm no regression to the existing harness/UI patterns
-but do not directly exercise the real portal's date-field/empty-list
-markup from the Input Portal fix earlier this session. No automated
-test was added for the D-034 migration performance fix itself —
-disclosed in `reviews/011-...md` §5 as a real, deliberate gap, later
-partly closed by the mechanical read-count proof added for D-035
-above.
+1306 assertions, 0 failures. This also resolved the earlier disclosed
+gap from the D-033 pilot-MFA-toggle pass: the updated
+`identity.test.js`/`identity-legacy-admin-mfa.test.js` were reasoned
+through but not executed when first written (an environment policy
+denied Bash test-execution for that specific security-sensitive change);
+both were confirmed actually passing — `identity.test.js` 109/109 (grew
+from 100), `identity-legacy-admin-mfa.test.js` 52/52 (grew from 44) —
+while investigating and fixing an unrelated bug (D-034, the legacy-data
+migration performance fix — see `reviews/011-migration-performance-fix.md`),
+whose own changes needed no test file to change at the time:
+`settings-config-migration.test.js`'s existing `settingsMigration_run()`
+idempotency/failure-reporting assertions passed unmodified against the
+refactored implementation (same external contract), then 45/45.
+`responsive-check.js` (66/66) and `portal-ui.test.js` (173/173, incl.
+phone-viewport checks) also re-run clean this session — both against the
+standalone demo file per this repo's disclosed testing-architecture
+limitation (`ARCHITECTURE.md` §8), so they confirm no regression to the
+existing harness/UI patterns but do not directly exercise the real
+portal's date-field/empty-list markup from the Input Portal fix earlier
+this session. No automated test was added for the D-034 migration
+performance fix itself — disclosed in `reviews/011-...md` §5 as a real,
+deliberate gap, later partly closed by the mechanical read-count proof
+added for D-035 above.
 
 Earlier baseline (2026-09-26, Phase 1H-C Security Fix R2): 26 files, 1289 assertions, 0 failures. Phase
 1H-C Security Fix R1 grew `identity.test.js` from 62 to 100 assertions
@@ -99,8 +105,8 @@ touched or added in Phase 1G are from today's direct run.
 | `config-service.test.js` | `SVMKPI_CONFIG.gs` end-to-end: validation, effective-dating, versioning, audit, security, backdating, rollback, portability | 71 |
 | `date-parsing.test.js` | `_parseDateCell()` + duplicate-check integration | — |
 | `duplicate-prevention.test.js` | Exact-duplicate-visit blocking under concurrent submission | — |
-| `identity.test.js` | **Phase 1H-C** — registration/email-OTP verification (incl. attempt lockout), approval/rejection (permission-gated, fails closed, no self-escalation), account-lifecycle transition validity, role/direct-permission/scope assignment, suspend/reactivate/disable, the external-disablement offboarding hook, MFA TOTP enrollment/verification (real RFC 6238 round-trip + clock-drift tolerance), confirms no secret value ever appears in `IDENTITY_AUDIT`. **Phase 1H-C Security Fix R1** — server-authoritative MFA enforcement: ACTIVE-without-MFA rejected, ACTIVE-with-MFA succeeds, invalid/expired/replayed TOTP codes rejected, spoofed client-supplied MFA/role/permission/status state has no effect, existing ADMIN permission checks intact, TOTP secret never returned to client or written to `IDENTITY_AUDIT` | 100 (grew from 62 this session) |
-| `identity-legacy-admin-mfa.test.js` | **Phase 1H-C Security Fix R2** — MFA now also gates the pre-existing `sl_isAdmin()` legacy admin path (`SVMKPI_ACCESS.gs`), proven against 4 representative protected operations across 4 categories (Store/Compliance configuration, Report snapshot admin, System Tools): non-MFA-satisfied admin rejected, MFA-satisfied admin passes the gate, invalid/expired/replayed TOTP codes rejected, forged client-supplied MFA/admin state has no effect, non-admin-listed users still rejected + Phase 1H-B.1 findings intact, admin TOTP secret never returned to client or written to `IDENTITY_AUDIT`, static confirmation no second legacy admin-check mechanism exists anywhere, the unattended daily-trigger bypass is unaffected, graceful no-throw degradation when the identity subsystem isn't loaded | 44 (new file, added this session) |
+| `identity.test.js` | **Phase 1H-C** — registration/email-OTP verification (incl. attempt lockout), approval/rejection (permission-gated, fails closed, no self-escalation), account-lifecycle transition validity, role/direct-permission/scope assignment, suspend/reactivate/disable, the external-disablement offboarding hook, MFA TOTP enrollment/verification (real RFC 6238 round-trip + clock-drift tolerance), confirms no secret value ever appears in `IDENTITY_AUDIT`. **Phase 1H-C Security Fix R1** — server-authoritative MFA enforcement: ACTIVE-without-MFA rejected, ACTIVE-with-MFA succeeds, invalid/expired/replayed TOTP codes rejected, spoofed client-supplied MFA/role/permission/status state has no effect, existing ADMIN permission checks intact, TOTP secret never returned to client or written to `IDENTITY_AUDIT`. **Pilot MFA toggle (D-033)** — R1.1/R1.4/R1.6 and the Grace/isActive-after-reset assertions force `IDENTITY_MFA_ENFORCED = true` on their own sandbox first (proving R1 is intact/reversible); a "D-033" section proves the pilot default (no MFA required) and live re-toggling | 109 (confirmed this session, grew from 100) |
+| `identity-legacy-admin-mfa.test.js` | **Phase 1H-C Security Fix R2** — MFA now also gates the pre-existing `sl_isAdmin()` legacy admin path (`SVMKPI_ACCESS.gs`), proven against 4 representative protected operations across 4 categories (Store/Compliance configuration, Report snapshot admin, System Tools): non-MFA-satisfied admin rejected, MFA-satisfied admin passes the gate, invalid/expired/replayed TOTP codes rejected, forged client-supplied MFA/admin state has no effect, non-admin-listed users still rejected + Phase 1H-B.1 findings intact, admin TOTP secret never returned to client or written to `IDENTITY_AUDIT`, static confirmation no second legacy admin-check mechanism exists anywhere, the unattended daily-trigger bypass is unaffected, graceful no-throw degradation when the identity subsystem isn't loaded. **Pilot MFA toggle (D-033)** — R2.1/R2.3/R2.4/R2.6 force `IDENTITY_MFA_ENFORCED = true` on their own sandbox first; R2.10's exact-shape assertion covers the new `mfaRequired` field; a "D-033" section proves the pilot default and live re-toggling | 52 (confirmed this session, grew from 44) |
 | `kpi-purpose-config.test.js` | Versioned KPI config (infra-only) + deliberate Purpose KPI/risk config, no inheritance | 44 |
 | `kpi-roster-history.test.js` | KPI 2026 roster-removal history retention | — |
 | `purpose-generic-reporting.test.js` | No source file re-adds a hardcoded CAPAR-style purpose branch | — |

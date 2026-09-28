@@ -5,6 +5,15 @@
 // server-authoritative access requirement for ACTIVE users, not just
 // enrollment-time proof — see reviews/008-phase-1h-c-security-fix-r1.md.
 //
+// Pilot-testing toggle (DECISIONS.md D-033): SVMKPI_IDENTITY_CORE.gs's
+// IDENTITY_MFA_ENFORCED now defaults to `false` for the duration of
+// pilot testing. Every block below whose assertions specifically prove
+// "MFA is required" sets `sandbox.IDENTITY_MFA_ENFORCED = true` on its
+// own sandbox first — proving the R1 mechanism is fully intact and
+// exactly reversible, not removed. A new dedicated section (search
+// "D-033") proves the actual pilot DEFAULT (enforcement off) and that
+// flipping the switch back on takes effect immediately.
+//
 // Loads the REAL SVMKPI_IDENTITY_*.gs source into a Node vm sandbox with
 // SpreadsheetApp/Session/Utilities/MailApp/PropertiesService mocked —
 // same house pattern as every other file in this directory.
@@ -324,6 +333,7 @@ console.log('\n── role / permission / scope assignment ──');
 {
   const { sandbox, sentEmails, state } = newIdentitySandbox();
   sandbox._identity_ensureSeeds_();
+  sandbox.IDENTITY_MFA_ENFORCED = true; // D-033: prove MFA is still required when the pilot toggle is on
   makeAdmin(sandbox, sentEmails, state, 'admin@example.com', 'AdminA');
 
   const grace = makeActiveUser(sandbox, sentEmails, 'grace@example.com', 'Grace');
@@ -413,6 +423,7 @@ console.log('\n── handleExternalIdentityDisabled() — offboarding hook ─�
 console.log('\n── MFA (TOTP) enrollment/verification ──');
 {
   const { sandbox, sentEmails, state } = newIdentitySandbox();
+  sandbox.IDENTITY_MFA_ENFORCED = true; // D-033: isActive assertions below assume MFA is a real gate
   const judy = makeActiveUser(sandbox, sentEmails, 'judy@example.com', 'Judy');
 
   state.email = 'unlinked@example.com'; // not judy yet — sanity: unrelated identity can't enroll on her behalf
@@ -464,6 +475,7 @@ console.log('\n── R1.1: ACTIVE user without completed MFA cannot access prot
 {
   const { sandbox, sentEmails, state } = newIdentitySandbox();
   sandbox._identity_ensureSeeds_();
+  sandbox.IDENTITY_MFA_ENFORCED = true; // D-033: this whole section proves the requirement when the pilot toggle is on
   const admin = makeActiveUser(sandbox, sentEmails, 'admin@example.com', 'AdminA', 'IT');
   grantRole(sandbox, admin.userId, 'ADMIN');
   state.email = 'admin@example.com';
@@ -525,6 +537,7 @@ console.log('\n── R1.4: expired MFA satisfaction is rejected (re-verificatio
 {
   const { sandbox, sentEmails, state, propsMock } = newIdentitySandbox();
   sandbox._identity_ensureSeeds_();
+  sandbox.IDENTITY_MFA_ENFORCED = true; // D-033: expiry only blocks anything when enforcement is on
   const admin = makeActiveUser(sandbox, sentEmails, 'expiring@example.com', 'Expiring', 'IT');
   grantRole(sandbox, admin.userId, 'ADMIN');
   state.email = 'expiring@example.com';
@@ -579,6 +592,7 @@ console.log('\n── R1.6: client-supplied MFA state cannot bypass the server c
 {
   const { sandbox, sentEmails, state } = newIdentitySandbox();
   sandbox._identity_ensureSeeds_();
+  sandbox.IDENTITY_MFA_ENFORCED = true; // D-033: a spoof must fail to bypass MFA when it's actually required
   const admin = makeActiveUser(sandbox, sentEmails, 'spoof@example.com', 'Spoofer', 'IT');
   grantRole(sandbox, admin.userId, 'ADMIN');
   state.email = 'spoof@example.com';
@@ -641,6 +655,46 @@ console.log('\n── R1.8/R1.9: TOTP secrets never returned or logged after enr
   const allDetails = rawAudit.map(r => String(r[5] || '')).join(' | ');
   check('the verification code never appears in any audit "details" field', allDetails.indexOf(validCode) === -1, allDetails);
   check('the MFA secret never appears in any audit "details" field', allDetails.indexOf(enrollment.secret) === -1, allDetails);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Pilot-testing toggle — required test coverage (DECISIONS.md D-033):
+// every block above proves the R1 mechanism is intact by explicitly
+// setting IDENTITY_MFA_ENFORCED = true on its own sandbox. This section
+// proves the actual pilot DEFAULT (enforcement off, untouched sandbox)
+// and that switching it back on takes effect immediately on the SAME
+// sandbox/user — a live, respected check, not a load-time snapshot.
+// ═══════════════════════════════════════════════════════════════
+console.log('\n── D-033: MFA not required while IDENTITY_MFA_ENFORCED is off (pilot default) ──');
+{
+  const { sandbox, sentEmails, state } = newIdentitySandbox();
+  sandbox._identity_ensureSeeds_();
+  eq('IDENTITY_MFA_ENFORCED defaults to false (loaded straight from source, untouched)', sandbox.IDENTITY_MFA_ENFORCED, false);
+
+  const admin = makeActiveUser(sandbox, sentEmails, 'pilotadmin@example.com', 'PilotAdmin', 'IT');
+  grantRole(sandbox, admin.userId, 'ADMIN');
+  state.email = 'pilotadmin@example.com';
+  // Deliberately no enrollMfa()/verifyMfa() at all — this account has
+  // never touched MFA in any way.
+
+  const target = makeActiveUser(sandbox, sentEmails, 'pilottarget@example.com', 'Target', 'Ops');
+  const suspend = sandbox.suspendAccount(target.userId, 'pilot test — no MFA ever performed');
+  check('an ACTIVE, permitted admin with NO MFA at all is authorized while enforcement is off', suspend.success === true, JSON.stringify(suspend));
+  eq('target account was actually suspended, proving real access was granted', sandbox._identity_findUserById_(target.userId).user.accountStatus, 'SUSPENDED');
+
+  const state1 = sandbox.getAccessState();
+  check('getAccessState().isActive is true on ACTIVE status alone, no MFA', state1.isActive === true, JSON.stringify(state1));
+  check('getAccessState().mfaRequired reports false while the toggle is off', state1.mfaRequired === false, JSON.stringify(state1));
+  check('getAccessState().mfaSatisfied still truthfully reports no MFA was done (informational only, not the gate)', state1.mfaSatisfied === false, JSON.stringify(state1));
+
+  // Flip the switch back on, on the SAME sandbox/user — proves this is a
+  // live re-check every call, not something baked in only at load time.
+  sandbox.IDENTITY_MFA_ENFORCED = true;
+  const afterToggleOn = sandbox.suspendAccount(target.userId, 'should now be blocked again');
+  check('re-enabling the toggle immediately restores the MFA requirement, same sandbox/user', afterToggleOn.success === false && /MFA/.test(afterToggleOn.message), JSON.stringify(afterToggleOn));
+  const state2 = sandbox.getAccessState();
+  check('getAccessState().isActive flips back to false once re-enabled and MFA is unsatisfied', state2.isActive === false, JSON.stringify(state2));
+  check('getAccessState().mfaRequired flips back to true once re-enabled', state2.mfaRequired === true, JSON.stringify(state2));
 }
 
 console.log('\n── getCurrentUser() / getAccessState() ──');

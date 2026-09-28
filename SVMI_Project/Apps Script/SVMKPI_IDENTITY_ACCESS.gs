@@ -11,10 +11,13 @@
 // exactly like the pre-existing sl_isAdmin() pattern this phase does not
 // touch (D-025).
 //
-// Security Fix R1: getAccessState().isActive now requires a satisfied
-// MFA credential, not just ACTIVE account status (D-031) — matching the
+// Security Fix R1: getAccessState().isActive requires a satisfied MFA
+// credential, not just ACTIVE account status (D-031) — matching the
 // server-side authorization gate this file's own comment already
-// describes as authoritative.
+// describes as authoritative. Pilot-testing toggle (D-033,
+// SVMKPI_IDENTITY_CORE.gs's IDENTITY_MFA_ENFORCED): that requirement is
+// currently OFF for pilot testing, so isActive/mfaRequired here track
+// account status alone until it's switched back on.
 // ============================================================
 
 /**
@@ -77,7 +80,7 @@ function getCurrentUser() {
 function getAccessState() {
   const record = _identity_currentUserRecord_();
   if (!record) {
-    return { status: 'NO_ACCOUNT', accountStatus: 'NO_ACCOUNT', isActive: false, mfaRequired: true, mfaEnrolled: false, mfaSatisfied: false, roles: [], permissions: [] };
+    return { status: 'NO_ACCOUNT', accountStatus: 'NO_ACCOUNT', isActive: false, mfaRequired: IDENTITY_MFA_ENFORCED, mfaEnrolled: false, mfaSatisfied: false, roles: [], permissions: [] };
   }
 
   const accountActive = record.accountStatus === IDENTITY_STATUS.ACTIVE;
@@ -87,10 +90,12 @@ function getAccessState() {
   const mfaEnrolled = !!mfaRow && mfaRow[1] === 'ENROLLED';
   const mfaSatisfied = accountActive && _identity_hasSatisfiedMfa_(record.userId);
 
-  // "Authenticated" now means both — an ACTIVE account that has not
-  // (yet, or not currently) satisfied MFA is not treated as fully
-  // authenticated for the purpose of this status field.
-  const isActive = accountActive && mfaSatisfied;
+  // Pilot-testing toggle (D-033, SVMKPI_IDENTITY_CORE.gs): when MFA is
+  // not enforced, an ACTIVE account is fully authenticated on account
+  // status alone. mfaEnrolled/mfaSatisfied keep reporting the truthful,
+  // real MFA standing either way (informational) — only the isActive/
+  // mfaRequired gate itself changes, so nothing here fakes a fact.
+  const isActive = accountActive && (!IDENTITY_MFA_ENFORCED || mfaSatisfied);
 
   const userRolesSheet = _identity_ensureSheet_(IDENTITY_SHEET.USER_ROLES, IDENTITY_HEADERS.USER_ROLES);
   const roles = _identity_readAll_(userRolesSheet).filter(r => String(r[0]) === String(record.userId)).map(r => String(r[1]));
@@ -99,7 +104,7 @@ function getAccessState() {
     status: record.accountStatus,
     accountStatus: record.accountStatus,
     isActive: isActive,
-    mfaRequired: true,
+    mfaRequired: IDENTITY_MFA_ENFORCED,
     mfaEnrolled: mfaEnrolled,
     mfaSatisfied: mfaSatisfied,
     roles: isActive ? roles : [],

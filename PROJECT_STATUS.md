@@ -25,6 +25,21 @@ were **not modified** in the D-035 pass, per the project owner's
 explicit instruction not to touch a working path absent a discovered
 regression.
 
+Also this session, earlier: **the pilot-testing MFA enforcement
+toggle: TOTP MFA (D-028/D-031/D-032) is temporarily OFF for the
+duration of pilot testing**, at the project owner's explicit request,
+after being walked through each distinct layer of the pilot's login/
+security model. Google sign-in (D-025) and the guest-password/
+admin-list gate are UNCHANGED. See `reviews/010-pilot-mfa-enforcement-
+toggle.md` and `DECISIONS.md` D-033 — implemented as a single toggle
+(`IDENTITY_MFA_ENFORCED`, `SVMKPI_IDENTITY_CORE.gs`), not a removal of
+any MFA mechanism; flipping it back to `true` fully restores prior
+behavior. Its test files were reasoned-through but not executed when
+first written (an environment policy denied Bash test-execution for
+that specific security-sensitive change) — **now confirmed actually
+passing** (109/109, 52/52) as part of this session's later work; see
+`TESTING_LOG.md`.
+
 Prior state (2026-09-25): **Phase 1H-C Security Fix R2: MFA now
 also applies to the pre-existing `sl_isAdmin()` legacy admin path**, not
 just the new identity/permission surface — closing the dual-
@@ -226,6 +241,14 @@ gap Security Fix R1's own review had disclosed.
    System Tools) plus the full existing suite, all passing — **1273
    assertions across 26 files, 0 failures**. See that review for full
    detail, remaining transitional limitations, and regression results.
+7. **Pilot-testing MFA enforcement toggle** (code change; `reviews/010-
+   pilot-mfa-enforcement-toggle.md`, `DECISIONS.md` D-033) — at the
+   project owner's explicit request, TOTP MFA (D-028/D-031/D-032) is
+   temporarily off for the duration of pilot testing, via a single
+   toggle (`IDENTITY_MFA_ENFORCED`, `SVMKPI_IDENTITY_CORE.gs`) rather
+   than any code removal. Google sign-in (D-025) and the guest-password/
+   admin-list gate are unchanged. **The updated tests were reasoned
+   through but not executed in this session** — see `TESTING_LOG.md`.
 
 **Database track**: PostgreSQL DEV schema (13 migrations + rollback
 scripts), proven against a local ephemeral instance, including verified
@@ -239,18 +262,21 @@ synthetic data — **158/158 passing** as of this check.
 Nothing is mid-implementation. Phase 1G, Phase 1H-A, Phase 1H-B, Phase
 1H-B.1, Phase 1H-C, Phase 1H-C Security Fix R1, and Phase 1H-C Security
 Fix R2 are all complete, tested, documented, and pushed. The
-migration performance fix, round 2 (D-035, `reviews/012-...md`) is
-code-complete, test-verified (mechanically, via a mocked-sheet
-read-count proof), deployed to the test copy as v17, and **now
-live-verified and closed** — the project owner ran "Migrate Legacy
-Data" and it completed with no execution-timeout error (`Stores: +9`,
-already had 221). No further migration-performance work is required. A
-separate, pre-existing matter the run surfaced — 12
-`CONFIG_UNMAPPED_STORES` records left over from earlier migration runs
-— was confirmed unrelated to D-035 and intentionally left unchanged;
-see "What remains unresolved" if that reconciliation is ever picked up
-as its own task. Phase 1H-D/whatever comes next (external IdP
-selection, or further identity-surface work) has not been scoped.
+pilot-testing MFA enforcement toggle (D-033, `reviews/010-...md`) is
+code-complete, documented, and its tests are now confirmed actually
+passing (109/109, 52/52 — see `TESTING_LOG.md`). The migration
+performance fix, round 2 (D-035, `reviews/012-...md`) is code-complete,
+test-verified (mechanically, via a mocked-sheet read-count proof),
+deployed to the test copy as v17, and **now live-verified and closed**
+— the project owner ran "Migrate Legacy Data" and it completed with no
+execution-timeout error (`Stores: +9`, already had 221). No further
+migration-performance work is required. A separate, pre-existing matter
+the run surfaced — 12 `CONFIG_UNMAPPED_STORES` records left over from
+earlier migration runs — was confirmed unrelated to D-035 and
+intentionally left unchanged; see "What remains unresolved" if that
+reconciliation is ever picked up as its own task. Phase 1H-D/whatever
+comes next (external IdP selection, or further identity-surface work)
+has not been scoped.
 
 ## What remains unresolved
 
@@ -261,9 +287,13 @@ requirement for the new identity surface** (Security Fix R1,
 `reviews/008-phase-1h-c-security-fix-r1.md`), **and that same MFA
 requirement now also applies to the pre-existing `sl_isAdmin()` legacy
 admin path** (Security Fix R2,
-`reviews/009-phase-1h-c-security-fix-r2.md`). What remains, per that
-review's own disclosed limitations and the Recommended/Future/Unknown
-items `reviews/003` §H never asked any of these tasks to fix:
+`reviews/009-phase-1h-c-security-fix-r2.md`) — **though as of D-033
+(`reviews/010-pilot-mfa-enforcement-toggle.md`) that MFA requirement is
+currently switched OFF for the duration of pilot testing; every item
+below describes the underlying mechanism, which is unchanged and fully
+restorable by re-enabling `IDENTITY_MFA_ENFORCED`.** What remains, per
+that review's own disclosed limitations and the Recommended/Future/
+Unknown items `reviews/003` §H never asked any of these tasks to fix:
 - The guest password and admin email list remain plaintext in `SETTINGS`
   (readable by anyone with Sheet access) and the guest password remains
   cached in browser `localStorage` by design — unchanged by either
@@ -384,11 +414,14 @@ pre-existing, unscoped data-reconciliation matter (see "What remains
 unresolved") — not a next task unless the project owner explicitly asks
 for it.
 
-Next: **project-owner review of
-`reviews/009-phase-1h-c-security-fix-r2.md`** (and `reviews/007`/
-`reviews/008` alongside it) and a decision on what comes next: either
-(a) select an external identity provider and scope the OIDC/SAML
-integration behind the provider-neutral boundary Phase 1H-C built, or
-(b) address one of the still-open System Peripherals items below (an
-Admin Configuration screen for admin access, `reviews/001`/`002`,
-`DECISIONS.md` D-007). No application work has begun on either.
+Next: this session's earlier identity-test confirmation (D-033,
+109/109 and 52/52 passing) closes that loose end too. Then:
+**project-owner review of `reviews/009-phase-1h-c-security-fix-r2.md`**
+(and `reviews/007`/`reviews/008` alongside it) and a decision on what
+comes next: either (a) select an external identity provider and scope
+the OIDC/SAML integration behind the provider-neutral boundary Phase
+1H-C built, (b) address one of the still-open System Peripherals items
+below (an Admin Configuration screen for admin access, `reviews/001`/
+`002`, `DECISIONS.md` D-007), or (c) decide when to re-enable
+`IDENTITY_MFA_ENFORCED` as pilot testing winds down. No application work
+has begun on (a) or (b).

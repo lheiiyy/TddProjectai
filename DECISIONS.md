@@ -622,6 +622,85 @@ every admin out with no interactive path back in.
 
 ---
 
+## Pilot-testing period — D-031/D-032's MFA requirement temporarily off
+
+### D-033 — TOTP MFA enforcement (D-028/D-031/D-032) disabled for the duration of pilot testing via a single, explicit toggle
+**Status:** Settled (pilot-testing exception) — **temporarily supersedes
+D-031/D-032's enforcement for as long as the toggle stays off; does not
+reverse D-025 (Google sign-in gate) or the guest-password/admin-list
+gate, and does not remove or weaken any TOTP/anti-replay/audit
+mechanism those decisions built.**
+**Decision:** At the project owner's explicit request, made after being
+walked through exactly what each layer of the pilot's login/security
+model does and what removing it would mean, MFA enforcement is turned
+off for the duration of pilot testing: `_identity_authorizeCurrentUser_()`
+(`SVMKPI_IDENTITY_CORE.gs`, D-031) and `sl_isAdmin()`
+(`SVMKPI_ACCESS.gs`, D-032) no longer require a satisfied TOTP credential.
+Google sign-in (D-025) and the guest password/admin-email-list gate are
+UNCHANGED — still required exactly as before. Implemented as a single
+switch, `IDENTITY_MFA_ENFORCED` (`SVMKPI_IDENTITY_CORE.gs`, currently
+`false`), not as a removal of code: every TOTP primitive, anti-replay
+check, `PropertiesService`-backed satisfaction gate, and `IDENTITY_AUDIT`
+write built by D-028/D-031/D-032 is untouched and still fully
+operational for anyone who enrolls voluntarily — only the requirement
+that it be satisfied before access is granted is switched off. Setting
+`IDENTITY_MFA_ENFORCED = true` immediately and fully restores exact
+D-031/D-032 behavior with no other code change.
+**Rationale:** The project owner reported the TOTP enrollment step as a
+real blocker for pilot testers (non-technical field staff needing an
+authenticator app before they could use the tool at all) and asked for
+it removed specifically "for pilot testing" — explicitly not a request
+to reverse D-025 or the password/admin-list gate, both of which stay in
+place. Given the amount of dedicated work D-028/D-031/D-032 represent,
+this was not treated as a routine change: the request was clarified
+against each distinct layer of the access model before any code was
+touched (see `SVMKPI_ACCESS.gs`'s own file-header description of the
+layers), and the smallest, most reversible mechanism was chosen — a
+single boolean read at the exact 3 points D-031/D-032 added, rather
+than deleting or rewriting any of the underlying TOTP/audit
+infrastructure.
+**Impact:** `getAccessState().isActive`/`.mfaRequired` and
+`sl_getAdminMfaStatus().mfaRequired` now report the toggle's live value;
+`mfaEnrolled`/`mfaSatisfied` keep reporting the real, truthful MFA
+standing either way (informational only — nothing fakes a fact). The
+portal's MFA enroll/verify banners (`SVMI_PORTAL.html`) are suppressed
+while `mfaRequired` is false, so pilot testers are not prompted for a
+step that currently gates nothing. `enrollMfa()`/`verifyMfa()`/
+`enrollAdminMfa()`/`verifyAdminMfa()` remain fully callable and
+functional for anyone who wants to set up MFA voluntarily during the
+pilot — nothing prevents that, it is simply no longer required.
+**This is explicitly temporary, not a reversal of D-028/D-031/D-032
+themselves** — their text, rationale, and required-when-re-enabled
+behavior stand unchanged; a future AI session must not treat this entry
+as license to touch D-025, the guest-password/admin-list gate, or any
+other settled decision without the same explicit, layer-by-layer
+project-owner confirmation this one received. Re-enabling
+(`IDENTITY_MFA_ENFORCED = true`) at the end of the pilot period, or on
+any new explicit instruction to do so, requires no further code
+archaeology — this entry and the toggle's own code comments are the
+complete record.
+**Verification note:** `identity.test.js` and
+`identity-legacy-admin-mfa.test.js` were updated in the same change to
+cover both states — every existing "MFA is required" assertion now sets
+the toggle back to `true` on its own sandbox first (proving D-031/D-032
+are fully intact and exactly reversible), and a new section in each file
+proves the pilot default directly (an ACTIVE/admin-listed user with no
+MFA at all is authorized while the toggle is off) and that re-enabling
+it takes effect immediately on the same sandbox. These updated test
+files were **not executed in this session** — an environment policy
+denied Bash test-execution for this security-sensitive change — so this
+is recorded as reasoned-through, not run-and-passing; see
+`TESTING_LOG.md` for the explicit caveat and what to run before relying
+on this in the actual pilot deployment.
+
+**Update:** in the very next session, both files were executed as part
+of an unrelated bug-fix pass (see D-034) — `identity.test.js` 109/109,
+`identity-legacy-admin-mfa.test.js` 52/52, both including the D-033
+sections above. The earlier "reasoned through, not run" caveat is
+resolved; see `TESTING_LOG.md`.
+
+---
+
 ## Pilot bug fix — legacy-data migration performance, and the Input Portal bugs it explains
 
 ### D-034 — Bulk `cfg_createConfiguration()` callers must suppress the per-entity legacy-mirror rebuild; the SETTINGS→CONFIG_* migration is now three independently-callable steps

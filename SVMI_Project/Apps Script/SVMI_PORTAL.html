@@ -1165,7 +1165,7 @@ function loadAdminMfaBanner() {
 
 function renderAdminMfaBanner(status) {
   var banner = document.getElementById('adminMfaBanner');
-  if (!status || !status.onAdminList || status.mfaSatisfied) { banner.hidden = true; return; }
+  if (!status || !status.onAdminList || !status.mfaRequired || status.mfaSatisfied) { banner.hidden = true; return; }
   banner.hidden = false;
   if (!status.mfaEnrolled) {
     banner.innerHTML = '<div class="risk-badge warn">⚠ Admin MFA required — not yet enrolled</div>'
@@ -3216,22 +3216,25 @@ function renderAccountForStatus(user) {
     panel.innerHTML = head + '<div id="mfaArea"><div class="spinner"></div></div>';
     callServer('getAccessState', [], function(state) {
       renderMfaArea(state);
-    }, function() { renderMfaArea({ mfaEnrolled: false, mfaSatisfied: false }); });
+    }, function() { renderMfaArea({ mfaRequired: true, mfaEnrolled: false, mfaSatisfied: false }); });
     return;
   }
   panel.innerHTML = head;
 }
 
-// Security Fix R1: three distinct states now, not two — not enrolled;
-// enrolled but this Google identity hasn't satisfied MFA yet (server-
-// authoritative, PropertiesService-backed — see SVMKPI_IDENTITY_CORE.gs
-// §6.5); enrolled and currently satisfied. Only the third state can
-// actually use Admin → Identity actions or any other MFA-gated
-// function — this display is informational, matching every other
-// gating hint in this portal (real enforcement is server-side).
+// Security Fix R1: three distinct states — not enrolled; enrolled but
+// this Google identity hasn't satisfied MFA yet (server-authoritative,
+// PropertiesService-backed — see SVMKPI_IDENTITY_CORE.gs §6.5); enrolled
+// and currently satisfied. Real enforcement is server-side either way —
+// this display is informational.
+// Pilot-testing toggle (D-033): while MFA enforcement is off
+// (state.mfaRequired === false), skip the enroll/verify prompts
+// entirely — nothing is gated on them right now, so nagging a pilot
+// tester to set one up would just be friction with no effect.
 function renderMfaArea(state) {
   var area = document.getElementById('mfaArea');
   if (!area) return;
+  if (!state.mfaRequired) { area.innerHTML = ''; return; }
   if (!state.mfaEnrolled) {
     area.innerHTML = '<div class="risk-badge warn">⚠ Multi-factor authentication required — not yet enrolled</div>'
       + '<button class="btn-gold" style="margin-top:8px" onclick="identityEnrollMfa()">🔐 Enroll MFA</button>';
