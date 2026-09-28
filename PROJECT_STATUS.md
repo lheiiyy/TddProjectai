@@ -19,10 +19,14 @@ table, and a year selector was added to the Reports toolbar. The
 `EXECUTIVE SUMMARY` sheet itself is unmodified and remains a legitimate,
 rebuildable presentation artifact — simply no longer authoritative.
 **Code-complete, full test suite passing (1378 assertions/27 files,
-including a new 53-assertion structural source-of-truth proof), not yet
-deployed to the test copy or verified against live/production data.**
-`getKPI2026Report()`/`getStoreHealthReport()` (the Reports tab's other
-two views) were deliberately not touched — out of scope for this task.
+including a new 53-assertion structural source-of-truth proof), and
+deployed to the test copy as v18.** Not yet verified against live/
+production data — that requires the project owner to open Reports →
+Executive Summary on the deployed test copy and confirm the numbers,
+year selector, and Visit Detail Records table against the real
+`MASTER_LOG`. `getKPI2026Report()`/`getStoreHealthReport()` (the Reports
+tab's other two views) were deliberately not touched — out of scope for
+this task.
 
 Also this session: **PR #7 (pilot-testing MFA enforcement toggle, D-033)
 and PR #8 (migration performance fix, D-034/D-035) were both merged**
@@ -303,13 +307,13 @@ separate, pre-existing matter the run surfaced — 12
 was confirmed unrelated to D-035 and intentionally left unchanged; see
 "What remains unresolved" if that reconciliation is ever picked up as its
 own task. The Reports tab source-of-truth fix (D-036, `reviews/013-
-reports-source-of-truth.md`) is code-complete and test-verified (1378
+reports-source-of-truth.md`) is code-complete, test-verified (1378
 assertions/27 files, including a 53-assertion structural proof that
-Executive Summary no longer reads the `EXECUTIVE SUMMARY` sheet) but
-**not yet deployed to the test copy or verified against live/production
-data** — see "Immediate next task." Phase 1H-D/whatever comes next
-(external IdP selection, or further identity-surface work) has not been
-scoped.
+Executive Summary no longer reads the `EXECUTIVE SUMMARY` sheet), and
+**deployed to the test copy as v18** — not yet verified against live/
+production data, see "Immediate next task." Phase 1H-D/whatever comes
+next (external IdP selection, or further identity-surface work) has not
+been scoped.
 
 ## What remains unresolved
 
@@ -435,24 +439,22 @@ Unknown items `reviews/003` §H never asked any of these tasks to fix:
 
 ## Immediate next task
 
-**Deploy and verify the Reports tab source-of-truth fix (D-036,
+**Live-verify the Reports tab source-of-truth fix (D-036,
 `reviews/013-reports-source-of-truth.md`) on the test copy** — code
-complete and the full 27-file test suite (1378 assertions, incl. a
+complete, the full 27-file test suite (1378 assertions, incl. a
 53-assertion structural proof that Executive Summary no longer reads the
-`EXECUTIVE SUMMARY` sheet) plus responsive/portal-UI checks all pass, but
-this has not yet been pushed to the test copy or exercised against real
-production `MASTER_LOG` data. Once authorized: `clasp push` + redeploy to
-the test copy, then have the project owner (a) open Reports → Executive
-Summary and confirm the 8 KPI cards (incl. Additional Purpose) show
-correct real numbers, (b) try the new year selector and confirm the
-whole view — KPI cards, monthly/region/purpose breakdowns, Top Stores/
-Leaderboard/Brand Performance, and the new Visit Detail Records table —
-all update together, (c) spot-check the Visit Detail Records table's
-column filters (Store/Visitor free-text, Brand/Region/Purpose/Additional-
-Purpose checklist) on an actual phone as well as desktop, (d) confirm
-`Admin → Tools → Rebuild Executive Summary` still works exactly as before
-(unmodified — the sheet remains a legitimate, separate presentation
-artifact).
+`EXECUTIVE SUMMARY` sheet) plus responsive/portal-UI checks all pass, and
+it has been deployed to the test copy as **v18**. Needed from the project
+owner: (a) open Reports → Executive Summary and confirm the 8 KPI cards
+(incl. Additional Purpose) show correct real numbers, (b) try the new
+year selector and confirm the whole view — KPI cards, monthly/region/
+purpose breakdowns, Top Stores/Leaderboard/Brand Performance, and the new
+Visit Detail Records table — all update together, (c) spot-check the
+Visit Detail Records table's column filters (Store/Visitor free-text,
+Brand/Region/Purpose/Additional-Purpose checklist) on an actual phone as
+well as desktop, (d) confirm `Admin → Tools → Rebuild Executive Summary`
+still works exactly as before (unmodified — the sheet remains a
+legitimate, separate presentation artifact).
 
 **The migration performance fix, round 2 (D-035) is done** — deployed
 (v17), live-verified, and closed; see
