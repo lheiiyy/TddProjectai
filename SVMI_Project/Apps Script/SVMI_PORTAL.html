@@ -773,6 +773,7 @@ textarea.fi{padding-right:28px}
     <button class="rep-btn active" id="repTab-es"     onclick="switchReport('es')">Executive Summary</button>
     <button class="rep-btn"        id="repTab-kpi"     onclick="switchReport('kpi')">KPI 2026</button>
     <button class="rep-btn"        id="repTab-health"  onclick="switchReport('health')">Store Health</button>
+    <select class="sel-dark" id="esYearSel" onchange="loadCurrentReport()" style="min-width:90px;width:auto;margin-top:0"></select>
     <button class="btn-gold" onclick="loadCurrentReport()" style="width:auto;margin-top:0;padding:5px 12px;margin-left:auto">↻ Refresh</button>
   </div>
   <div class="scroll-panel" id="reportsPanel">
@@ -1099,7 +1100,7 @@ window.onload = function() {
   // Reports is the landing tab, so load it up front rather than waiting
   // for switchTab('Reports') — which only fires on a later click.
   reportsLoadedOnce = true;
-  loadCurrentReport();
+  loadEsYears();
 };
 
 // Keeps the Unvisited This Month month label ("January 2026") and the top-bar
@@ -1301,7 +1302,7 @@ function switchTab(name) {
   document.getElementById('currentTabLabel').textContent = target.textContent;
   closeNavDrawer();
   if (name === 'Visits') loadCompliance();
-  if (name === 'Reports' && !reportsLoadedOnce) { reportsLoadedOnce = true; loadCurrentReport(); }
+  if (name === 'Reports' && !reportsLoadedOnce) { reportsLoadedOnce = true; loadEsYears(); }
   if (name === 'Account') loadAccountPanel();
 }
 
@@ -2518,7 +2519,32 @@ function switchReport(which) {
   ['es','kpi','health'].forEach(function(k) {
     document.getElementById('repTab-' + k).classList.toggle('active', k === which);
   });
+  document.getElementById('esYearSel').style.display = (which === 'es') ? '' : 'none';
+  if (which === 'es' && !esYearsLoaded) { loadEsYears(); return; }
   loadCurrentReport();
+}
+
+// Executive Summary is year-scoped (source-of-truth fix — computed live
+// from MASTER_LOG for the selected year, see SVMKPI_REPORTS.gs); KPI 2026
+// and Store Health are unchanged and take no year argument. The year
+// dropdown itself is populated from getAvailableReportingYears() — the
+// SAME canonical "which years actually have data" function Admin → Report
+// Snapshots' own year selector already uses (SVMKPI_REPORTING_YEAR.gs) —
+// never a hardcoded list, and selecting a year only changes what is read;
+// it never writes to MASTER_LOG or any other sheet.
+var esYearsLoaded = false;
+
+function loadEsYears() {
+  callServer('getAvailableReportingYears', [], function(years) {
+    esYearsLoaded = true;
+    var list = (years && years.length) ? years.slice().reverse() : [];
+    var sel = document.getElementById('esYearSel');
+    sel.innerHTML = list.map(function(y) { return '<option value="' + y + '">' + y + '</option>'; }).join('');
+    loadCurrentReport();
+  }, function(msg) {
+    esYearsLoaded = true; // don't retry-loop forever on a failed lookup
+    loadCurrentReport();
+  });
 }
 
 function loadCurrentReport() {
@@ -2526,12 +2552,17 @@ function loadCurrentReport() {
   panel.innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
   var fnByReport     = { es: 'getExecutiveSummaryReport', kpi: 'getKPI2026Report', health: 'getStoreHealthReport' };
   var renderByReport = { es: renderExecutiveSummaryReport, kpi: renderKPI2026Report, health: renderStoreHealthReport };
-  google.script.run
+  var runner = google.script.run
     .withSuccessHandler(renderByReport[currentReport])
     .withFailureHandler(function(err) {
       panel.innerHTML = stateMsg('⚠️', 'Error', esc(err.message || String(err)));
-    })
-    [fnByReport[currentReport]]();
+    });
+  if (currentReport === 'es') {
+    var yv = Number(document.getElementById('esYearSel').value) || undefined;
+    runner.getExecutiveSummaryReport(yv);
+  } else {
+    runner[fnByReport[currentReport]]();
+  }
 }
 
 // KPI-card strip shared by all three reports — a row of {label, value} pairs.
@@ -2599,7 +2630,59 @@ function renderExecutiveSummaryReport(data) {
       + '</td><td class="c">' + esc(data.brandTotal.peakMonth) + '</td><td class="c">' + esc(data.brandTotal.peakCount) + '</td></tr>'
     + '</tbody></table></div>');
 
+  // Visit Detail Records — the underlying per-visit Data Record dataset
+  // behind every metric/table above, carrying Additional Purpose/Visitor/
+  // Brand/Store forward as real, filterable/groupable fields (not just
+  // display labels) for this reporting year. Same filter/sort engine
+  // Store Health/Unvisited This Month/Store Insights already use.
+  var esDetailRows = (data.records || []).map(function(r) {
+    return {
+      date: r.date, store: r.store, brand: r.brand, region: r.region,
+      visitorDisplay: (r.visitor || []).join(', '),
+      purpose: r.purpose,
+      additionalPurposeLabel: r.additionalPurpose ? 'Yes' : 'No',
+    };
+  });
+  h += repCard('Visit Detail Records (' + esc(data.selectedYear) + ') — ' + esDetailRows.length + ' record' + (esDetailRows.length !== 1 ? 's' : ''),
+    '<div id="esDetailBody"></div>');
+
   document.getElementById('reportsPanel').innerHTML = h;
+
+  ftCreate('esDetail', {
+    cols:      REPORT_DETAIL_COLS,
+    rows:      esDetailRows,
+    mount:     'esDetailBody',
+    renderRow: reportDetailRenderRow,
+    empty:     'No visit records for ' + esc(data.selectedYear) + '.',
+  });
+}
+
+// Executive Summary's Visit Detail Records table — one row per MASTER_LOG
+// visit for the selected reporting year. 'set'-type columns get the
+// existing checklist filter popover; 'text'-type columns get free-text
+// search — same ftCreate/ftRender engine HEALTH_COLS uses below.
+var REPORT_DETAIL_COLS = [
+  { key:'_n',                     label:'#',                type:null,   sortable:false },
+  { key:'date',                   label:'Date',             type:'text', sortable:true },
+  { key:'store',                  label:'Store',            type:'text', sortable:true },
+  { key:'brand',                  label:'Brand',            type:'set',  sortable:true },
+  { key:'region',                 label:'Region',           type:'set',  sortable:true },
+  { key:'visitorDisplay',         label:'Visitor',          type:'text', sortable:true },
+  { key:'purpose',                label:'Purpose',          type:'set',  sortable:true },
+  { key:'additionalPurposeLabel', label:'Additional Purpose', type:'set', sortable:true, center:true },
+];
+
+function reportDetailRenderRow(r, i) {
+  return '<tr>'
+    + '<td class="crn">' + (i + 1) + '</td>'
+    + '<td>' + esc(r.date) + '</td>'
+    + '<td>' + esc(r.store) + '</td>'
+    + '<td>' + esc(r.brand) + '</td>'
+    + '<td>' + esc(r.region) + '</td>'
+    + '<td>' + esc(r.visitorDisplay) + '</td>'
+    + '<td>' + esc(r.purpose) + '</td>'
+    + '<td class="c">' + (r.additionalPurposeLabel === 'Yes' ? '<span class="pill pill-warning">Yes</span>' : '—') + '</td>'
+    + '</tr>';
 }
 
 function renderKPI2026Report(data) {

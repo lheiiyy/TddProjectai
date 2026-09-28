@@ -51,7 +51,57 @@ const DEVICES = [
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
     await page.goto(URL);
-    await page.waitForTimeout(1100);
+    // Reports is the landing tab, and its default view now makes TWO
+    // sequential simulated-backend calls (getAvailableReportingYears() to
+    // populate the year selector, then getExecutiveSummaryReport(year)) —
+    // a longer wait than the single-call tabs below need.
+    await page.waitForTimeout(1700);
+
+    // ── Reports tab (landing tab): metric cards, year selector, and the
+    // Visit Detail Records table must all be usable at this size before
+    // navigating away to the other tabs' own checks below. ──
+    const reportsOverflow = await page.evaluate(() => ({
+      scrollW: document.documentElement.scrollWidth,
+      innerW: window.innerWidth,
+    }));
+    check('Reports: no horizontal page overflow', reportsOverflow.scrollW <= reportsOverflow.innerW + 1,
+      `scrollWidth=${reportsOverflow.scrollW} innerWidth=${reportsOverflow.innerW}`);
+
+    const esKpiCards = await page.evaluate(() => {
+      const cards = [...document.querySelectorAll('#reportsPanel .kpi-row .ck')];
+      return cards.map(c => { const r = c.getBoundingClientRect(); return { w: r.width, h: r.height }; });
+    });
+    check('Reports: Executive Summary renders all 8 KPI metric cards', esKpiCards.length === 8, 'count=' + esKpiCards.length);
+    check('Reports: KPI metric cards have real width (not crushed to 0)',
+      esKpiCards.length > 0 && esKpiCards.every(c => c.w >= 40 && c.h >= 20), JSON.stringify(esKpiCards));
+
+    const esYearSelBox = await page.evaluate(() => {
+      const el = document.getElementById('esYearSel');
+      const r = el.getBoundingClientRect();
+      return { visible: r.width > 0 && r.height > 0, right: r.right, left: r.left, height: r.height };
+    });
+    check('Reports: year selector is visible and on-screen',
+      esYearSelBox.visible && esYearSelBox.right <= dev.w + 2 && esYearSelBox.left >= -2, JSON.stringify(esYearSelBox));
+    if (dev.touch) {
+      check('Reports: year selector meets a plausible touch target height (>=24px)', esYearSelBox.height >= 24, esYearSelBox.height + 'px');
+    }
+
+    const esDetailCheck = await page.evaluate(() => {
+      const card = [...document.querySelectorAll('#reportsPanel .p-card')].find(c =>
+        (c.querySelector('.p-card-hdr') || {}).textContent && c.querySelector('.p-card-hdr').textContent.indexOf('Visit Detail Records') !== -1);
+      if (!card) return 'Visit Detail Records card not found';
+      const w = card.querySelector('.tbl-scroll');
+      if (!w) return 'no .tbl-scroll wrapper found in Visit Detail Records';
+      return {
+        wrapperOverflowX: getComputedStyle(w).overflowX,
+        pageStillFits: document.documentElement.scrollWidth <= window.innerWidth + 1,
+        hasFilterButtons: card.querySelectorAll('.fh-btn').length > 0,
+      };
+    });
+    check('Reports: Visit Detail Records table scrolls in its own box, with working column filters',
+      typeof esDetailCheck === 'object' && esDetailCheck.pageStillFits && esDetailCheck.hasFilterButtons,
+      JSON.stringify(esDetailCheck));
+
     await goToTab(page, 'Input');   // Reports is the landing tab now, not Input Portal
 
     // ── universal: no horizontal page scroll at any size ──

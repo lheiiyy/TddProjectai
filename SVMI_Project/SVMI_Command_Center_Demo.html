@@ -678,6 +678,7 @@ textarea.fi{padding-right:28px}
     <button class="rep-btn active" id="repTab-es"     onclick="switchReport('es')">Executive Summary</button>
     <button class="rep-btn"        id="repTab-kpi"     onclick="switchReport('kpi')">KPI 2026</button>
     <button class="rep-btn"        id="repTab-health"  onclick="switchReport('health')">Store Health</button>
+    <select class="sel-dark" id="esYearSel" onchange="loadCurrentReport()" style="min-width:90px;width:auto;margin-top:0"></select>
     <button class="btn-gold" onclick="loadCurrentReport()" style="width:auto;margin-top:0;padding:5px 12px;margin-left:auto">↻ Refresh</button>
   </div>
   <div class="scroll-panel" id="reportsPanel">
@@ -1615,15 +1616,28 @@ textarea.fi{padding-right:28px}
       return gaps;
     },
 
-    // Mirrors getExecutiveSummaryReport() in SVMKPI_REPORTS.gs, computed
-    // from the sample MASTER_LOG instead of read off a sheet — same JSON
-    // shape, so the Reports tab's render functions work unmodified here.
-    getExecutiveSummaryReport() {
-      const year = 2026;
+    // Mirrors getAvailableReportingYears() in SVMKPI_REPORTING_YEAR.gs —
+    // the distinct calendar years actually present in the sample
+    // MASTER_LOG, ascending, never a hardcoded list.
+    getAvailableReportingYears() {
+      const years = {};
+      DB.log.forEach(r => { years[r.date.getFullYear()] = true; });
+      return Object.keys(years).map(Number).sort((a, b) => a - b);
+    },
+
+    // Mirrors getExecutiveSummaryReport(year) in SVMKPI_REPORTS.gs,
+    // computed from the sample MASTER_LOG instead of read off a sheet —
+    // same JSON shape, so the Reports tab's render functions work
+    // unmodified here. `year` defaults to the latest year present, same
+    // "no hardcoded literal" convention as the real reader.
+    getExecutiveSummaryReport(year) {
+      const years = BACKEND.getAvailableReportingYears();
+      const reportYear = (year != null && !isNaN(Number(year))) ? Number(year) : (years.length ? years[years.length - 1] : 2026);
       const MONTHS12 = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
-      const yearLog = DB.log.filter(r => r.date.getFullYear() === year);
+      const yearLog = DB.log.filter(r => r.date.getFullYear() === reportYear);
       const total = yearLog.length;
       const pct = (v) => total ? (v / total * 100).toFixed(1) + '%' : '0.0%';
+      const isLegacyPurpose = (p) => APPROVED_PURPOSES.indexOf(p) !== -1;
 
       const byPurpose = {};
       APPROVED_PURPOSES.forEach(p => { byPurpose[p] = 0; });
@@ -1633,14 +1647,17 @@ textarea.fi{padding-right:28px}
       APPROVED_REGIONS.forEach(rg => { byRegion[rg] = 0; });
       yearLog.forEach(r => { byRegion[r.region] = (byRegion[r.region] || 0) + 1; });
 
+      const additionalPurposeCount = yearLog.filter(r => !isLegacyPurpose(r.purpose)).length;
+
       const kpi = [
-        { label: 'Total Visits',     value: String(total) },
-        { label: 'Store Visits',     value: String(byPurpose['STORE VISIT'] || 0) },
-        { label: 'TLTC',             value: String(byPurpose['TLTC'] || 0) },
-        { label: 'Failed QA/MS',     value: String(byPurpose['FAILED QA/MS'] || 0) },
-        { label: 'Curing/Support',   value: String(byPurpose['CURING/SUPPORT'] || 0) },
-        { label: 'NCR',              value: String(byRegion['NCR'] || 0) },
-        { label: 'Provincial',       value: String(byRegion['PROVINCIAL'] || 0) },
+        { label: 'Total Visits',       value: String(total) },
+        { label: 'Store Visits',       value: String(byPurpose['STORE VISIT'] || 0) },
+        { label: 'TLTC',               value: String(byPurpose['TLTC'] || 0) },
+        { label: 'Failed QA/MS',       value: String(byPurpose['FAILED QA/MS'] || 0) },
+        { label: 'Curing/Support',     value: String(byPurpose['CURING/SUPPORT'] || 0) },
+        { label: 'NCR',                value: String(byRegion['NCR'] || 0) },
+        { label: 'Provincial',         value: String(byRegion['PROVINCIAL'] || 0) },
+        { label: 'Additional Purpose', value: String(additionalPurposeCount) },
       ];
 
       const monthBrandLabels = APPROVED_BRANDS.slice();
@@ -1690,7 +1707,22 @@ textarea.fi{padding-right:28px}
       const brandTotalCount = brandPerformance.reduce((a, r) => a + Number(r.total), 0);
       const brandTotal = { total: String(brandTotalCount), pct: '100.0%', peakMonth: '', peakCount: '' };
 
-      return { kpi, monthBrandLabels, monthly, monthlyTotal, region, regionTotal, purpose, purposeTotal, topStores, leaderboard, brandPerformance, brandTotal };
+      // Visit Detail Records — the complete relevant Data Record set for
+      // this year, carrying Additional Purpose/Visitor/Brand/Store forward
+      // as real fields (mirrors getExecutiveSummaryReport()'s `records`).
+      const records = yearLog.map(r => ({
+        date: fmtYMD(r.date), store: r.store, brand: r.brand, region: r.region,
+        visitor: String(r.visitedBy || '').split('|').map(v => v.trim()).filter(Boolean),
+        purpose: r.purpose,
+        additionalPurpose: !isLegacyPurpose(r.purpose),
+      }));
+
+      return {
+        selectedYear: reportYear, availableYears: years,
+        kpi, monthBrandLabels, monthly, monthlyTotal, region, regionTotal,
+        purpose, purposeTotal, topStores, leaderboard, brandPerformance, brandTotal,
+        records,
+      };
     },
 
     // Mirrors getKPI2026Report() — aggregated monthly totals, a per-week
@@ -1944,7 +1976,7 @@ window.onload = function() {
   // Reports is the landing tab, so load it up front rather than waiting
   // for switchTab('Reports') — which only fires on a later click.
   reportsLoadedOnce = true;
-  loadCurrentReport();
+  loadEsYears();
 };
 
 // Keeps the Unvisited This Month month label ("January 2026") and the top-bar
@@ -2020,7 +2052,7 @@ function switchTab(name) {
   document.getElementById('currentTabLabel').textContent = target.textContent;
   closeNavDrawer();
   if (name === 'Visits') loadCompliance();
-  if (name === 'Reports' && !reportsLoadedOnce) { reportsLoadedOnce = true; loadCurrentReport(); }
+  if (name === 'Reports' && !reportsLoadedOnce) { reportsLoadedOnce = true; loadEsYears(); }
 }
 
 // ═══════════════════════════════════════
@@ -3175,7 +3207,27 @@ function switchReport(which) {
   ['es','kpi','health'].forEach(function(k) {
     document.getElementById('repTab-' + k).classList.toggle('active', k === which);
   });
+  document.getElementById('esYearSel').style.display = (which === 'es') ? '' : 'none';
+  if (which === 'es' && !esYearsLoaded) { loadEsYears(); return; }
   loadCurrentReport();
+}
+
+var esYearsLoaded = false;
+
+function loadEsYears() {
+  google.script.run
+    .withSuccessHandler(function(years) {
+      esYearsLoaded = true;
+      var list = (years && years.length) ? years.slice().reverse() : [];
+      var sel = document.getElementById('esYearSel');
+      sel.innerHTML = list.map(function(y) { return '<option value="' + y + '">' + y + '</option>'; }).join('');
+      loadCurrentReport();
+    })
+    .withFailureHandler(function() {
+      esYearsLoaded = true;
+      loadCurrentReport();
+    })
+    .getAvailableReportingYears();
 }
 
 function loadCurrentReport() {
@@ -3183,12 +3235,17 @@ function loadCurrentReport() {
   panel.innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
   var fnByReport     = { es: 'getExecutiveSummaryReport', kpi: 'getKPI2026Report', health: 'getStoreHealthReport' };
   var renderByReport = { es: renderExecutiveSummaryReport, kpi: renderKPI2026Report, health: renderStoreHealthReport };
-  google.script.run
+  var runner = google.script.run
     .withSuccessHandler(renderByReport[currentReport])
     .withFailureHandler(function(err) {
       panel.innerHTML = stateMsg('⚠️', 'Error', esc(err.message || String(err)));
-    })
-    [fnByReport[currentReport]]();
+    });
+  if (currentReport === 'es') {
+    var yv = Number(document.getElementById('esYearSel').value) || undefined;
+    runner.getExecutiveSummaryReport(yv);
+  } else {
+    runner[fnByReport[currentReport]]();
+  }
 }
 
 // KPI-card strip shared by all three reports — a row of {label, value} pairs.
@@ -3256,7 +3313,54 @@ function renderExecutiveSummaryReport(data) {
       + '</td><td class="c">' + esc(data.brandTotal.peakMonth) + '</td><td class="c">' + esc(data.brandTotal.peakCount) + '</td></tr>'
     + '</tbody></table></div>');
 
+  // Visit Detail Records — mirrors the real portal's same addition; the
+  // underlying per-visit Data Record dataset behind every metric/table
+  // above, with Additional Purpose/Visitor/Brand/Store as real,
+  // filterable/groupable fields.
+  var esDetailRows = (data.records || []).map(function(r) {
+    return {
+      date: r.date, store: r.store, brand: r.brand, region: r.region,
+      visitorDisplay: (r.visitor || []).join(', '),
+      purpose: r.purpose,
+      additionalPurposeLabel: r.additionalPurpose ? 'Yes' : 'No',
+    };
+  });
+  h += repCard('Visit Detail Records (' + esc(data.selectedYear) + ') — ' + esDetailRows.length + ' record' + (esDetailRows.length !== 1 ? 's' : ''),
+    '<div id="esDetailBody"></div>');
+
   document.getElementById('reportsPanel').innerHTML = h;
+
+  ftCreate('esDetail', {
+    cols:      REPORT_DETAIL_COLS,
+    rows:      esDetailRows,
+    mount:     'esDetailBody',
+    renderRow: reportDetailRenderRow,
+    empty:     'No visit records for ' + esc(data.selectedYear) + '.',
+  });
+}
+
+var REPORT_DETAIL_COLS = [
+  { key:'_n',                     label:'#',                type:null,   sortable:false },
+  { key:'date',                   label:'Date',             type:'text', sortable:true },
+  { key:'store',                  label:'Store',            type:'text', sortable:true },
+  { key:'brand',                  label:'Brand',            type:'set',  sortable:true },
+  { key:'region',                 label:'Region',           type:'set',  sortable:true },
+  { key:'visitorDisplay',         label:'Visitor',          type:'text', sortable:true },
+  { key:'purpose',                label:'Purpose',          type:'set',  sortable:true },
+  { key:'additionalPurposeLabel', label:'Additional Purpose', type:'set', sortable:true, center:true },
+];
+
+function reportDetailRenderRow(r, i) {
+  return '<tr>'
+    + '<td class="crn">' + (i + 1) + '</td>'
+    + '<td>' + esc(r.date) + '</td>'
+    + '<td>' + esc(r.store) + '</td>'
+    + '<td>' + esc(r.brand) + '</td>'
+    + '<td>' + esc(r.region) + '</td>'
+    + '<td>' + esc(r.visitorDisplay) + '</td>'
+    + '<td>' + esc(r.purpose) + '</td>'
+    + '<td class="c">' + (r.additionalPurposeLabel === 'Yes' ? '<span class="pill pill-warning">Yes</span>' : '—') + '</td>'
+    + '</tr>';
 }
 
 function renderKPI2026Report(data) {
