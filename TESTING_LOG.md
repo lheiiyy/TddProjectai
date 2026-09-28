@@ -30,10 +30,14 @@ including the explicit-Store-ID duplicate-rejection test, confirming
 is given) is unchanged by the new `knownNewEntity`/`suppressLegacyMirror`/
 `deferFlush` options. No automated test can express the real Apps
 Script execution-time result itself (same disclosed harness limitation
-as D-034) — the live re-run result is pending the project owner's next
-"Migrate Legacy Data" click against the redeployed test copy; see
-`reviews/012-...md` §6 for the Live verification report, to be
-completed once that result comes back.
+as D-034) — **that live result is now in**: the project owner ran
+"Migrate Legacy Data" against the redeployed test copy (v17) and it
+completed with no execution-timeout error (`Stores: +9`, already had
+221; `Visitors: +0`, already had 12; `Purposes: +0`, already had 4). See
+`reviews/012-...md` §6 for the full Live verification report, including
+the 12 pre-existing `CONFIG_UNMAPPED_STORES` records the run flagged
+(confirmed by the project owner to predate this fix, left unchanged, and
+not a D-035 defect).
 
 Prior baseline (2026-09-27, D-034 migration performance fix): 26 files,
 1306 assertions, 0 failures. This also resolved the earlier disclosed

@@ -172,28 +172,70 @@ transitively. `responsive-check.js` (66/66) and `portal-ui.test.js`
 
 ## 6. Live verification report
 
+Live verification completed on the test copy after deployment v17. The
+project owner ran "Migrate Legacy Data" and reported:
+
 ```
-Stores source count:        (from the live SETTINGS sheet — not visible from this environment; see the project owner's next "Migrate Legacy Data" run)
-CONFIG_STORES before:       0 (per the reported "already had 0")
-Stores added:                pending live re-run of v17
-Stores already existing:     pending live re-run of v17
-Stores remaining:            pending live re-run of v17
-Execution time:               pending live re-run of v17
-Completed / resumable:       pending live re-run of v17 (expected: completed, given the O(n²)->O(n) fix and the mechanical proof in §4)
-Visitors regression:         none — Visitors/Purposes code paths untouched by this pass
-Purposes regression:         none — untouched by this pass
+Stores: +9 (already had 221)
+Visitors: +0 (already had 12)
+Purposes: +0 (already had 4)
+
+Warning:
+12 MASTER_LOG store name(s) could not be confidently matched —
+see CONFIG_UNMAPPED_STORES.
+```
+
+```
+Stores source count:        230 (221 already-existing + 9 newly added)
+CONFIG_STORES before:       221
+Stores added:                9
+Stores already existing:     221
+Stores remaining:            0
+Execution time:               completed without execution-timeout failure (no time-limit error reported)
+Completed / resumable:       completed
+Visitors regression:         none — reported 0 added / 12 already existing, matching the D-034 live result exactly; code path untouched by this pass
+Purposes regression:         none — reported 0 added / 4 already existing, matching the D-034 live result exactly; code path untouched by this pass
 Tests:                        1312 assertions, 26 files, 0 failures
 Responsive:                   66/66
 Portal UI:                    173/173
 ```
 
-The numeric live-execution fields above cannot be filled in from this
-environment — they require the project owner to click "Migrate Legacy
-Data" again against the deployed fix and report what it says, exactly as
-happened for D-034. This section will be completed in the next commit
-once that report comes back, consistent with this review's own
-requirement not to mark Stores migration complete until live behavior
-actually confirms it.
+The migration reported 12 MASTER_LOG store names that could not be
+confidently matched and were listed in `CONFIG_UNMAPPED_STORES`. The
+project owner confirmed these 12 records are pre-existing, carried over
+from earlier migration runs (i.e. from before this fix was deployed) —
+not something this run created. They are **not** a D-035 defect:
+
+```
+D-035 issue:
+Stores migration execution timeout
+→ FIXED
+→ LIVE VERIFIED
+
+Pre-existing issue/data:
+12 unresolved MASTER_LOG store-name records
+→ existed from earlier migration runs
+→ preserved unchanged
+→ separate historical reconciliation matter
+```
+
+Per the project owner's explicit instruction, these 12 unmapped records
+were left exactly as-is: not deleted, not modified, not auto-matched,
+and no new Store identity was created for them. They remain in
+`CONFIG_UNMAPPED_STORES` as historical/unresolved reconciliation
+records, unrelated to this fix.
+
+**Idempotency evidence:** the live result also shows the migration
+correctly recognizing previously-migrated entities instead of
+duplicating them — 221 of 230 stores, all 12 visitors, and all 4
+purposes were reported as already-existing rather than re-created. This
+is evidence the migration is repeatable in the one case actually
+exercised live; it is not a claim of idempotency for every theoretical
+edge case beyond what the existing tests and this live run demonstrate.
+
+**D-035 is considered live-verified and closed. No further
+migration-performance changes are required based on this
+verification.**
 
 ---
 
