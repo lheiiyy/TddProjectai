@@ -7,6 +7,22 @@ demo; dry-run tooling is pure-function/synthetic-data only).
 
 ## Apps Script track — `SVMI_Project/tests/`
 
+**Re-verified this session (2026-09-28, later pass): still 27 files, 1378
+assertions, 0 failures** — unchanged from the count directly below,
+confirming no regression from the Executive Summary UI simplification
+(`DECISIONS.md` D-037: hiding the Additional Purpose KPI card, the Visit
+Detail Records table, and the Brand filter in `SVMI_PORTAL.html`). No
+test file needed to change: the change is presentation-only in a file no
+counted suite asserts rendered output against (`portal-ui.test.js`/
+`responsive-check.js` exercise `SVMI_Command_Center_Demo.html`, which
+this pass deliberately left untouched, per the project owner's explicit
+choice not to sync it this round); `settings-config-migration.test.js`
+(51/51), the one suite that does load `SVMI_PORTAL.html` directly, is
+unrelated (checks for absence of the retired Store & Roster Manager UI)
+and re-ran clean. Not covered by Playwright — same disclosed limitation
+as always for the real portal, see "Not covered by automated tests"
+below.
+
 **Verified this session (2026-09-28): 27 files, 1378 assertions, 0
 failures**, including a full live re-run of everything on the merged
 base branch (which itself already carried the D-033/D-034/D-035 work

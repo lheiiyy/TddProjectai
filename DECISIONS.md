@@ -922,3 +922,46 @@ instead of a hand-built sheet, since the reader no longer reads one) and
 still passes. Full suite: 1378 assertions across 27 files, 0 failures
 (merged-base baseline was 1316/26). Not yet verified live against the
 deployed test copy or real production data — see `reviews/013-...md` §12.
+
+### D-037 — Executive Summary view simplified: Additional Purpose KPI card, Visit Detail Records table, and the top-bar Brand filter hidden; D-036's data contract is unchanged
+**Status:** Settled (presentation-only follow-up to D-036)
+**Decision:** In `SVMI_PORTAL.html`'s `renderExecutiveSummaryReport()`,
+the `Additional Purpose` KPI card and the "Visit Detail Records" table
+are no longer rendered, and the top-bar "Brand: All Brands ▾" filter
+control is hidden (`.brand-wrap{display:none}`). None of the underlying
+D-036 data contract changed: `getExecutiveSummaryReport()`
+(`SVMKPI_REPORTS.gs`) still returns the `Additional Purpose` KPI entry
+and the full `records` array exactly as before, and `gBrands`/the brand
+filter's own logic (used by Store Insights and elsewhere) is untouched —
+`gBrands` simply stays permanently empty (All Brands) since there's no
+longer a control to set it from the Reports/top-bar UI. This mirrors,
+exactly, three presentational edits made earlier to the published
+Claude-Artifact live demo (`SVMI_Command_Center_Demo.html` was **not**
+touched — the project owner explicitly declined syncing it into the repo
+for now, so it still shows all three elements and its own tests are
+unaffected).
+**Rationale:** Direct, explicit instruction from the project owner in
+this session, after testing the live demo and then confirming the same
+change should apply to the real test-copy web app: the Additional
+Purpose KPI card and Visit Detail Records table read as redundant in the
+Executive Summary view, and the Brand filter read as redundant given
+existing per-brand breakdowns elsewhere on the same view. This is a
+UI-presentation decision, not a reversal of D-036's architecture — the
+`DATA RECORD → REPORTS` source-of-truth rule, the Additional Purpose
+metric's computation, and the per-visit `records` dataset all remain
+exactly as D-036 built them; only what's rendered changed.
+**Impact:** `SVMI_PORTAL.html` only (CSS + `renderExecutiveSummaryReport()`);
+no `.gs` file touched. `REPORT_DETAIL_COLS`/`reportDetailRenderRow`
+are now unused but left in place as harmless dead code, matching the
+demo copy's own precedent. No test file changes: no automated suite
+asserts on `SVMI_PORTAL.html`'s rendered output (`portal-ui.test.js`/
+`responsive-check.js` exercise `SVMI_Command_Center_Demo.html` only, per
+the disclosed testing-architecture limitation in `ARCHITECTURE.md` §4/§8);
+the one test that does load `SVMI_PORTAL.html` directly
+(`settings-config-migration.test.js`, checking for the absence of the
+retired Store & Roster Manager UI) is unrelated and still passes. Full
+existing suite re-run (1378 assertions/27 files) to confirm no
+regression — unchanged, since nothing it covers was touched. Deployed to
+the test copy: `clasp push`, then the existing Web App deployment
+(`AKfycbwERP_IXsFXFr1wDS_WSpl3AYUzhp6jgJJsFQzA8LVSNbkdvZjwD6VnFu_uyq4OFpXV`)
+redeployed as **v19**. Not yet live-verified by the project owner.

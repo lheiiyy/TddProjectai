@@ -1,6 +1,25 @@
 # SVMI — Project Status
 
-Last updated: 2026-09-28, recording **a Reports-tab source-of-truth fix
+Last updated: 2026-09-28, recording **an Executive Summary UI
+simplification** (`DECISIONS.md` D-037), a presentation-only follow-up to
+the Reports-tab source-of-truth fix below. At the project owner's
+explicit request — after testing a published live demo of the Reports
+view and then confirming the same change for the real app — the
+`Additional Purpose` KPI card and the "Visit Detail Records" table are no
+longer rendered in `SVMI_PORTAL.html`'s Executive Summary view, and the
+top-bar Brand filter is hidden. None of D-036's data contract changed:
+`getExecutiveSummaryReport()` (`SVMKPI_REPORTS.gs`) is untouched and
+still returns the `Additional Purpose` KPI entry and the full `records`
+array; the brand-filter logic (`gBrands`) other tabs rely on is untouched
+too, just permanently unset now that its control is hidden.
+`SVMI_Command_Center_Demo.html` was deliberately **not** touched this
+pass — the project owner explicitly chose to leave the repo demo file
+out of sync for now. **Code-complete, full test suite re-confirmed
+unchanged (1378 assertions/27 files, 0 failures — nothing it covers was
+touched), and deployed to the test copy as v19.** Not yet verified
+against live/production data by the project owner.
+
+Prior update, recording **a Reports-tab source-of-truth fix
 plus a new Additional Purpose metric** (`DECISIONS.md` D-036,
 `reviews/013-reports-source-of-truth.md`). Pre-implementation trace found
 `getExecutiveSummaryReport()` (`SVMKPI_REPORTS.gs`) reading the generated
@@ -18,17 +37,15 @@ fields, as real filterable data) surfaced as a new "Visit Detail Records"
 table, and a year selector was added to the Reports toolbar. The
 `EXECUTIVE SUMMARY` sheet itself is unmodified and remains a legitimate,
 rebuildable presentation artifact — simply no longer authoritative.
-**Code-complete, full test suite passing (1378 assertions/27 files,
-including a new 53-assertion structural source-of-truth proof), and
-deployed to the test copy as v18.** Not yet verified against live/
-production data — that requires the project owner to open Reports →
-Executive Summary on the deployed test copy and confirm the numbers,
-year selector, and Visit Detail Records table against the real
-`MASTER_LOG`. `getKPI2026Report()`/`getStoreHealthReport()` (the Reports
+Code-complete, full test suite passing (1378 assertions/27 files,
+including a new 53-assertion structural source-of-truth proof), and was
+deployed to the test copy as v18 (now superseded by v19 above — the same
+underlying report logic, just the three rendering elements noted above
+hidden). `getKPI2026Report()`/`getStoreHealthReport()` (the Reports
 tab's other two views) were deliberately not touched — out of scope for
 this task.
 
-Also this session: **PR #7 (pilot-testing MFA enforcement toggle, D-033)
+Also that session: **PR #7 (pilot-testing MFA enforcement toggle, D-033)
 and PR #8 (migration performance fix, D-034/D-035) were both merged**
 into this branch's base — see below for their own prior summaries, both
 still accurate and unchanged by the Reports work above.
@@ -310,10 +327,13 @@ own task. The Reports tab source-of-truth fix (D-036, `reviews/013-
 reports-source-of-truth.md`) is code-complete, test-verified (1378
 assertions/27 files, including a 53-assertion structural proof that
 Executive Summary no longer reads the `EXECUTIVE SUMMARY` sheet), and
-**deployed to the test copy as v18** — not yet verified against live/
-production data, see "Immediate next task." Phase 1H-D/whatever comes
-next (external IdP selection, or further identity-surface work) has not
-been scoped.
+deployed to the test copy as v18. The follow-up Executive Summary UI
+simplification (D-037 — hiding the Additional Purpose KPI card, Visit
+Detail Records table, and Brand filter) is also code-complete and
+**deployed to the test copy as v19** — neither is yet verified against
+live/production data, see "Immediate next task." Phase 1H-D/whatever
+comes next (external IdP selection, or further identity-surface work)
+has not been scoped.
 
 ## What remains unresolved
 
@@ -439,22 +459,24 @@ Unknown items `reviews/003` §H never asked any of these tasks to fix:
 
 ## Immediate next task
 
-**Live-verify the Reports tab source-of-truth fix (D-036,
-`reviews/013-reports-source-of-truth.md`) on the test copy** — code
-complete, the full 27-file test suite (1378 assertions, incl. a
-53-assertion structural proof that Executive Summary no longer reads the
-`EXECUTIVE SUMMARY` sheet) plus responsive/portal-UI checks all pass, and
-it has been deployed to the test copy as **v18**. Needed from the project
-owner: (a) open Reports → Executive Summary and confirm the 8 KPI cards
-(incl. Additional Purpose) show correct real numbers, (b) try the new
-year selector and confirm the whole view — KPI cards, monthly/region/
-purpose breakdowns, Top Stores/Leaderboard/Brand Performance, and the new
-Visit Detail Records table — all update together, (c) spot-check the
-Visit Detail Records table's column filters (Store/Visitor free-text,
-Brand/Region/Purpose/Additional-Purpose checklist) on an actual phone as
-well as desktop, (d) confirm `Admin → Tools → Rebuild Executive Summary`
-still works exactly as before (unmodified — the sheet remains a
-legitimate, separate presentation artifact).
+**Live-verify the Executive Summary view on the test copy (v19)** — the
+Reports tab source-of-truth fix (D-036, `reviews/013-reports-source-of-
+truth.md`) plus the follow-up UI simplification (D-037: Additional
+Purpose KPI card, Visit Detail Records table, and Brand filter now
+hidden) are both code-complete, the full 27-file test suite (1378
+assertions) passes, and it's deployed to the test copy as **v19**. Needed
+from the project owner: (a) open Reports → Executive Summary and confirm
+the (now 7, not 8) KPI cards show correct real numbers, (b) try the year
+selector and confirm the whole view updates together — monthly/region/
+purpose breakdowns and Top Stores/Leaderboard/Brand Performance, (c)
+confirm the Brand filter's removal from the top bar didn't affect other
+tabs (Store Insights' own brand filtering is separate and untouched),
+(d) confirm `Admin → Tools → Rebuild Executive Summary` still works
+exactly as before (unmodified — the sheet remains a legitimate, separate
+presentation artifact). The Additional Purpose metric and the Visit
+Detail Records dataset are still computed and returned by
+`getExecutiveSummaryReport()` — only their card/table stopped rendering
+— so no data was lost, only hidden.
 
 **The migration performance fix, round 2 (D-035) is done** — deployed
 (v17), live-verified, and closed; see

@@ -22,7 +22,11 @@ body{font-family:Arial,sans-serif;font-size:12px;background:var(--bg);color:var(
   flex-shrink:0;border-bottom:2px solid var(--gold)}
 .top-bar h1{font-size:13px;font-weight:700;color:var(--white);white-space:nowrap}
 .top-bar .sub{font-size:10px;color:var(--light)}
-.brand-wrap{margin-left:auto;display:flex;align-items:center;gap:8px}
+/* Hidden per direct user feedback on the live demo/test copy ("redundant") —
+   element and its filter logic (gBrands) stay in place so Store Insights/
+   other tabs that read gBrands keep working; gBrands simply stays
+   permanently empty (All Brands). */
+.brand-wrap{display:none}
 .brand-wrap label{font-size:10px;color:var(--light);font-weight:700;text-transform:uppercase;letter-spacing:.4px}
 .user-wrap{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--light);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
@@ -2580,7 +2584,10 @@ function repCard(title, innerHtml) {
 }
 
 function renderExecutiveSummaryReport(data) {
-  var h = repKpiRow(data.kpi);
+  // Additional Purpose stays in the underlying report data (data.kpi/
+  // data.records) — only its KPI card is hidden here, per direct user
+  // feedback on the live demo/test copy that it read as redundant in this view.
+  var h = repKpiRow(data.kpi.filter(function(k){ return k.label !== 'Additional Purpose'; }));
 
   h += repCard('Monthly Visit Summary by Brand',
     '<div class="tbl-scroll"><table class="data-tbl"><thead><tr><th>Month</th>'
@@ -2630,31 +2637,11 @@ function renderExecutiveSummaryReport(data) {
       + '</td><td class="c">' + esc(data.brandTotal.peakMonth) + '</td><td class="c">' + esc(data.brandTotal.peakCount) + '</td></tr>'
     + '</tbody></table></div>');
 
-  // Visit Detail Records — the underlying per-visit Data Record dataset
-  // behind every metric/table above, carrying Additional Purpose/Visitor/
-  // Brand/Store forward as real, filterable/groupable fields (not just
-  // display labels) for this reporting year. Same filter/sort engine
-  // Store Health/Unvisited This Month/Store Insights already use.
-  var esDetailRows = (data.records || []).map(function(r) {
-    return {
-      date: r.date, store: r.store, brand: r.brand, region: r.region,
-      visitorDisplay: (r.visitor || []).join(', '),
-      purpose: r.purpose,
-      additionalPurposeLabel: r.additionalPurpose ? 'Yes' : 'No',
-    };
-  });
-  h += repCard('Visit Detail Records (' + esc(data.selectedYear) + ') — ' + esDetailRows.length + ' record' + (esDetailRows.length !== 1 ? 's' : ''),
-    '<div id="esDetailBody"></div>');
-
+  // Visit Detail Records table hidden per direct user feedback on the live
+  // demo/test copy ("redundant, not necessary in executive report") —
+  // data.records itself is untouched, so it's still there for any other
+  // consumer of this report payload.
   document.getElementById('reportsPanel').innerHTML = h;
-
-  ftCreate('esDetail', {
-    cols:      REPORT_DETAIL_COLS,
-    rows:      esDetailRows,
-    mount:     'esDetailBody',
-    renderRow: reportDetailRenderRow,
-    empty:     'No visit records for ' + esc(data.selectedYear) + '.',
-  });
 }
 
 // Executive Summary's Visit Detail Records table — one row per MASTER_LOG
