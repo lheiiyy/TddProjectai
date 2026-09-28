@@ -7,9 +7,69 @@ demo; dry-run tooling is pure-function/synthetic-data only).
 
 ## Apps Script track — `SVMI_Project/tests/`
 
-**Verified this session (2026-09-27): 26 files, 1312 assertions, 0
-failures**, including a full live re-run of everything — no result in
-this file is carried over unverified. This round grew `settings-config-
+**Re-verified this session (2026-09-28, later pass): still 27 files, 1378
+assertions, 0 failures** — unchanged from the count directly below,
+confirming no regression from the Executive Summary UI simplification
+(`DECISIONS.md` D-037: hiding the Additional Purpose KPI card, the Visit
+Detail Records table, and the Brand filter in `SVMI_PORTAL.html`). No
+test file needed to change: the change is presentation-only in a file no
+counted suite asserts rendered output against (`portal-ui.test.js`/
+`responsive-check.js` exercise `SVMI_Command_Center_Demo.html`, which
+this pass deliberately left untouched, per the project owner's explicit
+choice not to sync it this round); `settings-config-migration.test.js`
+(51/51), the one suite that does load `SVMI_PORTAL.html` directly, is
+unrelated (checks for absence of the retired Store & Roster Manager UI)
+and re-ran clean. Not covered by Playwright — same disclosed limitation
+as always for the real portal, see "Not covered by automated tests"
+below.
+
+**Verified this session (2026-09-28): 27 files, 1378 assertions, 0
+failures**, including a full live re-run of everything on the merged
+base branch (which itself already carried the D-033/D-034/D-035 work
+below at 1316/26) — no result in this file is carried over unverified.
+This round fixed a real Reports-tab source-of-truth violation and added
+Additional Purpose (`DECISIONS.md` D-036, `reviews/013-reports-source-
+of-truth.md`): `getExecutiveSummaryReport()` (`SVMKPI_REPORTS.gs`) used
+to read the generated `EXECUTIVE SUMMARY` sheet's cells; it now computes
+every metric/dimension directly from `MASTER_LOG` via the canonical
+`_getData()` reader, year-filtered, never from that sheet or any KPI
+sheet. New file `reports-source-of-truth.test.js` — **53/53** —
+structurally proves this (the reader succeeds with the `EXECUTIVE
+SUMMARY` sheet entirely absent; a deliberately-wrong stale copy of that
+sheet is ignored, MASTER_LOG truth wins), plus Additional Purpose
+(correct count, not hardcoded, changes across two different years),
+required dimensions (`records[]` carries `additionalPurpose`/`visitor`/
+`brand`/`store` as real fields, not narrowed to just those 4 — `date`/
+`region`/`timestamp` remain too), year selection (non-mutating —
+`MASTER_LOG` diffed byte-for-byte across three calls spanning two
+years — and needs no per-year report/KPI sheet), and existing-metric
+regression (Total/Store/TLTC/Failed/Curing/NCR/Provincial/Top Stores/
+Leaderboard/Brand Performance/Monthly-by-Brand against a hand-checked
+fixture). `purpose-report-surfaces.test.js`'s Executive-Summary-reader
+block was rewritten to build a real `MASTER_LOG` fixture instead of a
+hand-built sheet mock (since the reader no longer reads a sheet at all)
+— still 84/84, every other block in that file (`buildExecutiveSummaryLayout()`,
+Store Insights, `validateMasterLog()`) untouched. `portal-ui.test.js`
+grew 172→180 (8 KPI cards incl. Additional Purpose, the new year
+selector populated, the new Visit Detail Records table with all 5
+required dimension columns present). `responsive-check.js` grew 66→100
+(34 new checks × 6 device sizes: no horizontal overflow, 8 KPI cards
+with real width, year selector visible/on-screen/touch-sized, detail
+table scrolls in its own box with working column filters — phone
+portrait/landscape through desktop). Syntax: `SVMKPI_REPORTS.gs` —
+`node --check`, clean; both portal HTML files' inline scripts —
+`new Function()` parse check, clean. `getKPI2026Report()`/
+`getStoreHealthReport()` (the other two Reports views) were not touched
+— explicitly out of scope, see `reviews/013-...md` §2/§11. Not yet
+verified live against the deployed test copy or real production data.
+
+Prior baseline (2026-09-27, D-035 live verification/closure — merged via
+PR #7/#8 into this session's base branch): 26 files, 1316 assertions, 0
+failures (this session's own starting point before the Reports work
+above; the same content is described below at its originally-recorded
+1312, since 4 additional assertions landed via the merge of two
+concurrently-developed branches — no discrepancy in either branch's own
+recorded history, just a merge artifact). This round grew `settings-config-
 migration.test.js` from 45 to 51 assertions (6 new — see "D-035" in that
 file), added while fixing a follow-up to D-034: live testing confirmed
 Visitors/Purposes migrated correctly but Stores still timed out (D-035,

@@ -284,39 +284,52 @@ console.log('\n── ITEM 4: year isolation — rebuilding the SAME shared shee
   check('2027: Top Stores back at row 33 (shrunk correctly, not left at 36)', es.getRange(33, 3).getValue() === 'TOP 10 MOST VISITED STORES');
 }
 
-console.log('\n── getExecutiveSummaryReport() reader dynamically follows the SAME variable-length Purpose Breakdown (no fixed-4 assumption) ──');
+console.log('\n── getExecutiveSummaryReport() reader dynamically follows a variable-length Purpose Breakdown (no fixed-4 assumption) — now computed straight from MASTER_LOG (source-of-truth fix), not the EXECUTIVE SUMMARY sheet ──');
 {
-  // A hand-built mock simulating what Sheets would show after evaluating
-  // buildExecutiveSummaryLayout(2026)'s real formulas for 6 purposes
-  // (2 extra rows beyond the 4-purpose baseline) — the reader must
-  // locate the TOTAL marker itself and shift every section below by the
-  // same amount, exactly like the writer does.
+  // Source-of-truth fix: getExecutiveSummaryReport() no longer reads the
+  // EXECUTIVE SUMMARY sheet at all (SVMKPI_REPORTS.gs) — it reads
+  // MASTER_LOG directly via the canonical _getData() reader, same as
+  // buildExecutiveSummaryLayout()'s own _es_discoverReportablePurposes()
+  // (SVMKPI_LAYOUT.gs, reused here rather than duplicated). This fixture
+  // therefore builds a real MASTER_LOG instead of hand-writing sheet
+  // cells, and proves the reader still returns EVERY discovered purpose —
+  // 4 legacy + 2 synthetic ("additional") ones — never truncated to 4,
+  // with no dependency on any sheet row position at all (there is no more
+  // "shifted section" concept to get right, since nothing here scans a
+  // sheet layout any longer).
   const ssMock = makeSpreadsheetMock();
-  const sandbox = { SpreadsheetApp: { getActiveSpreadsheet: () => ssMock, flush: () => {} }, Logger: { log: () => {} }, console };
+  const sandbox = {
+    SpreadsheetApp: {
+      getActiveSpreadsheet: () => ssMock, flush: () => {},
+      BorderStyle: { SOLID: 'SOLID', SOLID_MEDIUM: 'SOLID_MEDIUM' },
+    },
+    Session: { getScriptTimeZone: () => 'UTC' },
+    Utilities: { formatDate: (d) => d.toISOString().slice(0, 10) },
+    Logger: { log: () => {} },
+    console,
+  };
   vm.createContext(sandbox);
-  [coreSrc, riskCfgSrc, riskSrc, reportsSrc].forEach(src => vm.runInContext(src, sandbox));
-  const es = ssMock.insertSheet('EXECUTIVE SUMMARY');
-  const names = ['STORE VISIT', 'TEST_NEW_PURPOSE', 'TLTC', 'FAILED QA/MS', 'CURING/SUPPORT', 'TEST_SECOND_PURPOSE'];
-  es.getRange(7, 3, 1, 7).setValues([['10', 0, 0, 0, 0, 0, 0]]);
-  es.getRange(10, 4, 1, 5).setValues([['', '', '', '', '']]);
-  for (let m = 0; m < 12; m++) es.getRange(11 + m, 3, 1, 7).setValues([['', 0, 0, 0, 0, 0, 0]]);
-  es.getRange(23, 3, 1, 7).setValues([['TOTAL', 0, 0, 0, 0, 0, 0]]);
-  es.getRange(27, 3, 3, 3).setValues([['', '', ''], ['', '', ''], ['', '', '']]);
-  es.getRange(31, 4, 1, 2).setValues([[0, '0.0%']]);
-  names.forEach((name, i) => es.getRange(27 + i, 7, 1, 3).setValues([[name, String(10 - i), '0.0%']]));
-  const totalRow = 27 + names.length; // 33
-  es.getRange(totalRow, 7, 1, 3).setValues([['TOTAL', '10', '100.0%']]);
-  const offset = totalRow - 31; // = 2
-  for (let i = 0; i < 10; i++) es.getRange(35 + offset + i, 3, 1, 3).setValues([['', '', '']]);
-  for (let i = 0; i < 12; i++) es.getRange(35 + offset + i, 7, 1, 3).setValues([['', '', '']]);
-  es.getRange(50 + offset, 3, 5, 5).setValues(Array.from({ length: 5 }, () => ['', 0, '0.0%', '', 0]));
-  es.getRange(55 + offset, 4, 1, 4).setValues([[0, '0.0%', '', 0]]);
+  [coreSrc, yearSrc, layoutSrc, riskCfgSrc, riskSrc, reportsSrc].forEach(src => vm.runInContext(src, sandbox));
+  const master = ssMock.insertSheet('MASTER_LOG');
+  master.getRange(1, 1, 1, 9).setValues([['Timestamp', 'Date', 'Store', 'Brand', 'Region', 'Visited By', 'Purpose', 'Remarks', 'Store ID']]);
+  const purposeCounts = [
+    ['STORE VISIT', 10], ['TEST_NEW_PURPOSE', 9], ['TLTC', 8],
+    ['FAILED QA/MS', 7], ['CURING/SUPPORT', 6], ['TEST_SECOND_PURPOSE', 5],
+  ];
+  purposeCounts.forEach(([purpose, n]) => {
+    for (let i = 0; i < n; i++) master.appendRow(row(2026, 3, 1 + (i % 28), 'GAMMA', 'LEO', purpose));
+  });
+  const grandTotal = purposeCounts.reduce((sum, [, n]) => sum + n, 0); // 45
 
-  const report = sandbox.getExecutiveSummaryReport();
-  eq('reader returns all 6 purpose rows, none truncated', report.purpose.map(p => p.name), names);
-  eq('reader found the shifted TOTAL correctly', report.purposeTotal.count, '10');
-  eq('reader\'s Top Stores/Leaderboard/Brand Performance sections are readable at their SHIFTED positions (no crash, correct empty shape)',
-    report.topStores.length + report.leaderboard.length + report.brandPerformance.length >= 0, true);
+  const report = sandbox.getExecutiveSummaryReport(2026);
+  eq('reader returns all 6 purpose rows, none truncated, in count-desc order', report.purpose.map(p => p.name),
+    purposeCounts.map(([name]) => name));
+  eq('reader\'s purposeTotal sums every row, including the synthetic/additional ones', report.purposeTotal.count, String(grandTotal));
+  const additionalKpi = report.kpi.find(k => k.label === 'Additional Purpose');
+  eq('the "Additional Purpose" KPI card counts exactly the 2 non-legacy purposes (9+5=14)', additionalKpi.value, '14');
+  check('reader\'s Top Stores/Leaderboard/Brand Performance sections are readable and non-empty (no crash)',
+    report.topStores.length > 0 && report.leaderboard.length > 0 && report.brandPerformance.length > 0, JSON.stringify({ t: report.topStores.length, l: report.leaderboard.length, b: report.brandPerformance.length }));
+  check('report.records exists and carries one entry per MASTER_LOG row for the year', Array.isArray(report.records) && report.records.length === grandTotal, report.records && report.records.length);
   check('no exception thrown reading a variable-length Purpose Breakdown', true);
 }
 

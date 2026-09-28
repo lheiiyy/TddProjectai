@@ -851,3 +851,117 @@ deleted, modified, auto-matched, or given a new Store identity), per
 instruction, as a separate historical reconciliation matter. **D-035 is
 now live-verified and closed** — see `reviews/012-...md` §6 for the full
 report.
+
+---
+
+## Reports tab — Data Records as the sole authoritative reporting source
+
+### D-036 — `getExecutiveSummaryReport()` computes directly from `MASTER_LOG`, never from the `EXECUTIVE SUMMARY` sheet; Additional Purpose and a per-visit `records` dataset added
+**Status:** Settled (source-of-truth fix + additive feature)
+**Decision:** `DATA RECORD → REPORTS` is now the enforced architecture
+for the Reports tab's Executive Summary view: `getExecutiveSummaryReport(year)`
+(`SVMKPI_REPORTS.gs`) reads `MASTER_LOG` once via the canonical `_getData()`
+reader and computes every metric/dimension itself, filtered to the
+selected reporting year — it no longer reads the `EXECUTIVE SUMMARY`
+sheet's cells at all. That sheet (`SVMKPI_LAYOUT.gs`'s
+`buildExecutiveSummaryLayout()`) still exists, is unmodified, and can
+still be rebuilt/viewed directly in the Spreadsheet as a presentation
+artifact — it is simply no longer this reader's authoritative source, and
+never was written to by it (read-only, unchanged). A year `<select>` was
+added to the Reports toolbar (Executive Summary only), populated from the
+existing `getAvailableReportingYears()` — the same function Admin →
+Report Snapshots' own year selector already uses. A new `Additional
+Purpose` KPI card counts a year's visits whose Purpose is not one of the
+4 fixed legacy purposes (`APPROVED_PURPOSES`) already broken out as their
+own cards — discovered from the data, never hardcoded. The report
+dataset gained a `records` array (one entry per visit for the selected
+year, carrying `date`/`store`/`brand`/`region`/`visitor`/`purpose`/
+`additionalPurpose`/`timestamp`) and a matching "Visit Detail Records"
+table in the Reports UI, reusing the existing `ftCreate` filter/sort
+engine — no new framework. `getKPI2026Report()`/`getStoreHealthReport()`
+(the other two Reports views) are unmodified; deferred, not in scope. See
+`reviews/013-reports-source-of-truth.md` for the full pre-implementation
+trace, the report-to-report dependency classification, and test results.
+**Rationale:** A direct instruction to make Data Records the authoritative
+reporting source and add an Additional Purpose metric, with an explicit
+architecture rule: "Reports must not use another report, generated KPI
+sheet, Executive Summary sheet, or previously calculated report as the
+authoritative reporting source." Direct code inspection (not assumed)
+found `getExecutiveSummaryReport()` doing exactly that — reading the
+`EXECUTIVE SUMMARY` sheet's pre-computed cells — the one real violation
+of this rule in the Reports tab; `getKPI2026Report()`/
+`getStoreHealthReport()` have the same shape but were explicitly out of
+scope and not touched. One judgment call is recorded here rather than
+made silently: every existing Executive Summary metric, not only
+Additional Purpose, is now year-scoped — 4 of the 7 original KPI cards
+(Total/Store/TLTC/Failed/Curing were year-scoped inconsistently; Region/
+Top Stores/Leaderboard were all-time regardless of year) had never
+actually respected the sheet's own per-year title before this fix. Making
+every metric consistently year-scoped was judged necessary, not
+optional, to satisfy "changing the year must change displayed metrics"
+coherently, and required no architecturally larger change than scoping
+one metric that way — same single year-filtered index, applied
+uniformly. See `reviews/013-...md` §7 for the full reasoning.
+**Impact:** No schema change; `MASTER_LOG` is read-only from this path
+(proved by a test diffing its contents byte-for-byte across three report
+calls spanning two different years). `getExecutiveSummaryReport()`'s
+return shape is purely additive — every pre-existing field is unchanged
+in meaning; `kpi` gained one entry, `records`/`selectedYear`/
+`availableYears` are new. `SVMI_PORTAL.html` and
+`SVMI_Command_Center_Demo.html` (the file `portal-ui.test.js`/
+`responsive-check.js` actually exercise) were updated identically. New
+test file `reports-source-of-truth.test.js` (53 assertions) proves the
+source-of-truth fix structurally (works with the `EXECUTIVE SUMMARY`
+sheet entirely absent; ignores a deliberately-wrong stale copy of it),
+Additional Purpose (correct, not hardcoded, year-scoped), required
+dimensions (present, not narrowed to just the 4 mandatory ones), year
+selection (two years differ, non-mutating), and existing-metric
+regression against a hand-checked fixture; `purpose-report-surfaces.test.js`'s
+Executive-Summary-reader block was rewritten (real `MASTER_LOG` fixture
+instead of a hand-built sheet, since the reader no longer reads one) and
+still passes. Full suite: 1378 assertions across 27 files, 0 failures
+(merged-base baseline was 1316/26). Not yet verified live against the
+deployed test copy or real production data — see `reviews/013-...md` §12.
+
+### D-037 — Executive Summary view simplified: Additional Purpose KPI card, Visit Detail Records table, and the top-bar Brand filter hidden; D-036's data contract is unchanged
+**Status:** Settled (presentation-only follow-up to D-036)
+**Decision:** In `SVMI_PORTAL.html`'s `renderExecutiveSummaryReport()`,
+the `Additional Purpose` KPI card and the "Visit Detail Records" table
+are no longer rendered, and the top-bar "Brand: All Brands ▾" filter
+control is hidden (`.brand-wrap{display:none}`). None of the underlying
+D-036 data contract changed: `getExecutiveSummaryReport()`
+(`SVMKPI_REPORTS.gs`) still returns the `Additional Purpose` KPI entry
+and the full `records` array exactly as before, and `gBrands`/the brand
+filter's own logic (used by Store Insights and elsewhere) is untouched —
+`gBrands` simply stays permanently empty (All Brands) since there's no
+longer a control to set it from the Reports/top-bar UI. This mirrors,
+exactly, three presentational edits made earlier to the published
+Claude-Artifact live demo (`SVMI_Command_Center_Demo.html` was **not**
+touched — the project owner explicitly declined syncing it into the repo
+for now, so it still shows all three elements and its own tests are
+unaffected).
+**Rationale:** Direct, explicit instruction from the project owner in
+this session, after testing the live demo and then confirming the same
+change should apply to the real test-copy web app: the Additional
+Purpose KPI card and Visit Detail Records table read as redundant in the
+Executive Summary view, and the Brand filter read as redundant given
+existing per-brand breakdowns elsewhere on the same view. This is a
+UI-presentation decision, not a reversal of D-036's architecture — the
+`DATA RECORD → REPORTS` source-of-truth rule, the Additional Purpose
+metric's computation, and the per-visit `records` dataset all remain
+exactly as D-036 built them; only what's rendered changed.
+**Impact:** `SVMI_PORTAL.html` only (CSS + `renderExecutiveSummaryReport()`);
+no `.gs` file touched. `REPORT_DETAIL_COLS`/`reportDetailRenderRow`
+are now unused but left in place as harmless dead code, matching the
+demo copy's own precedent. No test file changes: no automated suite
+asserts on `SVMI_PORTAL.html`'s rendered output (`portal-ui.test.js`/
+`responsive-check.js` exercise `SVMI_Command_Center_Demo.html` only, per
+the disclosed testing-architecture limitation in `ARCHITECTURE.md` §4/§8);
+the one test that does load `SVMI_PORTAL.html` directly
+(`settings-config-migration.test.js`, checking for the absence of the
+retired Store & Roster Manager UI) is unrelated and still passes. Full
+existing suite re-run (1378 assertions/27 files) to confirm no
+regression — unchanged, since nothing it covers was touched. Deployed to
+the test copy: `clasp push`, then the existing Web App deployment
+(`AKfycbwERP_IXsFXFr1wDS_WSpl3AYUzhp6jgJJsFQzA8LVSNbkdvZjwD6VnFu_uyq4OFpXV`)
+redeployed as **v19**. Not yet live-verified by the project owner.

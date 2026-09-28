@@ -1,6 +1,56 @@
 # SVMI — Project Status
 
-Last updated: 2026-09-28, recording **live verification and closure of
+Last updated: 2026-09-28, recording **an Executive Summary UI
+simplification** (`DECISIONS.md` D-037), a presentation-only follow-up to
+the Reports-tab source-of-truth fix below. At the project owner's
+explicit request — after testing a published live demo of the Reports
+view and then confirming the same change for the real app — the
+`Additional Purpose` KPI card and the "Visit Detail Records" table are no
+longer rendered in `SVMI_PORTAL.html`'s Executive Summary view, and the
+top-bar Brand filter is hidden. None of D-036's data contract changed:
+`getExecutiveSummaryReport()` (`SVMKPI_REPORTS.gs`) is untouched and
+still returns the `Additional Purpose` KPI entry and the full `records`
+array; the brand-filter logic (`gBrands`) other tabs rely on is untouched
+too, just permanently unset now that its control is hidden.
+`SVMI_Command_Center_Demo.html` was deliberately **not** touched this
+pass — the project owner explicitly chose to leave the repo demo file
+out of sync for now. **Code-complete, full test suite re-confirmed
+unchanged (1378 assertions/27 files, 0 failures — nothing it covers was
+touched), and deployed to the test copy as v19.** Not yet verified
+against live/production data by the project owner.
+
+Prior update, recording **a Reports-tab source-of-truth fix
+plus a new Additional Purpose metric** (`DECISIONS.md` D-036,
+`reviews/013-reports-source-of-truth.md`). Pre-implementation trace found
+`getExecutiveSummaryReport()` (`SVMKPI_REPORTS.gs`) reading the generated
+`EXECUTIVE SUMMARY` sheet's cells as its authoritative source — the exact
+`DATA RECORD → REPORT SHEET → REPORT` pattern this task's architecture
+rule forbids. Fixed: it now computes every Executive Summary metric
+directly from `MASTER_LOG` (Data Records) via the canonical `_getData()`
+reader, consistently year-scoped (a real pre-existing inconsistency —
+only 3 of 7 sections were previously year-aware — was corrected as part
+of this, not left half-fixed). A new `Additional Purpose` KPI card
+counts visits outside the 4 legacy purposes, discovered from the data,
+never hardcoded. The report dataset gained a `records` array (Additional
+Purpose/Visitor/Brand/Store plus the rest of the relevant Data Record
+fields, as real filterable data) surfaced as a new "Visit Detail Records"
+table, and a year selector was added to the Reports toolbar. The
+`EXECUTIVE SUMMARY` sheet itself is unmodified and remains a legitimate,
+rebuildable presentation artifact — simply no longer authoritative.
+Code-complete, full test suite passing (1378 assertions/27 files,
+including a new 53-assertion structural source-of-truth proof), and was
+deployed to the test copy as v18 (now superseded by v19 above — the same
+underlying report logic, just the three rendering elements noted above
+hidden). `getKPI2026Report()`/`getStoreHealthReport()` (the Reports
+tab's other two views) were deliberately not touched — out of scope for
+this task.
+
+Also that session: **PR #7 (pilot-testing MFA enforcement toggle, D-033)
+and PR #8 (migration performance fix, D-034/D-035) were both merged**
+into this branch's base — see below for their own prior summaries, both
+still accurate and unchanged by the Reports work above.
+
+Prior state, recording **live verification and closure of
 the second-round Stores migration performance fix** (`DECISIONS.md`
 D-035, `reviews/012-store-migration-performance-fix.md`). D-034 was
 deployed (v16) and live-verified: Visitors (12 entities) and Purposes (4
@@ -266,15 +316,22 @@ pilot-testing MFA enforcement toggle (D-033, `reviews/010-...md`) is
 code-complete, documented, and its tests are now confirmed actually
 passing (109/109, 52/52 — see `TESTING_LOG.md`). The migration
 performance fix, round 2 (D-035, `reviews/012-...md`) is code-complete,
-test-verified (mechanically, via a mocked-sheet read-count proof),
-deployed to the test copy as v17, and **now live-verified and closed**
-— the project owner ran "Migrate Legacy Data" and it completed with no
-execution-timeout error (`Stores: +9`, already had 221). No further
-migration-performance work is required. A separate, pre-existing matter
-the run surfaced — 12 `CONFIG_UNMAPPED_STORES` records left over from
-earlier migration runs — was confirmed unrelated to D-035 and
-intentionally left unchanged; see "What remains unresolved" if that
-reconciliation is ever picked up as its own task. Phase 1H-D/whatever
+test-verified, deployed to the test copy as v17, and live-verified and
+closed — the project owner ran "Migrate Legacy Data" and it completed
+with no execution-timeout error (`Stores: +9`, already had 221). A
+separate, pre-existing matter the run surfaced — 12
+`CONFIG_UNMAPPED_STORES` records left over from earlier migration runs —
+was confirmed unrelated to D-035 and intentionally left unchanged; see
+"What remains unresolved" if that reconciliation is ever picked up as its
+own task. The Reports tab source-of-truth fix (D-036, `reviews/013-
+reports-source-of-truth.md`) is code-complete, test-verified (1378
+assertions/27 files, including a 53-assertion structural proof that
+Executive Summary no longer reads the `EXECUTIVE SUMMARY` sheet), and
+deployed to the test copy as v18. The follow-up Executive Summary UI
+simplification (D-037 — hiding the Additional Purpose KPI card, Visit
+Detail Records table, and Brand filter) is also code-complete and
+**deployed to the test copy as v19** — neither is yet verified against
+live/production data, see "Immediate next task." Phase 1H-D/whatever
 comes next (external IdP selection, or further identity-surface work)
 has not been scoped.
 
@@ -402,26 +459,42 @@ Unknown items `reviews/003` §H never asked any of these tasks to fix:
 
 ## Immediate next task
 
-**The migration performance fix, round 2 (D-035) is done — deployed
-(v17), live-verified, and closed.** The project owner ran "Migrate
-Legacy Data" against the test copy and it completed with no
-execution-timeout error (`Stores: +9`, already had 221; `Visitors: +0`,
-already had 12; `Purposes: +0`, already had 4). See
-`reviews/012-store-migration-performance-fix.md` §6 for the full report.
-No further migration-performance work is required. The 12
-`CONFIG_UNMAPPED_STORES` records the run flagged are a separate,
-pre-existing, unscoped data-reconciliation matter (see "What remains
-unresolved") — not a next task unless the project owner explicitly asks
-for it.
+**Live-verify the Executive Summary view on the test copy (v19)** — the
+Reports tab source-of-truth fix (D-036, `reviews/013-reports-source-of-
+truth.md`) plus the follow-up UI simplification (D-037: Additional
+Purpose KPI card, Visit Detail Records table, and Brand filter now
+hidden) are both code-complete, the full 27-file test suite (1378
+assertions) passes, and it's deployed to the test copy as **v19**. Needed
+from the project owner: (a) open Reports → Executive Summary and confirm
+the (now 7, not 8) KPI cards show correct real numbers, (b) try the year
+selector and confirm the whole view updates together — monthly/region/
+purpose breakdowns and Top Stores/Leaderboard/Brand Performance, (c)
+confirm the Brand filter's removal from the top bar didn't affect other
+tabs (Store Insights' own brand filtering is separate and untouched),
+(d) confirm `Admin → Tools → Rebuild Executive Summary` still works
+exactly as before (unmodified — the sheet remains a legitimate, separate
+presentation artifact). The Additional Purpose metric and the Visit
+Detail Records dataset are still computed and returned by
+`getExecutiveSummaryReport()` — only their card/table stopped rendering
+— so no data was lost, only hidden.
 
-Next: this session's earlier identity-test confirmation (D-033,
-109/109 and 52/52 passing) closes that loose end too. Then:
-**project-owner review of `reviews/009-phase-1h-c-security-fix-r2.md`**
-(and `reviews/007`/`reviews/008` alongside it) and a decision on what
-comes next: either (a) select an external identity provider and scope
-the OIDC/SAML integration behind the provider-neutral boundary Phase
-1H-C built, (b) address one of the still-open System Peripherals items
-below (an Admin Configuration screen for admin access, `reviews/001`/
-`002`, `DECISIONS.md` D-007), or (c) decide when to re-enable
+**The migration performance fix, round 2 (D-035) is done** — deployed
+(v17), live-verified, and closed; see
+`reviews/012-store-migration-performance-fix.md` §6. No further
+migration-performance work is required. The 12 `CONFIG_UNMAPPED_STORES`
+records that run flagged are a separate, pre-existing, unscoped
+data-reconciliation matter (see "What remains unresolved") — not a next
+task unless the project owner explicitly asks for it. The pilot-testing
+MFA enforcement toggle (D-033) tests are confirmed passing (109/109,
+52/52).
+
+After that: **project-owner review of
+`reviews/009-phase-1h-c-security-fix-r2.md`** (and `reviews/007`/
+`reviews/008` alongside it) and a decision on what comes next: either
+(a) select an external identity provider and scope the OIDC/SAML
+integration behind the provider-neutral boundary Phase 1H-C built, (b)
+address one of the still-open System Peripherals items below (an Admin
+Configuration screen for admin access, `reviews/001`/`002`,
+`DECISIONS.md` D-007), or (c) decide when to re-enable
 `IDENTITY_MFA_ENFORCED` as pilot testing winds down. No application work
-has begun on (a) or (b).
+has begun on (a), (b), or (c).

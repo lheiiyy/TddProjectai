@@ -643,13 +643,25 @@ async function goToTab(p, name) {
 
   console.log('\n── Reports tab (Executive Summary / KPI 2026 / Store Health) ──');
   await goToTab(page, 'Reports');
-  await page.waitForTimeout(1000);   // first load, through the mock backend's simulated delay
+  // First load now makes TWO sequential simulated-backend calls for
+  // Executive Summary (getAvailableReportingYears() to populate the year
+  // selector, then getExecutiveSummaryReport(year) itself) — a longer
+  // wait than a single-call tab needs.
+  await page.waitForTimeout(1600);
   check('Executive Summary sub-tab active by default', await page.evaluate(() =>
     document.getElementById('repTab-es').classList.contains('active')));
   const esKpiCount = await page.$$eval('#reportsPanel .kpi-row .ck', e => e.length);
-  check('Executive Summary renders KPI cards', esKpiCount === 7, 'count=' + esKpiCount);
+  check('Executive Summary renders KPI cards (incl. Additional Purpose)', esKpiCount === 8, 'count=' + esKpiCount);
   const monthRows = await page.$$eval('#reportsPanel table.data-tbl tbody tr', e => e.length);
   check('Executive Summary renders the monthly table', monthRows >= 12, 'rows=' + monthRows);
+  const esYearOptions = await page.$$eval('#esYearSel option', e => e.length);
+  check('Executive Summary year selector is populated', esYearOptions >= 1, 'options=' + esYearOptions);
+  const esDetailRows = await page.$$eval('#esDetailBody table.data-tbl tbody tr', e => e.length);
+  check('Executive Summary renders the Visit Detail Records table', esDetailRows >= 1, 'rows=' + esDetailRows);
+  const esDetailHeaders = await page.$$eval('#esDetailBody table.data-tbl thead th', e => e.map(x => x.textContent.trim()));
+  ['Store', 'Brand', 'Visitor', 'Purpose', 'Additional Purpose'].forEach(col => {
+    check('Visit Detail Records exposes the "' + col + '" dimension', esDetailHeaders.some(h => h.indexOf(col) !== -1), JSON.stringify(esDetailHeaders));
+  });
 
   await page.click('#repTab-kpi');
   await page.waitForTimeout(900);
