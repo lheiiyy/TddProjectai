@@ -756,3 +756,19 @@ fix, not just its symptom: migrating 40 brand-new stores adds exactly
 upfront index build `store_migrateFromSettings()` already did per
 D-034) — not one per store, which is what made this an O(n²) versus
 O(n) question in the first place.
+
+**Update — live-verified:** deployed to the test copy as v17; the
+project owner ran "Migrate Legacy Data" and reported it completed
+without an execution-timeout error: `Stores: +9 (already had 221)`,
+`Visitors: +0 (already had 12)`, `Purposes: +0 (already had 4)`. The 221
+already-existing stores (plus 12 visitors, 4 purposes) being recognized
+rather than re-created is direct evidence of idempotency in the one case
+actually exercised. The run also reported 12 `MASTER_LOG` store names
+that could not be confidently matched, listed in
+`CONFIG_UNMAPPED_STORES`; the project owner confirmed these are
+pre-existing records left over from migration runs that predate this
+fix, not something D-035 introduced — they were left unchanged (not
+deleted, modified, auto-matched, or given a new Store identity), per
+instruction, as a separate historical reconciliation matter. **D-035 is
+now live-verified and closed** — see `reviews/012-...md` §6 for the full
+report.
