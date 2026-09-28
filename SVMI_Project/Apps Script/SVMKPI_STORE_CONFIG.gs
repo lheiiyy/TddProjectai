@@ -62,24 +62,42 @@ function _store_dateToStr(date) {
 /**
  * store_create(fields, effectiveFromStr, reason, options, explicitStoreId)
  * Creates a BRAND NEW store. Mints a fresh, immutable Store ID unless
- * `explicitStoreId` is supplied (used only by store_migrateFromSettings()
- * below, which needs the ID it generated during mapping to be the one
- * actually written) — and even then, rejects if that ID already has any
- * existing version (a duplicate-ID create attempt is an error, not a
- * silent update; use store_update() to modify an existing store).
+ * `explicitStoreId` is supplied — and even then, rejects if that ID
+ * already has any existing version (a duplicate-ID create attempt is an
+ * error, not a silent update; use store_update() to modify an existing
+ * store).
+ *
+ * Performance fix (DECISIONS.md D-035): when `explicitStoreId` is NOT
+ * supplied (the normal case — no current caller ever supplies one), the
+ * freshly-minted UUID from _store_generateId() cannot possibly already
+ * have a version: Utilities.getUuid() is exactly the collision-free
+ * guarantee this codebase already trusts everywhere else a Store ID is
+ * minted. The duplicate-ID check below is therefore skipped in that
+ * case (mathematically unnecessary, not merely assumed), and
+ * `knownNewEntity` is passed through so cfg_createConfiguration() can
+ * skip its own equivalent full-sheet read too — this is what keeps bulk
+ * creation (store_migrateFromSettings()) from re-reading an
+ * ever-growing CONFIG_STORES sheet once per store. An explicit Store ID
+ * has no such guarantee and keeps the real check, unchanged.
  * @returns {{success:boolean, message?:string, storeId?:string, versionId?:string, version?:number}}
  */
 function store_create(fields, effectiveFromStr, reason, options, explicitStoreId) {
   if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
 
   const storeId = _store_normalizeId(explicitStoreId ? explicitStoreId : _store_generateId());
-  const existing = cfg_getConfiguration(CFG_AREA.STORES, storeId);
-  if (existing.length > 0) {
-    return { success: false, message: 'Store ID already exists: ' + storeId + '. Use store_update() to modify an existing store.' };
+
+  let effectiveOptions = options;
+  if (explicitStoreId) {
+    const existing = cfg_getConfiguration(CFG_AREA.STORES, storeId);
+    if (existing.length > 0) {
+      return { success: false, message: 'Store ID already exists: ' + storeId + '. Use store_update() to modify an existing store.' };
+    }
+  } else {
+    effectiveOptions = Object.assign({}, options, { knownNewEntity: true });
   }
 
   const withDefaults = Object.assign({ status: CFG_STATUS.ACTIVE }, fields || {});
-  const result = cfg_createConfiguration(CFG_AREA.STORES, storeId, withDefaults, effectiveFromStr, null, reason, options);
+  const result = cfg_createConfiguration(CFG_AREA.STORES, storeId, withDefaults, effectiveFromStr, null, reason, effectiveOptions);
   if (!result.success) return result;
   return Object.assign({}, result, { storeId });
 }
@@ -288,7 +306,7 @@ function store_resolveIdByCurrentName(storeName) {
  * SETTINGS, and the current one (if operationally active) is written —
  * so an old name never lingers as a stale, orphaned SETTINGS row.
  */
-function _storeSync_toSettings(storeId) {
+function _storeSync_toSettings(storeId, suppressRebuild) {
   if (typeof portal_saveStore !== 'function' || typeof portal_removeStore !== 'function') return;
 
   const id = _store_normalizeId(storeId);
@@ -305,11 +323,11 @@ function _storeSync_toSettings(storeId) {
 
   Object.keys(everyName).forEach(name => {
     if (isOperational && name === currentName) return; // written below instead of removed
-    portal_removeStore(name); // harmless no-op if this name has no SETTINGS row
+    portal_removeStore(name, suppressRebuild); // harmless no-op if this name has no SETTINGS row
   });
 
   if (isOperational && currentName) {
-    portal_saveStore(currentName, current.fields.brand, current.fields.region, current.fields.category);
+    portal_saveStore(currentName, current.fields.brand, current.fields.region, current.fields.category, suppressRebuild);
   }
 }
 
@@ -496,6 +514,34 @@ function store_reconcileUnmapped(unmappedId, resolvedStoreId, notes) {
  * @param {{store:string, date:(Date|string)}[]} masterLogRows - only the
  *   fields this function needs, not a full MASTER_LOG row shape
  * @returns {{success:boolean, message?:string, createdStoreIds?:string[], mapping?:object, unmappedCount?:number, alreadyMigrated?:string[], failed?:{name:string, message:string}[]}}
+ *
+ * Performance fix (DECISIONS.md D-034): this function used to call
+ * store_resolveIdByCurrentName() once per incoming SETTINGS row — and
+ * THAT function itself re-reads the entire CONFIG_STORES sheet once per
+ * already-existing store (O(existing) sheet reads, each O(existing) —
+ * effectively O(existing^2)) — plus a full re-scan of `masterLogRows`
+ * per store to find its earliest visit date (O(stores x rows)), plus a
+ * Store Health rebuild (a full MASTER_LOG scan) after every single
+ * store created. Fixed by building both lookups ONCE up front (O(existing)
+ * and O(rows) respectively, not squared) and suppressing the per-store
+ * rebuild in favor of one rebuild after the whole batch.
+ *
+ * D-034 alone was not enough on the real test copy: store_create() itself
+ * (via cfg_createConfiguration()) still re-read the ENTIRE, ever-growing
+ * CONFIG_STORES sheet on every single call (to compute existingVersions
+ * for validation), and _storeSync_toSettings() (the per-store legacy-
+ * mirror sync) did two MORE such full-sheet reads on top of that — still
+ * O(existing^2) overall, just moved rather than removed. This is why
+ * Visitors (12 entities) finished fine but Stores (far more) still timed
+ * out — see reviews/012-store-migration-performance-fix.md, DECISIONS.md
+ * D-035. Fixed by passing knownNewEntity (skips that read — mathematically
+ * safe, see store_create()'s own comment), suppressLegacyMirror (SETTINGS
+ * already has this exact data; nothing needs re-syncing during migration
+ * — see D-035), and deferFlush (one flush for the whole batch, not one
+ * per store) through to store_create()/cfg_createConfiguration(). Output/
+ * behavior is otherwise unchanged — same skip-if-already-migrated, same
+ * backdate-to-earliest-visit, same unmapped tracking, same failure
+ * reporting.
  */
 function store_migrateFromSettings(settingsStores, masterLogRows) {
   if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
@@ -506,30 +552,38 @@ function store_migrateFromSettings(settingsStores, masterLogRows) {
   const alreadyMigrated = [];
   const failed = [];
 
+  const existingByName = _store_buildCurrentNameIndex_();  // ONE sheet read total
+  const earliestByName = {}; // normalized store name -> earliest Date in MASTER_LOG
+  rows.forEach(row => {
+    const name = String(row.store || '').trim().toUpperCase();
+    if (!name) return;
+    const d = _parseDateCell(row.date);
+    if (d && (!earliestByName[name] || d.getTime() < earliestByName[name].getTime())) earliestByName[name] = d;
+  });
+
   (settingsStores || []).forEach(s => {
     const name = String(s.store || s.name || '').trim().toUpperCase();
     if (!name || mapping[name]) return;
 
-    const existingId = store_resolveIdByCurrentName(name);
+    const existingId = existingByName[name];
     if (existingId) {
       mapping[name] = existingId;
       alreadyMigrated.push(name);
       return;
     }
 
-    let earliest = null;
-    rows.forEach(row => {
-      if (String(row.store || '').trim().toUpperCase() !== name) return;
-      const d = _parseDateCell(row.date);
-      if (d && (!earliest || d.getTime() < earliest.getTime())) earliest = d;
-    });
-    const effectiveFrom = earliest || _store_today();
+    const effectiveFrom = earliestByName[name] || _store_today();
 
     const result = store_create(
       { storeName: s.store || s.name, brand: s.brand, region: s.region, category: s.category, status: CFG_STATUS.ACTIVE },
       _store_dateToStr(effectiveFrom),
       'Migrated from SETTINGS',
-      { backdateConfirmed: true }
+      // D-035: suppressLegacyMirror is safe here specifically because
+      // `s` (this store's name/brand/region/category) came FROM SETTINGS
+      // in the first place — there is nothing new to mirror back into
+      // it. deferFlush: one flush for the whole batch, below, not one
+      // per store.
+      { backdateConfirmed: true, suppressRebuild: true, suppressLegacyMirror: true, deferFlush: true }
     );
     if (result.success) {
       mapping[name] = result.storeId;
@@ -555,10 +609,21 @@ function store_migrateFromSettings(settingsStores, masterLogRows) {
     }
   });
 
-  Object.keys(unmappedStats).forEach(name => {
-    const stat = unmappedStats[name];
-    store_recordUnmapped(name, stat.first ? _store_dateToStr(stat.first) : '', stat.last ? _store_dateToStr(stat.last) : '', stat.count);
-  });
+  _store_recordUnmappedBulk_(unmappedStats); // ONE sheet read total, was one per distinct name
+
+  // deferFlush (D-035) above means every appended CONFIG_STORES/
+  // CONFIG_AUDIT row from this whole batch is still only pending —
+  // commit them all in one round-trip now, before anything (including
+  // the rebuild below) reads the sheet again.
+  if (created.length) SpreadsheetApp.flush();
+
+  // The per-store rebuild was suppressed above — run it exactly once,
+  // and only if this batch actually created anything.
+  if (created.length && typeof refreshRiskEngine === 'function') {
+    try {
+      if (SpreadsheetApp.getActiveSpreadsheet().getSheetByName(RISK_SHEET_NAME)) refreshRiskEngine();
+    } catch (e) { logError('store_migrateFromSettings (Store Health rebuild)', e); }
+  }
 
   return {
     success: true,
@@ -568,4 +633,70 @@ function store_migrateFromSettings(settingsStores, masterLogRows) {
     alreadyMigrated,
     failed,
   };
+}
+
+/**
+ * _store_buildCurrentNameIndex_()
+ * Bulk equivalent of calling store_resolveIdByCurrentName() once per
+ * name: reads CONFIG_STORES exactly ONCE (cfg_getConfiguration()),
+ * groups by entity in memory, then resolves each entity's current
+ * (as-of-today) version via the same _cfg_resolveAsOf() the single-name
+ * lookup itself ultimately uses — same resolution rule, computed once
+ * instead of redundantly per candidate name.
+ * @returns {{[normalizedStoreName: string]: string}} storeId
+ */
+function _store_buildCurrentNameIndex_() {
+  const today = _store_today();
+  const byEntity = {};
+  cfg_getConfiguration(CFG_AREA.STORES).forEach(v => {
+    (byEntity[v.entityId] || (byEntity[v.entityId] = [])).push(v);
+  });
+  const index = {};
+  Object.keys(byEntity).forEach(id => {
+    const resolved = _cfg_resolveAsOf(byEntity[id], today);
+    if (!resolved) return;
+    const name = String((resolved.fields && resolved.fields.storeName) || '').trim().toUpperCase();
+    if (name) index[name] = id;
+  });
+  return index;
+}
+
+/**
+ * _store_recordUnmappedBulk_(statsByName)
+ * Bulk equivalent of calling store_recordUnmapped() once per distinct
+ * name (which itself re-read the whole CONFIG_UNMAPPED_STORES sheet on
+ * every call): reads that sheet exactly ONCE, then updates an existing
+ * still-UNMAPPED row or appends a new one per name — identical
+ * duplicate-prevention behavior to the original, computed once.
+ * @param {{[name:string]: {count:number, first:(Date|null), last:(Date|null)}}} statsByName
+ */
+function _store_recordUnmappedBulk_(statsByName) {
+  const names = Object.keys(statsByName);
+  if (!names.length) return;
+
+  const sheet = _store_ensureUnmappedSheet();
+  const lastRow = sheet.getLastRow();
+  const rowByName = {};
+  if (lastRow >= 2) {
+    sheet.getRange(2, 1, lastRow - 1, 11).getValues().forEach((r, i) => {
+      const n = String(r[CFG_UNMAPPED_COL.ORIGINAL_NAME - 1] || '').trim().toUpperCase();
+      if (n && String(r[CFG_UNMAPPED_COL.STATUS - 1] || '') === 'UNMAPPED' && !rowByName[n]) {
+        rowByName[n] = i + 2;
+      }
+    });
+  }
+
+  names.forEach(name => {
+    const stat = statsByName[name];
+    const firstSeen = stat.first ? _store_dateToStr(stat.first) : '';
+    const lastSeen = stat.last ? _store_dateToStr(stat.last) : '';
+    const rowNum = rowByName[name];
+    if (rowNum) {
+      sheet.getRange(rowNum, CFG_UNMAPPED_COL.OCCURRENCE_COUNT).setValue(stat.count);
+      sheet.getRange(rowNum, CFG_UNMAPPED_COL.FIRST_SEEN).setValue(firstSeen);
+      sheet.getRange(rowNum, CFG_UNMAPPED_COL.LAST_SEEN).setValue(lastSeen);
+    } else {
+      sheet.appendRow(['UNMAPPED-' + Utilities.getUuid(), name, stat.count, firstSeen, lastSeen, 'UNMAPPED', '', new Date(), '', '', '']);
+    }
+  });
 }

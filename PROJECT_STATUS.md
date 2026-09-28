@@ -1,6 +1,31 @@
 # SVMI — Project Status
 
-Last updated: 2026-09-25, recording **Phase 1H-C Security Fix R2: MFA now
+Last updated: 2026-09-28, recording **live verification and closure of
+the second-round Stores migration performance fix** (`DECISIONS.md`
+D-035, `reviews/012-store-migration-performance-fix.md`). D-034 was
+deployed (v16) and live-verified: Visitors (12 entities) and Purposes (4
+entities) migrated and worked correctly end-to-end, but Stores still hit
+"Exceeded maximum execution time" — a real store roster was large enough
+to expose a second, deeper layer of the same O(n²) defect, inside the
+shared `cfg_createConfiguration()` write primitive itself rather than in
+the migration function's own pre-checks. D-035 fixed that layer, was
+deployed to the test copy as v17, and the project owner then ran
+"Migrate Legacy Data" again: it completed with **no execution-timeout
+error** — `Stores: +9 (already had 221)`, `Visitors: +0 (already had
+12)`, `Purposes: +0 (already had 4)`. **D-035 is live-verified and
+closed.** The run also flagged 12 `MASTER_LOG` store names it could not
+confidently match (`CONFIG_UNMAPPED_STORES`); the project owner
+confirmed these are pre-existing records from migration runs that
+predate this fix, not a D-035 defect — left unchanged (not deleted,
+modified, auto-matched, or given a new Store identity) as a separate
+historical reconciliation matter, not reopened by this fix.
+
+Visitors and Purposes migration/display are working, live-verified, and
+were **not modified** in the D-035 pass, per the project owner's
+explicit instruction not to touch a working path absent a discovered
+regression.
+
+Prior state (2026-09-25): **Phase 1H-C Security Fix R2: MFA now
 also applies to the pre-existing `sl_isAdmin()` legacy admin path**, not
 just the new identity/permission surface — closing the dual-
 authorization-path gap `reviews/008-phase-1h-c-security-fix-r1.md`
@@ -213,9 +238,19 @@ synthetic data — **158/158 passing** as of this check.
 
 Nothing is mid-implementation. Phase 1G, Phase 1H-A, Phase 1H-B, Phase
 1H-B.1, Phase 1H-C, Phase 1H-C Security Fix R1, and Phase 1H-C Security
-Fix R2 are all complete, tested, documented, and pushed. Phase 1H-D/
-whatever comes next (external IdP selection, or further identity-surface
-work) has not been scoped — see "Immediate next task."
+Fix R2 are all complete, tested, documented, and pushed. The
+migration performance fix, round 2 (D-035, `reviews/012-...md`) is
+code-complete, test-verified (mechanically, via a mocked-sheet
+read-count proof), deployed to the test copy as v17, and **now
+live-verified and closed** — the project owner ran "Migrate Legacy
+Data" and it completed with no execution-timeout error (`Stores: +9`,
+already had 221). No further migration-performance work is required. A
+separate, pre-existing matter the run surfaced — 12
+`CONFIG_UNMAPPED_STORES` records left over from earlier migration runs
+— was confirmed unrelated to D-035 and intentionally left unchanged;
+see "What remains unresolved" if that reconciliation is ever picked up
+as its own task. Phase 1H-D/whatever comes next (external IdP
+selection, or further identity-surface work) has not been scoped.
 
 ## What remains unresolved
 
@@ -297,6 +332,15 @@ items `reviews/003` §H never asked any of these tasks to fix:
   corresponds to a selectable Store category.
 - Legacy dead code: `_countIfs()` and the `DATA_YEAR` literal it uses have
   no live caller.
+- **12 `CONFIG_UNMAPPED_STORES` records remain unresolved** — `MASTER_LOG`
+  store names that could not be confidently matched during migration
+  runs that predate D-035; confirmed by the project owner to be
+  pre-existing, not caused by D-035, and intentionally left unchanged
+  (not deleted, modified, auto-matched, or given a new Store identity)
+  as a separate historical reconciliation matter. See
+  `reviews/012-store-migration-performance-fix.md` §6. Resolving them is
+  a distinct data-reconciliation task, not a migration-performance one,
+  and is not scoped or scheduled.
 
 ## What is explicitly deferred
 
@@ -328,11 +372,23 @@ items `reviews/003` §H never asked any of these tasks to fix:
 
 ## Immediate next task
 
-**Project-owner review of `reviews/009-phase-1h-c-security-fix-r2.md`**
-(and `reviews/007`/`reviews/008` alongside it) and a decision on what
-comes next: either (a) select an external identity provider and scope
-the OIDC/SAML integration behind the provider-neutral boundary Phase
-1H-C built, or (b) address one of the still-open System Peripherals items
-below (an Admin Configuration screen for admin access, `reviews/001`/
-`002`, `DECISIONS.md` D-007) first. No application work has begun on
-either.
+**The migration performance fix, round 2 (D-035) is done — deployed
+(v17), live-verified, and closed.** The project owner ran "Migrate
+Legacy Data" against the test copy and it completed with no
+execution-timeout error (`Stores: +9`, already had 221; `Visitors: +0`,
+already had 12; `Purposes: +0`, already had 4). See
+`reviews/012-store-migration-performance-fix.md` §6 for the full report.
+No further migration-performance work is required. The 12
+`CONFIG_UNMAPPED_STORES` records the run flagged are a separate,
+pre-existing, unscoped data-reconciliation matter (see "What remains
+unresolved") — not a next task unless the project owner explicitly asks
+for it.
+
+Next: **project-owner review of
+`reviews/009-phase-1h-c-security-fix-r2.md`** (and `reviews/007`/
+`reviews/008` alongside it) and a decision on what comes next: either
+(a) select an external identity provider and scope the OIDC/SAML
+integration behind the provider-neutral boundary Phase 1H-C built, or
+(b) address one of the still-open System Peripherals items below (an
+Admin Configuration screen for admin access, `reviews/001`/`002`,
+`DECISIONS.md` D-007). No application work has begun on either.

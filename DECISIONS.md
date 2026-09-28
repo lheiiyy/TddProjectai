@@ -619,3 +619,156 @@ Admin-list logic, or Phase 1H-B.1 protection was removed or weakened —
 reusing the Account tab's visual pattern) so a legacy admin actually has
 a way to complete this requirement — without it, R2 would have locked
 every admin out with no interactive path back in.
+
+---
+
+## Pilot bug fix — legacy-data migration performance, and the Input Portal bugs it explains
+
+### D-034 — Bulk `cfg_createConfiguration()` callers must suppress the per-entity legacy-mirror rebuild; the SETTINGS→CONFIG_* migration is now three independently-callable steps
+**Status:** Settled (bug fix)
+**Decision:** Two related, compounding performance defects in the
+Phase 1G SETTINGS→CONFIG_* migration path are fixed:
+1. `cfg_createConfiguration()` (`SVMKPI_CONFIG.gs`) now accepts
+   `options.suppressRebuild`, threaded through `_cfg_syncLegacyMirror()`
+   → `_storeSync_toSettings()`/`_visitorSync_toSettings()` →
+   `portal_saveStore()`/`portal_removeStore()`/`manageVisitor()`, to skip
+   the full `refreshRiskEngine()`/`buildKPI2026()` rebuild that function
+   triggers by default on every single call. That rebuild is correct and
+   cheap for one interactive admin edit; triggered once per entity inside
+   a bulk migration loop (hundreds of stores/visitors), it was the
+   dominant cost by a wide margin — each rebuild rescans all of
+   `MASTER_LOG`.
+2. `store_migrateFromSettings()`/`visitor_migrateFromSettings()`
+   (`SVMKPI_STORE_CONFIG.gs`/`SVMKPI_VISITOR_CONFIG.gs`) no longer
+   re-read their whole `CONFIG_*`/`CONFIG_UNMAPPED_STORES` sheet once
+   per candidate name to check "already migrated" (an O(n²) sheet-read
+   pattern — `store_resolveIdByCurrentName()`/
+   `cfg_resolveConfigurationAsOf()` each independently re-read the
+   entire sheet per call) or re-scan all of `masterLogRows` per store to
+   find its earliest visit date (O(stores × rows)). Each now builds one
+   in-memory index up front (`_store_buildCurrentNameIndex_()`, an
+   `earliestByName` map, `_store_recordUnmappedBulk_()`) and does O(1)
+   lookups per candidate instead.
+3. `settingsMigration_run()`'s single combined call (all three areas in
+   one Apps Script execution) is unchanged and still supported, but the
+   Admin UI now calls three new, independently-admin-gated entry points
+   — `settingsMigration_runStores()`/`_runVisitors()`/`_runPurposes()`
+   — one after another, so a problem in one area (Stores is the
+   heaviest of the three, being the only one that also scans
+   `MASTER_LOG`) can never prevent the other two from running, and each
+   gets its own Apps Script execution-time budget.
+**Rationale:** A project-owner report ("Input Portal can't show the
+Visitors list, can't type the date") traced through several rounds of
+investigation (see `reviews/011-migration-performance-fix.md`) to: the
+test-copy spreadsheet's `CONFIG_VISITORS` was never populated from the
+still-intact legacy `SETTINGS!F` roster, because the one existing,
+already-idempotent migration tool (`settingsMigration_run()` /
+"Migrate Legacy Data") was timing out against Apps Script's execution
+limit before it ever reached the Visitors step — confirmed by direct
+code inspection of every layer in the chain (not assumed), landing on
+the per-entity full-report-rebuild as the dominant, multiply-compounding
+cost.
+**Impact:** No `CONFIG_*` mutation's correctness or audit behavior
+changed — `suppressRebuild` only elides a *side effect* (a downstream
+report re-render), never the write itself, its audit row, or the
+legacy-mirror sync. Every interactive single-entity call site (Admin UI
+create/edit) omits the new option, so its default (rebuild immediately,
+exactly as before) is unchanged there. `settingsMigration_run()`'s
+external contract (used directly by `settings-config-migration.test.js`)
+is unchanged — same inputs, same output shape, same idempotency, same
+per-row failure reporting — verified by the full existing suite passing
+unmodified. No duplicate visitor/store source was introduced; `SETTINGS`
+remains a generated, read-only-in-practice mirror (D-006), never made
+authoritative again. Separately, this pass also fixed two "silently does
+nothing" UI defects it found while tracing the report: `filterStores()`/
+`filterVisitors()` (`SVMI_PORTAL.html`) now show an explicit message
+distinguishing "nothing configured yet" from "no match for your search"
+instead of closing the dropdown with no feedback at all, and
+`loadAdminArea()`'s Admin Configuration schema-load failure handler now
+clears *both* loading panes instead of leaving the entity list stuck on
+its spinner indefinitely — a defect that applies uniformly to every
+`CFG_AREA`, since they all share this one entry point.
+
+---
+
+## Pilot bug fix — D-034 was not enough for Stores; the real cost was inside `cfg_createConfiguration()` itself
+
+### D-035 — `cfg_createConfiguration()`'s own validation read, and `_storeSync_toSettings()`'s legacy-mirror sync, are both skippable for a bulk-created, freshly-minted-UUID entity
+**Status:** Settled (bug fix, completes D-034)
+**Decision:** After D-034 shipped, live testing confirmed Visitors (12
+entities) now migrates correctly, but Stores still timed out. Root
+cause: D-034 fixed the *caller's own* redundant re-checks
+(`store_resolveIdByCurrentName()` et al.), but `cfg_createConfiguration()`
+itself — the shared write primitive every `CONFIG_*` create goes
+through, regardless of caller — still re-read the **entire**, ever-
+growing target sheet on every single call, to compute `existingVersions`
+for validation (`_cfg_readVersions()` always reads the whole sheet, then
+filters by entity in memory — never a targeted read). `_storeSync_toSettings()`
+(the per-store legacy-mirror sync) did two more such full-sheet reads on
+top of that. This was still O(existing²) overall, just moved one layer
+deeper — invisible to D-034's own fix, which only touched the calling
+function's redundant pre-checks, not the write primitive's own internal
+ones. Visitors (12 entities) stayed fast enough regardless; Stores (a
+much larger real roster) did not. See
+`reviews/012-store-migration-performance-fix.md`.
+Three additions, all opt-in via `options` (every pre-existing call site
+omits them, so nothing about normal interactive Admin UI behavior
+changed):
+1. `options.knownNewEntity` (`cfg_createConfiguration()`): skips
+   `_cfg_readVersions()` and uses `[]` directly. Safe only when the
+   caller can *prove* — not assume — no existing version can possibly
+   exist. `store_create()` sets this automatically whenever it is not
+   given an explicit Store ID (the normal case): the freshly-minted
+   `Utilities.getUuid()`-based ID cannot collide with anything, the same
+   collision-free guarantee this codebase already trusts that primitive
+   for everywhere else a Store ID is minted. An explicit Store ID (a
+   parameter no current caller actually uses) keeps the real,
+   unconditional check.
+2. `options.suppressLegacyMirror` (`cfg_createConfiguration()`): skips
+   calling `_cfg_syncLegacyMirror()` (and therefore its two full-sheet
+   reads) entirely, not just the report rebuild inside it (D-034 already
+   handled that part). Used only by `store_migrateFromSettings()`, and
+   safe there specifically because migration's source data for a
+   store's name/brand/region/category **is** `SETTINGS` itself — there
+   is nothing new to mirror back into the sheet it just came from.
+3. `options.deferFlush` (`cfg_createConfiguration()`/`_cfg_writeAudit()`):
+   skips the per-call `SpreadsheetApp.flush()` (two per create — one for
+   the row, one for the audit entry); the bulk caller flushes exactly
+   once after its whole batch instead.
+**Rationale:** The task's own explicit instruction was "identify the
+actual expensive operation from the current code, do not guess" — this
+is the third, deeper layer of the same class of defect D-034 fixed at
+the caller level, now fixed at the shared primitive itself, verified
+mechanically (a read-count assertion in the test suite, not just
+inferred from a timing report — see below) rather than assumed fixed.
+**Impact:** No validation rule, audit record, or `CONFIG_STORES`
+row-shape changed — these options only skip *redundant, provably-safe-
+to-skip* reads and a self-mirror sync, never a real check. Every
+interactive single-entity Admin UI call (create one store by hand) is
+completely unaffected — none of them omit an explicit Store ID in a way
+that changes this path's behavior, and none of them pass any of these
+three options. `store_migrateFromSettings()`'s external contract
+(`createdStoreIds`, `alreadyMigrated`, `failed`, `unmappedCount`,
+`mapping`) is unchanged. A new mechanical regression test
+(`settings-config-migration.test.js`, "D-035" section) proves the actual
+fix, not just its symptom: migrating 40 brand-new stores adds exactly
+**one** further multi-row `CONFIG_STORES` read (the one legitimate
+upfront index build `store_migrateFromSettings()` already did per
+D-034) — not one per store, which is what made this an O(n²) versus
+O(n) question in the first place.
+
+**Update — live-verified:** deployed to the test copy as v17; the
+project owner ran "Migrate Legacy Data" and reported it completed
+without an execution-timeout error: `Stores: +9 (already had 221)`,
+`Visitors: +0 (already had 12)`, `Purposes: +0 (already had 4)`. The 221
+already-existing stores (plus 12 visitors, 4 purposes) being recognized
+rather than re-created is direct evidence of idempotency in the one case
+actually exercised. The run also reported 12 `MASTER_LOG` store names
+that could not be confidently matched, listed in
+`CONFIG_UNMAPPED_STORES`; the project owner confirmed these are
+pre-existing records left over from migration runs that predate this
+fix, not something D-035 introduced — they were left unchanged (not
+deleted, modified, auto-matched, or given a new Store identity), per
+instruction, as a separate historical reconciliation matter. **D-035 is
+now live-verified and closed** — see `reviews/012-...md` §6 for the full
+report.
