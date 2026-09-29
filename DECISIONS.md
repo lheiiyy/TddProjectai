@@ -19,7 +19,7 @@ attempted here.
 **Project:** SVMI
 **Repository:** `lheiiyy/TddProjectai`
 **Area:** `SVMI_Project/`
-**Status:** Awaiting Product Owner Decision
+**Status:** Settled — Option A selected
 **Decision Type:** Branch / Development-State Governance
 **Date:** 2026-09-29
 
@@ -211,15 +211,39 @@ is settled:
 
 ### 9. Product Owner Decision
 
-Select one: **A** — `main` / **B** — `claude/svmi-reports-source-of-truth`
-/ **C** — Create a controlled reconciliation/canonicalization branch
+**Selected: A — `main`** (`d70d4af0609f54688456658b45466b367ff36bf9`).
+`main` is the SVMI reference branch for future planning, implementation,
+testing, review, and repository records.
 
-**Product Owner Notes:** _pending_
+**Product Owner Notes:** None recorded beyond the selection itself.
 
 **Approved By:**
-Product Owner: _pending_
-Date: _pending_
-Decision Status: **Awaiting Product Owner Decision**
+Product Owner: (confirmed via this session's decision prompt)
+Date: 2026-09-29
+Decision Status: **Settled**
+
+### 9a. Immediate Consequence Requiring Follow-Up (disclosed, not resolved here)
+
+Selecting `main` as the reference branch creates an **immediate,
+concrete mismatch** with current deployed reality: the live production
+Apps Script script (`1QHHyLl8...`) is, as of this same date, running the
+candidate branch's code (pushed per a separate, explicit prior
+instruction — see §2 above), not `main`'s. `main`'s own
+`SVMI_Project/Apps Script/` content does not contain the Store ID
+architecture, versioned configuration engine, identity/MFA/RBAC system,
+Settings Migration invocation layer, or the D-036/D-037 Reports fix that
+are now live in production.
+
+This decision (which branch is the *reference*) does not by itself
+determine what should happen to that mismatch — options include (a)
+reverting production to match `main`, (b) bringing `main` forward to
+match what's now live (per §6's "Option A" consequence list — candidate-
+branch work "would need to be deliberately brought forward if
+retained"), or (c) leaving the mismatch in place temporarily while
+reconciliation work is scoped. None of these is decided by this entry.
+Per §10's implementation gate, no merge, cherry-pick, or further
+deployment change should proceed until that follow-up is explicitly
+directed.
 
 ### 10. Implementation Gate
 
