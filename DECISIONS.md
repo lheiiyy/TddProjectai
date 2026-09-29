@@ -294,6 +294,22 @@ A pre-deploy backup of production (v8's exact 32 files) was taken and
 committed to `main` at `SVMI_Project/live-backup-20260929-pre-d038/`
 before the D-038 push, independent of this manifest note.
 
+**Reconfirmed after launch to colleagues, same date:** by the time this
+was raised, SVMI was already in active use by colleagues under the
+`ANYONE`/`USER_ACCESSING` manifest. The specific risk was described to
+the Product Owner directly — any colleague without their own direct
+permission on the underlying Spreadsheet would hit a hard permission
+error under `USER_ACCESSING`, a failure mode `ANYONE_ANONYMOUS`/
+`USER_DEPLOYING` never had, since that model always executes as the
+script owner regardless of who's accessing it — and a revert to the
+proven prior configuration was recommended. **The Product Owner
+confirmed keeping `ANYONE`/`USER_ACCESSING` as-is**, informed by that
+risk, not merely as an earlier unexamined default. This still does not
+settle Decision B (§8) as a permanent target state, and the
+not-yet-verified risk in the bullet above (a colleague without direct
+Spreadsheet access hitting a permission error) remains open and worth
+watching if SVMI's user base grows.
+
 ### 10. Implementation Gate
 
 Until this decision is settled:
