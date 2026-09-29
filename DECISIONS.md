@@ -965,3 +965,42 @@ regression — unchanged, since nothing it covers was touched. Deployed to
 the test copy: `clasp push`, then the existing Web App deployment
 (`AKfycbwERP_IXsFXFr1wDS_WSpl3AYUzhp6jgJJsFQzA8LVSNbkdvZjwD6VnFu_uyq4OFpXV`)
 redeployed as **v19**. Not yet live-verified by the project owner.
+
+### D-038 — `getSidebarData()`'s Input Portal read path (`store_getOperationalList()`/`visitor_getOperationalList()`) no longer re-reads CONFIG_STORES/CONFIG_VISITORS once per entity
+**Status:** Settled
+**Decision:** Added `cfg_resolveAllAsOf(area, dateStr)` to
+`SVMKPI_CONFIG.gs` — reads an area's CONFIG sheet exactly once, groups
+versions by entity in memory, and resolves each entity's as-of version
+via the existing `_cfg_resolveAsOf()` helper. `store_getOperationalList()`
+(`SVMKPI_STORE_CONFIG.gs`) and `visitor_getOperationalList()`
+(`SVMKPI_VISITOR_CONFIG.gs`) now call it once instead of calling
+`resolveStoreAsOf()`/`cfg_resolveConfigurationAsOf()` inside a per-entity
+loop.
+**Rationale:** Live production report (this same production script the
+test-copy's code was deployed to per Decision A §2): the Input Portal
+tab's Stores and Visitors pickers were not appearing / extremely slow to
+appear, **after** "Migrate Legacy Data" had already populated
+`CONFIG_STORES`/`CONFIG_VISITORS` with real data — ruling out the simpler
+"migration never ran" explanation. Investigation found
+`store_getOperationalList()`/`visitor_getOperationalList()` — called by
+`getSidebarData()` on every single Input Portal tab load — each did 1+N
+full-sheet reads of their CONFIG sheet for N entities, the identical O(n²)
+defect D-035 already fixed, but only in the migration write path; this
+read path, hit on every load rather than once per migration run, had
+never been fixed. See `reviews/014-input-portal-load-perf.md` for the
+full trace and mechanical proof.
+**Impact:** `SVMKPI_CONFIG.gs` (new function, additive only),
+`SVMKPI_STORE_CONFIG.gs`, `SVMKPI_VISITOR_CONFIG.gs`. No other file
+changed; `resolveStoreAsOf()`/`cfg_resolveConfigurationAsOf()` themselves
+are untouched and still used as before by every single-entity caller
+(e.g. `store_getById()`, `manageVisitor()`). `settings-config-migration.test.js`
+gained a new D-038 section (6 assertions) mechanically proving exactly
+one multi-row read per call regardless of entity count (40 stores/40
+visitors seeded), plus a correctness check that a deactivated store is
+still correctly excluded. Full suite re-run: 27 files, 0 failures. A
+related, smaller instance of the same per-entity pattern exists in
+`admin_listPurposes()`/`purpose_getConfigurationStatus()` (Purposes) —
+not fixed here; see the review's §4 for why it's out of scope for this
+pass. Deployed live to production (`1QHHyLl8...`) after a fresh pre-push
+backup, per the same backup-then-push discipline as the earlier Decision
+A §2 deployment.

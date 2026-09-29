@@ -391,6 +391,61 @@ console.log('\n── D-035: store_migrateFromSettings() does not re-read CONFIG
   check('a migrated store resolves through Store ID identity like any other', !!anyBulkStore, anyBulkStore);
 }
 
+// ── D-038: getSidebarData() (Input Portal tab load) no longer re-reads
+// CONFIG_STORES/CONFIG_VISITORS once per entity. store_getOperationalList()/
+// visitor_getOperationalList() used to call resolveStoreAsOf()/
+// cfg_resolveConfigurationAsOf() inside a per-entity loop — the exact same
+// disease D-035 fixed in the migration WRITE path, but never fixed here in
+// the READ path that runs on every single Input Portal tab load (see
+// reviews/014-input-portal-load-perf.md — live-reported symptom: Stores and
+// Visitors not appearing / very slow to appear in the Input tab after
+// "Migrate Legacy Data" had already populated CONFIG_STORES/CONFIG_VISITORS).
+console.log('\n── D-038: store_getOperationalList()/visitor_getOperationalList() do not re-read CONFIG_* per entity (mechanical proof of the fix) ──');
+{
+  const { sandbox, sheets } = newSandbox();
+  const N = 40;
+  for (let i = 0; i < N; i++) {
+    // Backdated to YESTERDAY (not TODAY) so the deactivation exercised
+    // below can be effective TODAY without colliding on an identical
+    // Effective From date — same reason this file's own 1b test above
+    // backdates before deactivating.
+    sandbox.store_create({ storeName: 'LOAD STORE ' + i, brand: 'FIGARO', region: 'NCR', category: 'NCR' }, YESTERDAY, 'seed', { backdateConfirmed: true });
+    sandbox.cfg_createConfiguration('VISITORS', 'LOAD VISITOR ' + i, { visitorName: 'LOAD VISITOR ' + i }, TODAY, null, 'seed', {});
+  }
+  const configStores = sheets['CONFIG_STORES'];
+  const configVisitors = sheets['CONFIG_VISITORS'];
+  const storeReadsBefore = configStores.getMultiRowReadCount();
+  const visitorReadsBefore = configVisitors.getMultiRowReadCount();
+
+  const storeList = sandbox.store_getOperationalList(TODAY);
+  const visitorList = sandbox.visitor_getOperationalList(TODAY);
+
+  eq('all ' + N + ' stores are returned', storeList.length, N);
+  eq('all ' + N + ' visitors are returned', visitorList.length, N);
+
+  const storeReadsAfter = configStores.getMultiRowReadCount();
+  const visitorReadsAfter = configVisitors.getMultiRowReadCount();
+  check(
+    'store_getOperationalList() added exactly ONE further multi-row CONFIG_STORES read for ' + N + ' stores, not one per store',
+    storeReadsAfter === storeReadsBefore + 1,
+    'before: ' + storeReadsBefore + ', after: ' + storeReadsAfter
+  );
+  check(
+    'visitor_getOperationalList() added exactly ONE further multi-row CONFIG_VISITORS read for ' + N + ' visitors, not one per visitor',
+    visitorReadsAfter === visitorReadsBefore + 1,
+    'before: ' + visitorReadsBefore + ', after: ' + visitorReadsAfter
+  );
+
+  // Correctness alongside the read-count proof: an inactive store/visitor
+  // is still correctly excluded by the batch resolver, same as the old
+  // per-entity resolver excluded it.
+  const toDeactivate = sandbox.store_resolveIdByCurrentName('LOAD STORE 5');
+  const deactivateResult = sandbox.store_deactivate(toDeactivate, 'closing', TODAY, {});
+  check('deactivation itself succeeds', deactivateResult.success === true, JSON.stringify(deactivateResult));
+  const afterDeactivate = sandbox.store_getOperationalList(TODAY);
+  check('a deactivated store is excluded from the operational list', afterDeactivate.every(s => s.storeName !== 'LOAD STORE 5'), JSON.stringify(afterDeactivate.map(s => s.storeName)));
+}
+
 // ── 5. No Store & Roster Manager UI reference remains ──────────────────
 console.log('\n── SVMI_PORTAL.html has no remaining Store & Roster Manager UI/handlers ──');
 {

@@ -48,15 +48,13 @@ function visitor_getConfigurationStatus(visitorName, dateStr) {
  * `dateStr` (default today) — what Input Portal's "Visited By" picker
  * and the SETTINGS!F legacy mirror should both reflect. Sorted A→Z, same
  * convention as store_getOperationalList().
+ * Reads CONFIG_VISITORS exactly once via cfg_resolveAllAsOf(), regardless
+ * of visitor count — see store_getOperationalList()'s same fix
+ * (reviews/014-input-portal-load-perf.md) for why this mattered.
  * @returns {string[]}
  */
 function visitor_getOperationalList(dateStr) {
-  const ids = admin_listConfigEntityIds(CFG_AREA.VISITORS);
-  const out = [];
-  ids.forEach(id => {
-    if (cfg_resolveConfigurationAsOf(CFG_AREA.VISITORS, id, dateStr)) out.push(id);
-  });
-  return out.sort();
+  return Object.keys(cfg_resolveAllAsOf(CFG_AREA.VISITORS, dateStr)).sort();
 }
 
 /**

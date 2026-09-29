@@ -465,6 +465,47 @@ function cfg_resolveConfigurationAsOf(area, entityId, dateStr) {
 }
 
 /**
+ * cfg_resolveAllAsOf(area, dateStr)
+ * Public, read-only. Batch counterpart to cfg_resolveConfigurationAsOf()
+ * — resolves every entity in the area's as-of version in ONE sheet read,
+ * instead of the one-sheet-read-per-entity cost a caller gets by calling
+ * cfg_resolveConfigurationAsOf() inside a loop. Same resolution semantics
+ * (see _cfg_resolveAsOf()); an entity with no version effective on the
+ * given date is simply absent from the returned map, exactly as it would
+ * be skipped by a per-entity caller checking for a null result.
+ * Fixes the O(n) full-sheet-reads-per-load pattern in
+ * store_getOperationalList()/visitor_getOperationalList(), which run on
+ * every Input Portal tab load (see reviews/014-input-portal-load-perf.md)
+ * — the same class of defect D-034/D-035 already fixed in the
+ * migration write path, but never fixed in this read path.
+ * @returns {Object<string, {versionId, entityId, versionNum, effectiveFrom, effectiveTo, status, fields}>}
+ *          keyed by uppercase entityId
+ */
+function cfg_resolveAllAsOf(area, dateStr) {
+  const schema = CFG_AREA_SCHEMAS[area];
+  if (!schema) return {};
+  const asOf = dateStr ? _parseDateCell(dateStr) : _cfg_today();
+  if (!asOf) return {};
+
+  const sheet = _cfg_getSheetIfExists(area);
+  if (!sheet) return {};
+
+  const allVersions = _cfg_readVersions(sheet, schema, null);
+  const byEntity = {};
+  allVersions.forEach(v => {
+    if (!byEntity[v.entityId]) byEntity[v.entityId] = [];
+    byEntity[v.entityId].push(v);
+  });
+
+  const out = {};
+  Object.keys(byEntity).forEach(entityId => {
+    const resolved = _cfg_resolveAsOf(byEntity[entityId], asOf);
+    if (resolved) out[entityId] = resolved;
+  });
+  return out;
+}
+
+/**
  * cfg_getConfiguration(area, entityId)
  * Public, read-only. Returns EVERY version for an entity (or every
  * entity in the area if entityId is omitted) — the full history, not

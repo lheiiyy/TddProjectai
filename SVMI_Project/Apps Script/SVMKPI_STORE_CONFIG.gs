@@ -235,14 +235,18 @@ function _store_listEntityIds() {
  * resolvable regardless of current operational status (inactive stores
  * are never globally filtered out of the underlying data, only out of
  * this one operational-list view).
+ * Reads CONFIG_STORES exactly once via cfg_resolveAllAsOf(), regardless
+ * of store count — previously called resolveStoreAsOf() (one full-sheet
+ * read each) inside this loop, making every Input Portal tab load cost
+ * O(n) sheet reads for n stores (see reviews/014-input-portal-load-perf.md).
  * @returns {{storeId, storeName, brand, region, category}[]} sorted by name
  */
 function store_getOperationalList(dateStr) {
   const asOfStr = dateStr || _store_dateToStr(_store_today());
   const out = [];
-  _store_listEntityIds().forEach(id => {
-    const resolved = resolveStoreAsOf(id, asOfStr);
-    if (!resolved) return;
+  const resolvedMap = cfg_resolveAllAsOf(CFG_AREA.STORES, asOfStr);
+  Object.keys(resolvedMap).forEach(id => {
+    const resolved = resolvedMap[id];
     if (String((resolved.fields && resolved.fields.status) || CFG_STATUS.ACTIVE).toUpperCase() === CFG_STATUS.INACTIVE) return;
     out.push({
       storeId: id,
