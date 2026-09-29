@@ -245,6 +245,55 @@ Per §10's implementation gate, no merge, cherry-pick, or further
 deployment change should proceed until that follow-up is explicitly
 directed.
 
+### 9b. Second Immediate Consequence: Production Manifest Changed By The D-038 Deploy (disclosed, left as-is by explicit instruction)
+
+On 2026-09-29, a live production bug was reported and fixed (D-038 on
+`claude/svmi-reports-source-of-truth` — Input Portal's Stores/Visitors
+dropdowns not appearing / very slow to appear, an O(n²) full-sheet-read
+defect in `store_getOperationalList()`/`visitor_getOperationalList()`,
+same class as D-034/D-035 but in the read path; see
+`reviews/014-input-portal-load-perf.md` on that branch). Deploying the
+fix required rebuilding the full push payload from that branch's
+`SVMI_Project/Apps Script/` source, which includes `appsscript.json`.
+
+That file's committed value (`executeAs: USER_ACCESSING`, `access:
+ANYONE`) does **not** match what §5 above already established was
+actually live (`executeAs: USER_DEPLOYING`, `access: ANYONE_ANONYMOUS`).
+Pushing the full payload therefore also pushed the manifest, changing the
+**live** access model from `ANYONE_ANONYMOUS`/`USER_DEPLOYING` to
+`ANYONE`/`USER_ACCESSING` as an unintended side effect of the D-038 code
+deploy — not a considered change to deployment configuration.
+
+This was caught immediately after deploy (fresh `clasp pull` diff against
+a pre-deploy backup), and an attempt to revert the manifest back to the
+prior live values was made but blocked by this session's own permission
+controls as a security-sensitive change. The Product Owner was asked how
+to proceed and **explicitly chose to leave the manifest as `ANYONE`/
+`USER_ACCESSING`** (i.e., matching what's committed in source) rather
+than reverting it, for now.
+
+**What this does and does not mean:**
+- It does **not** settle Decision B (§8) — the Product Owner has not
+  stated a considered position on which access model SVMI's Web App
+  should use; this is an interim "leave it as it now happens to be,"
+  not a chosen target state.
+- It **does** mean the D-025 manifest drift described in §5 is, as of
+  this date, no longer present in one direction: committed and live now
+  agree (`ANYONE`/`USER_ACCESSING`). Whether that agreement should
+  persist, or whether `ANYONE_ANONYMOUS`/`USER_DEPLOYING` should be
+  restored and the repository's manifest updated to match instead, is
+  exactly the kind of question Decision B should still resolve
+  deliberately, not by accident of a code deploy.
+- Any real-world access impact (e.g., a user who previously reached the
+  app without a Google sign-in and now cannot, or a script-permission
+  failure for a signed-in user without direct Sheet access under
+  `USER_ACCESSING`) has not been separately verified in this session and
+  should be watched for.
+
+A pre-deploy backup of production (v8's exact 32 files) was taken and
+committed to `main` at `SVMI_Project/live-backup-20260929-pre-d038/`
+before the D-038 push, independent of this manifest note.
+
 ### 10. Implementation Gate
 
 Until this decision is settled:
