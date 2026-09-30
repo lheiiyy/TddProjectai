@@ -12,8 +12,8 @@ bash SVMI_Project/tests/run-all.sh            # syntax checks + every suite, und
 SVMI_SKIP_BROWSER=1 bash SVMI_Project/tests/run-all.sh   # no Playwright available
 ```
 
-Baseline (2026-09-30): **29 files, 1636 assertions, 0 failures** = the
-27-file / 1378-assertion Apps Script suite + `responsive-check.js` (100)
+Baseline (2026-09-30): **30 files, 1644 assertions, 0 failures** = the
+28-file / 1386-assertion Apps Script suite + `responsive-check.js` (100)
 + `dryrun.test.js` (158). `TESTING_LOG.md` is the authority for the
 current number — update it, don't trust this line if they differ.
 

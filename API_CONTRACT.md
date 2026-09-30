@@ -27,7 +27,7 @@ visitor needs their own Sheet access.
 - **Visibility.** A top-level function whose name ends in `_` is private
   and cannot be called over `google.script.run`. **Every other top-level
   function is a public endpoint** — including names that merely *start*
-  with `_` (e.g. `_cfg_setStatus`). Today: 167 public functions, of which
+  with `_` (e.g. `_cfg_setStatus`). Today: 166 public functions, of which
   78 are referenced by the portal (§4). The other 89 are still callable
   by any client that has loaded the portal.
 - **Secrets are never top-level functions.** They live as properties of
@@ -176,16 +176,14 @@ entry, never an edit (D-009). Backdated `effectiveFromStr` requires
 
 ## 6. Known contract issues (open — not fixed by the review that wrote this file)
 
-Recorded by `reviews/014-claude-code-environment-setup.md`:
+Recorded by `reviews/014-claude-code-environment-setup.md`. (The public `_cfg_writeAudit` that review found is fixed — it is now the private `_cfg_writeAudit_`, `reviews/015`, `audit-rpc-exposure.test.js`.)
+
 
 - `regenerateReportSheet(year)` clears and rewrites a sheet but has no
   `sl_isAdmin()` check, and is absent from `reviews/003`'s inventory. Its
   source is a frozen snapshot, so no data is lost — the same impact
   class as the rebuild engines `reviews/005` gated.
-- `_cfg_writeAudit(...)` (`SVMKPI_CONFIG.gs`) is public — leading `_`
-  only — has no gate, and takes the `actor` as an argument, so a portal
-  user can append a `CONFIG_AUDIT` row attributed to anyone.
-- 89 public functions the portal never calls are still RPC-reachable.
+- 88 public functions the portal never calls are still RPC-reachable.
   `reviews/003` inventoried the privileged ones at the time; nothing
   re-audits new public functions automatically.
 - Guest-tier reads (`cfg_getAuditLog`, `admin_*`) return data such as

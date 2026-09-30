@@ -11,8 +11,8 @@ failures under `TZ=UTC`), and an expanded `CLAUDE.md`. The review
 records nine findings for the owner to triage, not fixed — most
 important: (1) under `USER_ACCESSING`, Sheet sharing is the effective
 security boundary, so Sheet Viewers/Editors can read TOTP secrets and
-edit the admin list/identity sheets directly; (2) `_cfg_writeAudit` is
-RPC-callable with no gate; (3) `regenerateReportSheet` has no admin
+edit the admin list/identity sheets directly; (2) ~~`_cfg_writeAudit` is
+RPC-callable with no gate~~ — **fixed the same day**, `reviews/015`; (3) `regenerateReportSheet` has no admin
 gate; (4) two suites fail in `Asia/Manila` but pass in UTC. See
 "What remains unresolved".
 
@@ -356,7 +356,7 @@ has not been scoped.
 **New, from `reviews/014` (2026-09-30) — awaiting owner triage, none
 started:** Sheet sharing as the effective authorization boundary
 (identity/MFA data and `SETTINGS!G` editable or readable directly by
-Sheet users); ungated RPC-callable `_cfg_writeAudit`; ungated
+Sheet users); ~~ungated RPC-callable `_cfg_writeAudit`~~ (fixed, `reviews/015`); ungated
 `regenerateReportSheet`; time-zone-dependent assertions in
 `risk-config.test.js`/`store-identity.test.js`; guest password accepted
 via GET `?pw=`; no `LockService` on configuration writes. Full list and

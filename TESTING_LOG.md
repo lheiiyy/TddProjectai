@@ -7,6 +7,13 @@ demo; dry-run tooling is pure-function/synthetic-data only).
 
 ## Apps Script track — `SVMI_Project/tests/`
 
+**2026-09-30 (`reviews/015`): 28 files, 1386 assertions, 0 failures under
+`TZ=UTC`** — new `audit-rpc-exposure.test.js` (8 assertions, written
+first and confirmed failing): the `CONFIG_AUDIT` writer is private
+(`_cfg_writeAudit_`), no public function can write config audit rows
+ungated, and real mutations still write one server-attributed row.
+`run-all.sh` total: **30 files, 1644 assertions**.
+
 **Re-verified 2026-09-30 (Claude Code environment setup, `reviews/014`):
 27 files, 1378 assertions, 0 failures under `TZ=UTC`** — unchanged; no
 application code or test was modified. New one-command runner:

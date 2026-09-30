@@ -42,7 +42,7 @@ SVMI_PORTAL.html  →  public endpoint (prefix_verb)      ← gate + argument ch
   `_identity_…_`. New functions take their file's prefix.
 - **Trailing underscore = private.** `google.script.run` cannot call
   `fnName_()`. A leading underscore alone does **not** hide a function:
-  `_cfg_setStatus`, `_cfg_writeAudit`, and `_getData` are all public
+  `_cfg_setStatus` and `_getData` are public
   endpoints today. Every new helper that the portal doesn't call ends in
   `_`.
 - Secrets are properties of an object (`_SL_SECRET_`), never top-level
@@ -105,7 +105,7 @@ bypass it per function.
   `Logger.log` / `console.error` (Stackdriver). Never log secrets, codes,
   TOTP values, or full request payloads containing personal data.
 - Every configuration mutation writes `CONFIG_AUDIT` via
-  `_cfg_writeAudit`; every identity mutation writes `IDENTITY_AUDIT` via
+  `_cfg_writeAudit_` (private, actor from `sl_getCurrentUser()` — never a client argument); every identity mutation writes `IDENTITY_AUDIT` via
   `_identity_writeAudit_` (D-029). Keep the two domains separate (D-023).
 
 ## Before you finish

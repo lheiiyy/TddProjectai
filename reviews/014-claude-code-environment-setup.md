@@ -108,7 +108,7 @@ rules 6–7). Each is a candidate for its own owner-approved phase.
    `reviews/003` noted the menu-path and the guest-password case; the
    identity/MFA consequence isn't recorded. No sheet protection or
    hiding exists in code. Not verified: the live Sheet's actual sharing.
-2. **`_cfg_writeAudit(...)` is RPC-callable with no gate** and takes an
+2. **[FIXED — `reviews/015`] `_cfg_writeAudit(...)` was RPC-callable with no gate** and takes an
    arbitrary `actor` argument (leading `_`, no trailing `_`), so a portal
    user can append forged `CONFIG_AUDIT` rows. Same family:
    `_cfg_setStatus` and `_getData` are public (the former is gated).
