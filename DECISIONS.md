@@ -324,3 +324,53 @@ Until this decision is settled:
 After the decision, implementation should proceed only from the approved
 reference state and with the required reconciliation work explicitly
 identified.
+
+---
+
+## Decision C — Navigation Load Performance Fix (Unvisited This Month / NAC, Store Insights, Reports/KPI)
+
+**Decision ID:** D-C-NAV-PERF
+**Status:** Settled — performance fix only, no business-rule change
+**Date:** 2026-09-30
+**Area:** `SVMI_Project/Apps Script/` on `main` (SVMKPI_CONFIG.gs,
+SVMKPI_COMPLIANCE_CONFIG.gs, SVMKPI_STORE_LOOKUP.gs, SVMKPI_RISK.gs,
+SVMKPI_REPORTS.gs)
+
+**Correction to this session's own prior record:** while investigating
+this task, direct inspection (confirmed independently via GitHub's commit
+history for `main`, commit `931d6b3`) established that `main` already
+carries the Store ID/versioned-configuration engine that Decision A §9a
+and `REVIEW-002.md` had stated it lacked. That statement was inaccurate;
+it does not reverse Decision A's actual settlement (main remains the
+reference branch), and it does not extend to D-036/D-037, which remain
+confirmed absent from `main` (`getExecutiveSummaryReport()` still reads
+the pre-built `EXECUTIVE SUMMARY` sheet, not `MASTER_LOG` directly).
+
+**Decision:** Fixed a confirmed O(S²)→O(S³)-shaped performance defect (S
+= configured store count) in `sl_getComplianceGaps()` — the live-reported
+"Unvisited This Month" load delay — by adding a batch resolver
+(`cfg_resolveAllAsOf()`) that reads a CONFIG area's sheet once instead of
+once per store. Applied the same fix to two related, smaller defects
+found during verification: `_computeStoreRisk()`'s per-store
+`CONFIG_COMPLIANCE` re-read (affects every Store Insights store-click and
+every Store Health rebuild), and two redundant MASTER_LOG re-reads inside
+`sl_getStoreData()`/`_sl_computeCanonicalHealth()`. Also fixed
+`getKPI2026Report()`'s one-Sheets-API-round-trip-per-visitor-row pattern.
+Full detail, before/after evidence, and complexity analysis in
+`SVMI_Project/reviews/REVIEW-003.md`.
+
+**Rationale:** All changes are additive/optional-parameter extensions to
+existing functions (same pattern already established by D-034/D-035/D-038
+on the candidate branch) — every pre-existing caller's behavior is
+byte-for-byte unchanged; only the specific hot-loop call sites that opt
+into the new batch parameters get the optimization. Full existing test
+suite (20 files) re-run clean except one pre-existing, unrelated failure
+(a hardcoded rollback date in `admin-api.test.js` that has since passed
+into the past — unrelated to this change, not fixed here as out of
+scope).
+
+**Impact:** No business rule, compliance semantic, risk threshold, Store
+ID, MASTER_LOG data, or deployment configuration changed. Not yet
+live-verified against a real Spreadsheet or deployed — see
+`REVIEW-003.md` §10 for the explicit "not yet live-verified" disclosure
+and what live verification would require.

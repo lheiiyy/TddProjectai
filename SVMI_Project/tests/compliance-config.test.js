@@ -20,6 +20,7 @@ const configSrc     = APPS('SVMKPI_CONFIG.gs');
 const calSrc        = APPS('SVMKPI_CALENDAR.gs');
 const cmpCfgSrc     = APPS('SVMKPI_COMPLIANCE_CONFIG.gs');
 const storeCfgSrc   = APPS('SVMKPI_STORE_CONFIG.gs');
+const yearSrc       = APPS('SVMKPI_REPORTING_YEAR.gs');
 const riskSrc       = APPS('SVMKPI_RISK.gs');
 const lookupSrc     = APPS('SVMKPI_STORE_LOOKUP.gs');
 
@@ -40,6 +41,12 @@ function makeWritableSheet() {
   const key = (r, c) => r + ',' + c;
   function setCell(r, c, v) { cells[key(r, c)] = v; if (r > maxRow) maxRow = r; }
   function getCell(r, c) { const v = cells[key(r, c)]; return v == null ? '' : v; }
+  // Read-count instrumentation (same convention as
+  // settings-config-migration.test.js's getMultiRowReadCount()): counts
+  // genuine multi-row getValues() calls — the shape of "re-read the
+  // whole, growing sheet" this suite's new scale test proves is no
+  // longer done once PER STORE.
+  let multiRowReadCount = 0;
   function makeRange(row, col, numRows, numCols) {
     const range = {};
     let proxy;
@@ -47,6 +54,7 @@ function makeWritableSheet() {
     range.setValues = (rows) => { rows.forEach((rowArr, ri) => rowArr.forEach((v, ci) => setCell(row + ri, col + ci, v))); return proxy; };
     range.getValue = () => getCell(row, col);
     range.getValues = () => {
+      if (numRows > 1) multiRowReadCount++;
       const out = [];
       for (let r = 0; r < numRows; r++) {
         const rowArr = [];
@@ -62,6 +70,7 @@ function makeWritableSheet() {
     getLastRow: () => maxRow,
     getRange: (row, col, numRows, numCols) => makeRange(row, col, numRows || 1, numCols || 1),
     appendRow: (rowArr) => { const r = maxRow + 1; rowArr.forEach((v, i) => setCell(r, i + 1, v)); },
+    getMultiRowReadCount: () => multiRowReadCount,
   };
   let sproxy;
   sproxy = new Proxy(sheet, { get(t, p) { if (p in t) return t[p]; if (typeof p !== 'string') return undefined; return () => sproxy; } });
@@ -110,6 +119,7 @@ function newSandbox(masterLogRows, settingsRows) {
   vm.runInContext(calSrc, sandbox);
   vm.runInContext(cmpCfgSrc, sandbox);
   vm.runInContext(storeCfgSrc, sandbox);
+  vm.runInContext(yearSrc, sandbox);
   vm.runInContext(riskSrc, sandbox);
   vm.runInContext(lookupSrc, sandbox);
   return { sandbox, ssMock, state };
@@ -408,6 +418,128 @@ console.log('\n── Scale: 5,000+ MASTER_LOG rows across multiple years/stores
   check('SCALE_A (visited Sep 5, 2026) is compliant despite 5,200+ rows', !gaps.some(g => g.store === 'SCALE_A'), JSON.stringify(gaps.map(g => g.store)));
   check('the other 4 scale stores are correctly flagged as gaps (no Sep 2026 visit of their own)', ['SCALE_B', 'SCALE_C', 'SCALE_D', 'SCALE_E'].every(s => gaps.some(g => g.store === s)), JSON.stringify(gaps.map(g => g.store)));
   check('resolves in a reasonable time (< 5s) — no accidental O(n^2) blowup', elapsedMs < 5000, elapsedMs + 'ms');
+}
+
+// The test above scales MASTER_LOG rows (5,200) across only 5 distinct
+// stores — it never would have caught an O(stores^2)-shaped defect, since
+// 5 stores makes even a quadratic blowup negligible. This test scales
+// STORE COUNT itself and mechanically proves sl_getComplianceGaps() no
+// longer re-reads CONFIG_STORES/CONFIG_COMPLIANCE once PER STORE via
+// store_resolveIdByCurrentName()/resolveComplianceConfigurationAsOf()
+// (the live-reported "Unvisited This Month" load-delay root cause — see
+// SVMI_Project/reviews/REVIEW-003.md).
+console.log('\n── Scale: many DISTINCT STORES resolved via Store ID — CONFIG_STORES/CONFIG_COMPLIANCE read once, not once per store ──');
+{
+  const N = 60;
+  const { sandbox, ssMock } = newSandbox([], []);
+  sandbox.cmp_create('NCR', { cadenceType: 'MONTHLY', cadenceDays: 31, requiredCount: 1 }, TODAY, 'rule', {});
+
+  const settings = ssMock._sheets['SETTINGS'];
+  const storeIds = [];
+  for (let i = 0; i < N; i++) {
+    const name = 'SCALE STORE ' + i;
+    const created = sandbox.store_create({ storeName: name, brand: 'FIGARO', region: 'NCR', category: 'NCR' }, TODAY, 'seed');
+    check('store ' + i + ' created', created.success === true, JSON.stringify(created));
+    storeIds.push(created.storeId);
+    // store_create() syncs its OWN name into SETTINGS, but
+    // sl_getComplianceGaps() reads SETTINGS directly for the store
+    // roster it iterates — write explicitly so this test does not
+    // depend on that sync behavior remaining exactly as-is.
+    settings.appendRow([name, 'FIGARO', 'NCR', '', 'NCR']);
+  }
+  // Every other store gets a compliant visit; the rest are real gaps —
+  // exercises both branches (compliant/gap) at this store count.
+  const masterLog = ssMock._sheets['MASTER_LOG'] || (function () {
+    const m = ssMock.insertSheet('MASTER_LOG');
+    m.getRange(1, 1, 1, 8).setValues([['Timestamp', 'Date', 'Store', 'Brand', 'Region', 'Visited By', 'Purpose', 'Remarks']]);
+    return m;
+  })();
+  for (let i = 0; i < N; i += 2) {
+    masterLog.appendRow(row(2026, 9, 5, 'SCALE STORE ' + i, 'LEO'));
+  }
+
+  const configStores = ssMock._sheets['CONFIG_STORES'];
+  const configCompliance = ssMock._sheets['CONFIG_COMPLIANCE'];
+  const readsBeforeCall = { stores: configStores.getMultiRowReadCount(), compliance: configCompliance.getMultiRowReadCount() };
+
+  const gaps = sandbox.sl_getComplianceGaps([], 9, 2026, '2026-09-18');
+
+  const readsAfterCall = { stores: configStores.getMultiRowReadCount(), compliance: configCompliance.getMultiRowReadCount() };
+  const storeReadsForThisCall = readsAfterCall.stores - readsBeforeCall.stores;
+  const complianceReadsForThisCall = readsAfterCall.compliance - readsBeforeCall.compliance;
+
+  eq('all ' + (N / 2) + ' odd-indexed stores (no visit) are gaps', gaps.length, N / 2);
+  check(
+    'one call to sl_getComplianceGaps() for ' + N + ' stores added at most 2 multi-row CONFIG_STORES reads (name-as-of-today + category-as-of-eval), not one per store (was O(' + N + ') before this fix)',
+    storeReadsForThisCall <= 2,
+    'reads attributable to this call: ' + storeReadsForThisCall
+  );
+  check(
+    'the same call added at most 1 multi-row CONFIG_COMPLIANCE read, not one per store',
+    complianceReadsForThisCall <= 1,
+    'reads attributable to this call: ' + complianceReadsForThisCall
+  );
+
+  // Correctness alongside the read-count proof: every gap resolved its
+  // rule via the real Store ID path (NCR/Monthly, requiredCount 1), not
+  // the SETTINGS-category fallback — confirmed by the exact gap count
+  // and window label matching the CONFIG_COMPLIANCE rule, not a guess.
+  check('gaps report the Store-ID-resolved Monthly window, not an unresolved/fallback state', gaps.every(g => g.windowLabel === 'Monthly'), JSON.stringify(gaps.map(g => g.windowLabel)));
+}
+
+// sl_getStoreData() (Store Insights' per-store-click RPC) calls
+// _sl_computeCanonicalHealth(), which runs the FULL, all-stores
+// _computeStoreRisk() engine just to extract one store's row. Two
+// distinct redundant-read defects lived in that path:
+//   1. _sl_computeCanonicalHealth() called _getData(log), a SECOND full
+//      MASTER_LOG read, when sl_getStoreData() had already read the same
+//      rows itself moments earlier in the same RPC.
+//   2. _computeStoreRisk()'s per-store .map() called
+//      _sl_computeComplianceScore() -> _sl_getCadenceDays() ->
+//      cmp_getCadenceDays() -> _cmp_resolveByCategory(), each a fresh
+//      CONFIG_COMPLIANCE read, ONCE PER STORE, though CONFIG_COMPLIANCE
+//      is keyed by category (a handful of values), never by store.
+// See SVMI_Project/reviews/REVIEW-003.md.
+console.log('\n── Store Insights: sl_getStoreData() does not duplicate the MASTER_LOG read, and _computeStoreRisk() does not re-read CONFIG_COMPLIANCE per store ──');
+{
+  const N = 60;
+  const { sandbox, ssMock } = newSandbox([], []);
+  sandbox.cmp_create('NCR', { cadenceType: 'MONTHLY', cadenceDays: 31, requiredCount: 1 }, TODAY, 'rule', {});
+
+  const settings = ssMock._sheets['SETTINGS'];
+  for (let i = 0; i < N; i++) {
+    settings.appendRow(['SCALE STORE ' + i, 'FIGARO', 'NCR', '', 'NCR']);
+  }
+  const masterLog = ssMock.insertSheet('MASTER_LOG');
+  masterLog.getRange(1, 1, 1, 8).setValues([['Timestamp', 'Date', 'Store', 'Brand', 'Region', 'Visited By', 'Purpose', 'Remarks']]);
+  for (let i = 0; i < N; i++) {
+    masterLog.appendRow(row(2026, 9, 5, 'SCALE STORE ' + i, 'LEO'));
+  }
+  // A second visit for the one store this test actually looks up, so
+  // totalVisits/recentVisits/topVisitors below have real data to check.
+  masterLog.appendRow(row(2026, 9, 12, 'SCALE STORE 0', 'MARIA'));
+
+  const configCompliance = ssMock._sheets['CONFIG_COMPLIANCE'];
+  const masterLogReadsBefore = masterLog.getMultiRowReadCount();
+  const complianceReadsBefore = configCompliance.getMultiRowReadCount();
+
+  const result = sandbox.sl_getStoreData('SCALE STORE 0');
+
+  const masterLogReadsForThisCall = masterLog.getMultiRowReadCount() - masterLogReadsBefore;
+  const complianceReadsForThisCall = configCompliance.getMultiRowReadCount() - complianceReadsBefore;
+
+  check('sl_getStoreData() returns the correct visit count for the looked-up store', result.summary.totalVisits === 2, JSON.stringify(result.summary));
+  check(
+    'one sl_getStoreData() call reads MASTER_LOG exactly ONCE, not twice (own read + _sl_computeCanonicalHealth\'s _getData() re-read)',
+    masterLogReadsForThisCall === 1,
+    'reads attributable to this call: ' + masterLogReadsForThisCall
+  );
+  check(
+    'the same call adds at most 1 multi-row CONFIG_COMPLIANCE read for ' + N + ' stores\' risk scoring, not one per store (was O(' + N + ') before this fix)',
+    complianceReadsForThisCall <= 1,
+    'reads attributable to this call: ' + complianceReadsForThisCall
+  );
+  check('health score is still resolved (Store ID/SETTINGS-category compliance engine reachable end to end)', result.health && typeof result.health.score === 'number', JSON.stringify(result.health));
 }
 
 console.log('\n══════════════════════════════════');

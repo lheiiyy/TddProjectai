@@ -147,11 +147,14 @@ function _sl_normalizeText(value) {
  *   FAR PROVINCIAL, FLIGHT PROVINCIAL — or already-normalized MONTHLY/
  *   QUARTERLY/SEMI-ANNUAL)
  * @param {Date} [dateRef] - resolution date; omit for today
+ * @param {Object} [prebuiltMap] - optional, from
+ *   cfg_resolveAllAsOf(CFG_AREA.COMPLIANCE, dateRef); see
+ *   _cmp_resolveByCategory(). Passed through unchanged.
  * @returns {number} required days between visits, or 0 if unrecognized
  */
-function _sl_getCadenceDays(category, dateRef) {
+function _sl_getCadenceDays(category, dateRef, prebuiltMap) {
   if (typeof cmp_getCadenceDays === 'function') {
-    return cmp_getCadenceDays(category, dateRef);
+    return cmp_getCadenceDays(category, dateRef, prebuiltMap);
   }
   const cat = _sl_normalizeText(category);
   if (cat === 'NCR' || cat === 'NEAR PROVINCIAL' || cat === 'MONTHLY') return RISK_CADENCE.MONTHLY;
@@ -215,16 +218,18 @@ function _sl_getStoreMetaLookup() {
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * _sl_computeComplianceScore(lastDate, category, today)
+ * _sl_computeComplianceScore(lastDate, category, today, prebuiltMap)
  * Compares the store's last visit against its category's required
  * cadence. A store with NO visit history at all scores the same as one
  * that's OVERDUE (+3) — never visited is not better than merely late;
  * v1 of this model scored "no history" as 0 (neutral), which ranked a
  * never-visited store as less urgent than one just past its window.
+ * @param {Object} [prebuiltMap] - see _sl_getCadenceDays(); passed
+ *   through unchanged.
  * @returns {{score:number, status:string, cadenceDays:number, daysSince:(number|null), label:string}}
  */
-function _sl_computeComplianceScore(lastDate, category, today) {
-  const cadenceDays = _sl_getCadenceDays(category, today);
+function _sl_computeComplianceScore(lastDate, category, today, prebuiltMap) {
+  const cadenceDays = _sl_getCadenceDays(category, today, prebuiltMap);
   const categoryLabel = _sl_getCategoryLabel(category);
 
   if (!cadenceDays) {
@@ -464,10 +469,21 @@ function _computeStoreRisk(data, today, year) {
     }
   }
 
+  // Built ONCE for every store below, instead of once PER STORE inside
+  // the .map() — _sl_getCadenceDays()/cmp_getCadenceDays() previously
+  // re-read all of CONFIG_COMPLIANCE on every single store's compliance
+  // score, here and on every Store Insights store-selection click via
+  // _sl_computeCanonicalHealth() (see SVMI_Project/reviews/REVIEW-003.md).
+  // CONFIG_COMPLIANCE is keyed by CATEGORY, not by
+  // store, so one read covers every store regardless of store count.
+  const complianceByCategory = (typeof cfg_resolveAllAsOf === 'function')
+    ? cfg_resolveAllAsOf(CFG_AREA.COMPLIANCE, today)
+    : null;
+
   return Object.values(byStore).map(s => {
     const lastPurpose = _sl_resolveTiebreak(s.lastPurposes);
     const monthlyScore = _sl_computeMonthlyPurposeScores(s.monthlyBuckets, monthLimit, today);
-    const compliance = _sl_computeComplianceScore(s.lastDate, s.category, today);
+    const compliance = _sl_computeComplianceScore(s.lastDate, s.category, today, complianceByCategory);
 
     const rawScore = monthlyScore.totalPurposeScore + compliance.score;
     const totalScore = Math.max(0, parseFloat(rawScore.toFixed(2)));

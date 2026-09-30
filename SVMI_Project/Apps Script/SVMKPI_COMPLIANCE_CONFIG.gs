@@ -103,15 +103,21 @@ const CMP_DEFAULT_RULES = {
 };
 
 /**
- * _cmp_resolveByCategory(category, dateStr)
+ * _cmp_resolveByCategory(category, dateStr, prebuiltMap)
  * Internal. Resolves the compliance rule for a raw CATEGORY string as of
  * a date — CONFIG_COMPLIANCE if a version exists, else the hardcoded
  * default for a recognized category, else null (unrecognized category —
  * matches sl_getComplianceGaps()'s existing "skip unknown category"
  * behavior).
+ * @param {Object} [prebuiltMap] - optional, from
+ *   cfg_resolveAllAsOf(CFG_AREA.COMPLIANCE, dateStr). When given, looks
+ *   up `cat` in this map instead of calling cfg_resolveConfigurationAsOf()
+ *   (which re-reads CONFIG_COMPLIANCE every call) — lets a caller
+ *   resolving many categories/stores build the map ONCE. Omit for the
+ *   original per-call resolution; behavior is otherwise identical.
  * @returns {{category, cadenceType, cadenceDays, periodDefinition, requiredCount, graceDays, source, versionId}|null}
  */
-function _cmp_resolveByCategory(category, dateStr) {
+function _cmp_resolveByCategory(category, dateStr, prebuiltMap) {
   const cat = String(category || '').trim().toUpperCase();
   if (!cat) return null;
 
@@ -119,9 +125,11 @@ function _cmp_resolveByCategory(category, dateStr) {
   // narrower context (e.g. a test exercising only the calendar-period
   // model) — degrade straight to the hardcoded default in that case
   // rather than throwing.
-  const resolved = (typeof cfg_resolveConfigurationAsOf === 'function')
-    ? cfg_resolveConfigurationAsOf(CFG_AREA.COMPLIANCE, cat, dateStr)
-    : null;
+  const resolved = prebuiltMap
+    ? (prebuiltMap[cat] || null)
+    : ((typeof cfg_resolveConfigurationAsOf === 'function')
+        ? cfg_resolveConfigurationAsOf(CFG_AREA.COMPLIANCE, cat, dateStr)
+        : null);
   if (resolved && resolved.fields) {
     const f = resolved.fields;
     return {
@@ -142,15 +150,17 @@ function _cmp_resolveByCategory(category, dateStr) {
 }
 
 /**
- * cmp_getCadenceDays(category, dateStr)
+ * cmp_getCadenceDays(category, dateStr, prebuiltMap)
  * Drop-in replacement for SVMKPI_RISK.gs's old _sl_getCadenceDays() —
  * same "0 = unrecognized category" contract, now resolved from
  * CONFIG_COMPLIANCE as of a date (falling back to the same hardcoded
  * defaults) instead of a fixed lookup table.
+ * @param {Object} [prebuiltMap] - see _cmp_resolveByCategory(); passed
+ *   through unchanged.
  * @returns {number}
  */
-function cmp_getCadenceDays(category, dateStr) {
-  const resolved = _cmp_resolveByCategory(category, dateStr);
+function cmp_getCadenceDays(category, dateStr, prebuiltMap) {
+  const resolved = _cmp_resolveByCategory(category, dateStr, prebuiltMap);
   return resolved ? resolved.cadenceDays : 0;
 }
 
@@ -161,7 +171,7 @@ function cmp_getCadenceDays(category, dateStr) {
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * resolveComplianceConfigurationAsOf(storeId, dateStr)
+ * resolveComplianceConfigurationAsOf(storeId, dateStr, prebuiltStoreMap, prebuiltComplianceMap)
  * THE authoritative store-specific compliance-rule resolver. Resolves
  * the store's CATEGORY as of `dateStr` via Phase 1B's resolveStoreAsOf()
  * (a store's category is itself effective-dated and can change over
@@ -175,11 +185,24 @@ function cmp_getCadenceDays(category, dateStr) {
  * same graceful-degradation pattern Phase 1B established elsewhere.
  * @param {string} storeId
  * @param {string} [dateStr] - 'YYYY-MM-DD'
+ * @param {Object} [prebuiltStoreMap] - optional, from
+ *   cfg_resolveAllAsOf(CFG_AREA.STORES, dateStr). When given, looks up
+ *   the store's resolved version there instead of calling
+ *   resolveStoreAsOf() (which re-reads CONFIG_STORES every call) — lets
+ *   a caller resolving many stores build the map ONCE.
+ * @param {Object} [prebuiltComplianceMap] - see _cmp_resolveByCategory();
+ *   passed through unchanged.
  * @returns {{category, cadenceType, cadenceDays, periodDefinition, requiredCount, graceDays, source, versionId}|null}
  */
-function resolveComplianceConfigurationAsOf(storeId, dateStr) {
-  if (typeof resolveStoreAsOf !== 'function') return null;
-  const storeResolved = resolveStoreAsOf(storeId, dateStr);
+function resolveComplianceConfigurationAsOf(storeId, dateStr, prebuiltStoreMap, prebuiltComplianceMap) {
+  let storeResolved;
+  if (prebuiltStoreMap) {
+    const id = String(storeId || '').trim().toUpperCase();
+    storeResolved = prebuiltStoreMap[id] || null;
+  } else {
+    if (typeof resolveStoreAsOf !== 'function') return null;
+    storeResolved = resolveStoreAsOf(storeId, dateStr);
+  }
   if (!storeResolved || !storeResolved.fields || !storeResolved.fields.category) return null;
-  return _cmp_resolveByCategory(storeResolved.fields.category, dateStr);
+  return _cmp_resolveByCategory(storeResolved.fields.category, dateStr, prebuiltComplianceMap);
 }
