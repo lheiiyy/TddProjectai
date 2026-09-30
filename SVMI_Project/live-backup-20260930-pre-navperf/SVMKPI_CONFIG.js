@@ -473,9 +473,11 @@ function cfg_resolveConfigurationAsOf(area, entityId, dateStr) {
  * (see _cfg_resolveAsOf()); an entity with no version effective on the
  * given date is simply absent from the returned map, exactly as it would
  * be skipped by a per-entity caller checking for a null result.
- * Added to fix sl_getComplianceGaps()/_computeStoreRisk()'s O(n) (or
- * worse, when nested) per-entity CONFIG_* re-reads — see
- * SVMKPI_STORE_LOOKUP.gs and SVMKPI_RISK.gs call sites.
+ * Fixes the O(n) full-sheet-reads-per-load pattern in
+ * store_getOperationalList()/visitor_getOperationalList(), which run on
+ * every Input Portal tab load (see reviews/014-input-portal-load-perf.md)
+ * — the same class of defect D-034/D-035 already fixed in the
+ * migration write path, but never fixed in this read path.
  * @returns {Object<string, {versionId, entityId, versionNum, effectiveFrom, effectiveTo, status, fields}>}
  *          keyed by uppercase entityId
  */

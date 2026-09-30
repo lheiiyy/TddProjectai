@@ -262,13 +262,10 @@ function getKPI2026Report(year) {
     });
   }
 
-  // ONE getDisplayValues() call for the whole potential data block
-  // (instead of one call per cell, AND instead of one call PER ROW as
-  // this previously did — see SVMI_Project/reviews/REVIEW-003.md:
-  // a report with V visitor rows was V separate round-trips to the
-  // Sheets backend just for this loop) — read the whole data span once
-  // (name column included), then slice out what's needed by index from
-  // the in-memory array. Walking rows off the sheet itself (rather than
+  // One getDisplayValues() call per row (instead of one per cell — a cell
+  // read per week/month/quarter column would be 60+ calls per row) —
+  // read the whole data span once (name column included), then slice out
+  // what's needed by index. Walking rows off the sheet itself (rather than
   // re-deriving the visitor list from SETTINGS!F, as this used to) means a
   // roster change can never desync this reader from what buildKPI2026()
   // actually wrote — including the historical-only rows it now appends for
@@ -276,7 +273,8 @@ function getKPI2026Report(year) {
   const rowStartCol = KPI_NAME_COL;
   const rowWidth     = KPI_YTD_COL - KPI_NAME_COL + 1;
 
-  const readRow = (vals) => {
+  const readRow = (row) => {
+    const vals = sheet.getRange(row, rowStartCol, 1, rowWidth).getDisplayValues()[0];
     const at = (col) => vals[col - rowStartCol];
     return {
       name: String(vals[0] || '').trim(),
@@ -289,15 +287,8 @@ function getKPI2026Report(year) {
   const visitors = [];
   let team = {};
   const lastRow = sheet.getLastRow();
-  const blockRows = lastRow - DATA_ROW_START + 1;
-  // Same early-termination contract as before: a blank-name row or
-  // "TEAM TOTAL" ends the scan, whether reached via a live per-row read
-  // or (now) an index into this one pre-fetched block.
-  const block = blockRows > 0
-    ? sheet.getRange(DATA_ROW_START, rowStartCol, blockRows, rowWidth).getDisplayValues()
-    : [];
-  for (let i = 0; i < block.length; i++) {
-    const r = readRow(block[i]);
+  for (let row = DATA_ROW_START; row <= lastRow; row++) {
+    const r = readRow(row);
     if (!r.name) break;               // ran past the last written row
     if (r.name === 'TEAM TOTAL') { team = r; break; }
     visitors.push(r);

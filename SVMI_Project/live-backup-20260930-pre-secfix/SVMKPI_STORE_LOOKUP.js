@@ -163,11 +163,11 @@ function sl_getStoreData(storeName) {
 
   // Reused below so _sl_computeCanonicalHealth()'s risk-engine call
   // doesn't re-read MASTER_LOG a second time via its own _getData(log)
-  // call inside this same RPC (see SVMI_Project/reviews/REVIEW-003.md).
-  // Same rows, same shape _getData() itself builds —
-  // SL_COL (0-indexed) and COL (1-indexed) address the same physical
-  // columns A–G; Remarks (H) isn't part of _getData()'s contract and
-  // is simply not included here, exactly as _getData() never reads it.
+  // call inside this same RPC (see SVMI_Project/reviews/REVIEW-003.md on
+  // main). Same rows, same shape _getData() itself builds — SL_COL
+  // (0-indexed) and COL (1-indexed) address the same physical columns
+  // A–G; Remarks (H) isn't part of _getData()'s contract and is simply
+  // not included here, exactly as _getData() never reads it.
   const prebuiltData = {
     timestamps:  raw.map(row => row[SL_COL.TIMESTAMP]),
     dates:       raw.map(row => _parseDateCell(row[SL_COL.DATE])),
@@ -309,7 +309,7 @@ function _sl_getMeta(storeName) {
 }
 
 /**
- * _sl_computeCanonicalHealth(log, storeName, prebuiltData)
+ * _sl_computeCanonicalHealth(log, storeName)
  * Looks up a single store's risk score/tier from the SAME canonical
  * engine that powers Store Health — _computeStoreRisk() in
  * SVMKPI_RISK.gs — instead of this module's own, independently-tuned
@@ -319,10 +319,6 @@ function _sl_getMeta(storeName) {
  * penalty but only the modest "no history" +3 on Store Health).
  * @param {GoogleAppsScript.Spreadsheet.Sheet} log - MASTER_LOG sheet
  * @param {string} storeName - Already normalized (uppercase, trimmed)
- * @param {Object} [prebuiltData] - optional, in _getData()'s own return
- *   shape. When given, skips _getData(log)'s own full MASTER_LOG read —
- *   for a caller (sl_getStoreData()) that already read and parsed the
- *   same rows for its own purposes in the same RPC.
  * @returns {{ score: number, label: string, components: { daysSince: number } }}
  */
 function _sl_computeCanonicalHealth(log, storeName, prebuiltData) {
@@ -958,16 +954,17 @@ function sl_getComplianceGaps(brandFilter, monthNumber, reportingYear, evaluatio
 
   // ── Store ID + compliance-rule resolution, built ONCE for every store
   // up front — not per store inside the loop below (see
-  // SVMI_Project/reviews/REVIEW-003.md; the same class of fix, D-038, was
-  // applied to a different branch's equivalent read-path bug earlier this
-  // session). store_resolveIdByCurrentName() previously re-scanned
-  // all of CONFIG_STORES once PER STORE NAME looked up here, and
-  // resolveComplianceConfigurationAsOf() re-read CONFIG_STORES and
-  // CONFIG_COMPLIANCE again per store on top of that — O(stores) extra
+  // SVMI_Project/reviews/REVIEW-003.md on main for the same class of fix
+  // ported onto that branch's own copy of this function; this is the
+  // production-side port of that same fix). store_resolveIdByCurrentName()
+  // previously re-scanned all of CONFIG_STORES once PER STORE NAME looked
+  // up here, and resolveComplianceConfigurationAsOf() re-read CONFIG_STORES
+  // and CONFIG_COMPLIANCE again per store on top of that — O(stores) extra
   // CONFIG_STORES reads inside this O(stores) loop, i.e. O(stores²)
-  // full-sheet reads for this function alone. cfg_resolveAllAsOf() reads
-  // each sheet exactly once; the three maps below give every store's
-  // resolution via a plain in-memory lookup, with identical results.
+  // full-sheet reads for this function alone. cfg_resolveAllAsOf() (added
+  // by D-038) reads each sheet exactly once; the three maps below give
+  // every store's resolution via a plain in-memory lookup, with identical
+  // results.
   const canResolveViaConfig = typeof cfg_resolveAllAsOf === 'function'
     && typeof store_resolveIdByCurrentName === 'function'
     && typeof resolveComplianceConfigurationAsOf === 'function';

@@ -520,9 +520,9 @@ function _computeStoreRisk(data, today, year) {
   // the .map() — _sl_getCadenceDays()/cmp_getCadenceDays() previously
   // re-read all of CONFIG_COMPLIANCE on every single store's compliance
   // score, here and on every Store Insights store-selection click via
-  // _sl_computeCanonicalHealth() (see SVMI_Project/reviews/REVIEW-003.md).
-  // CONFIG_COMPLIANCE is keyed by CATEGORY, not by
-  // store, so one read covers every store regardless of store count.
+  // _sl_computeCanonicalHealth() (see SVMI_Project/reviews/REVIEW-003.md
+  // on main). CONFIG_COMPLIANCE is keyed by CATEGORY, not by store, so
+  // one read covers every store regardless of store count.
   const complianceByCategory = (typeof cfg_resolveAllAsOf === 'function')
     ? cfg_resolveAllAsOf(CFG_AREA.COMPLIANCE, today)
     : null;

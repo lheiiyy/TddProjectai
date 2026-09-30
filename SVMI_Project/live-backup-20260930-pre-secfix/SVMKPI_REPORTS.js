@@ -264,7 +264,7 @@ function getKPI2026Report(year) {
 
   // ONE getDisplayValues() call for the whole potential data block
   // (instead of one call per cell, AND instead of one call PER ROW as
-  // this previously did — see SVMI_Project/reviews/REVIEW-003.md:
+  // this previously did — see SVMI_Project/reviews/REVIEW-003.md on main:
   // a report with V visitor rows was V separate round-trips to the
   // Sheets backend just for this loop) — read the whole data span once
   // (name column included), then slice out what's needed by index from
