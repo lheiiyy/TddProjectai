@@ -1004,3 +1004,37 @@ not fixed here; see the review's §4 for why it's out of scope for this
 pass. Deployed live to production (`1QHHyLl8...`) after a fresh pre-push
 backup, per the same backup-then-push discipline as the earlier Decision
 A §2 deployment.
+
+### D-039 — `_cfg_writeAudit()` renamed to `_cfg_writeAudit_()`: the CONFIG_AUDIT writer is no longer publicly callable over `google.script.run`
+**Status:** Settled
+**Decision:** Renamed `_cfg_writeAudit` (single leading underscore only)
+to `_cfg_writeAudit_` (trailing underscore) at its one definition and all
+3 internal call sites (`SVMKPI_CONFIG.gs`'s `cfg_createConfiguration()`/
+`_cfg_setStatus()`/`cfg_rollbackConfiguration()`) plus 2 call sites in
+`SVMKPI_REPORT_SNAPSHOT.gs`'s `finalizeReport()`/
+`supersedeReportSnapshot()`. Pure rename — no call site needed a
+code-shape change; every caller already derives `actor` server-side
+before passing it in.
+**Rationale:** A leading underscore is naming convention only; Apps
+Script's `google.script.run` exposes every top-level function whose name
+does **not end** in an underscore to any client that loaded the portal.
+`_cfg_writeAudit` therefore was, in practice, publicly callable — and
+since it takes `actor` as a plain argument, any signed-in portal user
+could call it directly and append a `CONFIG_AUDIT` row attributed to
+anyone, forging an audit trail entry. Discovered and fixed on a separate
+branch (`claude/claude-code-environment-setup`, commit `2297d57`) that
+forked from an earlier point in this branch's own history; ported here
+— the branch production actually runs — rather than merged directly,
+since a direct merge would have pulled in that branch's own unrelated
+documentation-tooling commit and doc tree alongside the fix. See
+`reviews/015-audit-writer-private.md` for the full trace and why a port
+rather than a merge.
+**Impact:** `SVMKPI_CONFIG.gs`, `SVMKPI_REPORT_SNAPSHOT.gs` (rename +
+comment updates only). New `audit-rpc-exposure.test.js` (8 assertions,
+ported verbatim — it dynamically scans whichever `.gs` files are present
+rather than a hardcoded list, so it required no adaptation): confirms no
+public function anywhere in this branch's actual codebase writes
+`CONFIG_AUDIT` without an admin/identity gate. Full suite re-run: 28
+files, 0 failures. No validation rule, audit row shape, or business
+logic changed. Deployed live to production (`1QHHyLl8...`) after a fresh
+pre-push backup, per the same discipline as D-038/Decision A §2.
