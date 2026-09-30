@@ -7,6 +7,29 @@ demo; dry-run tooling is pure-function/synthetic-data only).
 
 ## Apps Script track — `SVMI_Project/tests/`
 
+**Re-verified 2026-09-30 (Claude Code environment setup, `reviews/014`):
+27 files, 1378 assertions, 0 failures under `TZ=UTC`** — unchanged; no
+application code or test was modified. New one-command runner:
+`bash SVMI_Project/tests/run-all.sh` runs the `.gs` and inline-`<script>`
+syntax checks from `SVMI_Project/DEPLOY.md` plus every suite and
+`database/dryrun/dryrun.test.js`, and totals them: **29 files, 1636
+assertions, 0 failures** (this suite's 1378 + `responsive-check.js` 100 +
+`dryrun.test.js` 158). `SVMI_SKIP_BROWSER=1` skips the two Playwright
+files.
+
+**Time-zone fragility found (not fixed):** run in `Asia/Manila` — the
+production script zone and the owner's local zone — two suites each
+fail one assertion: `risk-config.test.js` ("audit entry records the
+effective date": got `2020-06-14`, want `2020-06-15`) and
+`store-identity.test.js` ("the earliest MASTER_LOG date becomes the
+initial effective-from date": `effectiveFrom` `2026-01-14T16:00:00.000Z`).
+Both assertions build the expected date string with `toISOString()`,
+which shifts a local-midnight date back a day in any UTC+ zone. Both pass
+under `TZ=UTC`, which is what every earlier baseline in this file used.
+Most likely a test-side fragility, not an application bug — not yet
+proven either way. `run-all.sh` pins `TZ=UTC` so baselines stay
+comparable.
+
 **Re-verified this session (2026-09-28, later pass): still 27 files, 1378
 assertions, 0 failures** — unchanged from the count directly below,
 confirming no regression from the Executive Summary UI simplification

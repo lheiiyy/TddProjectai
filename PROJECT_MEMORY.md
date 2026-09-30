@@ -20,13 +20,16 @@ replace, the Sheets-backed system — **DEV-only, proven locally, not
 deployed to any production database, and has not yet touched any real
 SVMI data.**
 
-## Repository map — three projects, only two of them SVMI
+## Repository map — four project trees, only two of them SVMI
 
 | Directory | What it is | Status |
 |---|---|---|
 | `SVMI_Project/` | The live Apps Script application (`Apps Script/*.gs` + `SVMI_PORTAL.html`), its test suite, and `DEPLOY.md` | **Live** — this is what a real deployment runs |
 | `database/` | The PostgreSQL target schema, migrations, rollback scripts, and Phase 2 real-data migration dry-run tooling | **DEV-only** — schema proven locally; no PROD instance exists; dry-run tooling built and unit-tested against synthetic data, paused pending a real data export from the project owner |
 | `TLM_Project/` | **A completely different, unrelated Apps Script project** ("Team Leader Monitoring" / "TL Tracker") that happens to live in the same repo | Not part of SVMI. Do not conflate its files, README, or history with SVMI's. |
+| `Hub_Project/` | The "Training & Development Hub" — a small, separate, non-Sheet-bound Apps Script Web App: a password gate plus a landing page linking to SVMI's and TL Tracker's own deployed URLs (`Hub_Project/README.txt`, `DEPLOY.md`) | Not part of SVMI. Holds no SVMI data; changes to it never belong in an SVMI task. |
+| `archive/` | Frozen backups (e.g. `svmi-live-backup-20260916/`, a pre-rename snapshot of the live script) | Read-only history. Never edit, deploy, or treat as current code. |
+| `.claude/` | Claude Code configuration: the `SessionStart` hook (installs `clasp`, restores its credential in web sessions) and project skills under `.claude/skills/` | Tooling, not application code. |
 
 Everything else in this file, and in the sibling docs listed below, is
 about `SVMI_Project/` and `database/` only.
@@ -46,6 +49,7 @@ that duplicates any of these roles.
 | Requirements | `REQUIREMENTS.md` |
 | Architecture | `ARCHITECTURE.md` |
 | Data model / storage | `DATA_MODEL.md` |
+| Server API contract (`google.script.run` surface, `doGet`/`doPost`, result/error conventions) | `API_CONTRACT.md` |
 | Decisions (durable, do-not-reverse) | `DECISIONS.md` |
 | Implementation history | `IMPLEMENTATION_LOG.md` |
 | Testing history / current test baseline | `TESTING_LOG.md` |
@@ -53,6 +57,16 @@ that duplicates any of these roles.
 | Apps Script deployment procedure (clasp, Web App publish, access-control setup) | `SVMI_Project/DEPLOY.md` — long-form; the root docs summarize it, they don't replace it |
 | PostgreSQL environment/deployment procedure (DEV/PROD isolation, roles, migrations, backup/restore) | `database/docs/01-architecture.md` through `06-migration-source-manifest.md` |
 | AI operating rules | `CLAUDE.md` (repo root) |
+| AI task procedures (how to do a kind of work here: context check, feature workflow, frontend, backend, database, testing, security) | `.claude/skills/*/SKILL.md` — procedures only; they point to the documents above for facts and never restate them |
+
+**Mapping from generic doc templates.** Requests that use a generic
+layout (`docs/PROJECT-BIBLE.md`, `docs/ARCHITECTURE.md`,
+`docs/PROJECT-STATE.md`, `docs/DATABASE-SCHEMA.md`,
+`docs/API-CONTRACT.md`, `docs/DECISIONS/`) map onto this table rather than
+creating a second copy (D-014, D-038): project bible → `PROJECT_MEMORY.md`
++ `REQUIREMENTS.md`; architecture → `ARCHITECTURE.md`; project state →
+`PROJECT_STATUS.md`; database schema → `DATA_MODEL.md` + `database/`;
+API contract → `API_CONTRACT.md`; ADRs → `DECISIONS.md` entries.
 
 `SVMI_Project/README.txt` and `database/dryrun/README.md` are
 **supporting**, not authoritative, documents — see the note below.

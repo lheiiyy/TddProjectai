@@ -44,7 +44,8 @@ is never the real security boundary.
 ## 3. Portal structure (`SVMI_PORTAL.html`)
 
 A single-page app, one `<script>` block, talking to the `.gs` files via
-`google.script.run`. Slide-out nav drawer, current order:
+`google.script.run`. The exact callable surface, per-function authorization gate,
+and result/error conventions are in `API_CONTRACT.md`. Slide-out nav drawer, current order:
 
 1. **Reports** (default tab) — Executive Summary / KPI / Store Health, read-only
 2. **Store Insights** — per-store profile, health score, insight text

@@ -1,6 +1,22 @@
 # SVMI — Project Status
 
-Last updated: 2026-09-28, recording **an Executive Summary UI
+Last updated: 2026-09-30, recording **a Claude Code development
+environment setup** (`DECISIONS.md` D-038,
+`reviews/014-claude-code-environment-setup.md`) — documentation and
+tooling only; no application code, schema, test, or data changed, and
+the "Immediate next task" below is unchanged. Added `API_CONTRACT.md`,
+seven project skills under `.claude/skills/`, a one-command validation
+runner (`SVMI_Project/tests/run-all.sh` — 29 files, 1636 assertions, 0
+failures under `TZ=UTC`), and an expanded `CLAUDE.md`. The review
+records nine findings for the owner to triage, not fixed — most
+important: (1) under `USER_ACCESSING`, Sheet sharing is the effective
+security boundary, so Sheet Viewers/Editors can read TOTP secrets and
+edit the admin list/identity sheets directly; (2) `_cfg_writeAudit` is
+RPC-callable with no gate; (3) `regenerateReportSheet` has no admin
+gate; (4) two suites fail in `Asia/Manila` but pass in UTC. See
+"What remains unresolved".
+
+Prior update, 2026-09-28, recording **an Executive Summary UI
 simplification** (`DECISIONS.md` D-037), a presentation-only follow-up to
 the Reports-tab source-of-truth fix below. At the project owner's
 explicit request — after testing a published live demo of the Reports
@@ -336,6 +352,15 @@ comes next (external IdP selection, or further identity-surface work)
 has not been scoped.
 
 ## What remains unresolved
+
+**New, from `reviews/014` (2026-09-30) — awaiting owner triage, none
+started:** Sheet sharing as the effective authorization boundary
+(identity/MFA data and `SETTINGS!G` editable or readable directly by
+Sheet users); ungated RPC-callable `_cfg_writeAudit`; ungated
+`regenerateReportSheet`; time-zone-dependent assertions in
+`risk-config.test.js`/`store-identity.test.js`; guest password accepted
+via GET `?pw=`; no `LockService` on configuration writes. Full list and
+detail: `reviews/014` §6.
 
 **Security/identity — the 3 Phase 1H-A Required findings are fixed**
 (Phase 1H-B.1), **the registration/approval/RBAC/scope/MFA foundation is

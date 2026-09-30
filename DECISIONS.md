@@ -965,3 +965,33 @@ regression — unchanged, since nothing it covers was touched. Deployed to
 the test copy: `clasp push`, then the existing Web App deployment
 (`AKfycbwERP_IXsFXFr1wDS_WSpl3AYUzhp6jgJJsFQzA8LVSNbkdvZjwD6VnFu_uyq4OFpXV`)
 redeployed as **v19**. Not yet live-verified by the project owner.
+
+---
+
+## Claude Code development environment
+
+### D-038 — Generic doc templates map onto the existing authorities; project skills hold procedure, never facts
+**Status:** Settled (governance)
+**Decision:** When the project owner asked (2026-09-30) for a generic
+"production web app" Claude Code setup — `docs/PROJECT-BIBLE.md`,
+`docs/ARCHITECTURE.md`, `docs/PROJECT-STATE.md`,
+`docs/DATABASE-SCHEMA.md`, `docs/API-CONTRACT.md`, `docs/DECISIONS/` —
+the owner chose to **extend the existing documentation system rather
+than create that layout**. The template's roles map onto the D-014
+authorities (mapping table in `PROJECT_MEMORY.md`). The one role with no
+existing authority, the API contract, became a new root document,
+`API_CONTRACT.md`, registered in the authority table. ADRs stay as
+`DECISIONS.md` entries; there is no `docs/DECISIONS/` folder.
+Seven project skills under `.claude/skills/` (`project-context`,
+`feature-workflow`, `frontend`, `backend`, `database`, `testing`,
+`security`) encode *how* to work in this stack and *point to* the
+authoritative documents for *what is true*; they never restate a fact
+another document owns.
+**Rationale:** D-014 exists so a cold session can find the one source of
+truth. A parallel `docs/` tree would have created six second authorities
+on day one; skills that restate facts would drift the same way.
+**Impact:** Do not create a `docs/` tree duplicating a root authority,
+even when a future prompt's template asks for one — map it instead. When
+a skill and an authoritative document disagree, the document wins and
+the skill gets corrected. Recorded in
+`reviews/014-claude-code-environment-setup.md`.
