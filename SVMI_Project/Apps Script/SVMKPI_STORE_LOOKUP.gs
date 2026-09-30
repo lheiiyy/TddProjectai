@@ -161,13 +161,31 @@ function sl_getStoreData(storeName) {
   // Read cols A–H only (columns 1–8) — skip the auxiliary columns
   const raw = log.getRange(2, 1, lastRow - 1, 8).getValues();
 
+  // Reused below so _sl_computeCanonicalHealth()'s risk-engine call
+  // doesn't re-read MASTER_LOG a second time via its own _getData(log)
+  // call inside this same RPC (see SVMI_Project/reviews/REVIEW-003.md on
+  // main). Same rows, same shape _getData() itself builds — SL_COL
+  // (0-indexed) and COL (1-indexed) address the same physical columns
+  // A–G; Remarks (H) isn't part of _getData()'s contract and is simply
+  // not included here, exactly as _getData() never reads it.
+  const prebuiltData = {
+    timestamps:  raw.map(row => row[SL_COL.TIMESTAMP]),
+    dates:       raw.map(row => _parseDateCell(row[SL_COL.DATE])),
+    stores:      raw.map(row => String(row[SL_COL.STORE] || '').trim()),
+    brands:      raw.map(row => _normalizeEnum(row[SL_COL.BRAND])),
+    regions:     raw.map(row => _normalizeEnum(row[SL_COL.REGION])),
+    rawVisitors: raw.map(row => row[SL_COL.VISITOR]),
+    purposes:    raw.map(row => _normalizeEnum(row[SL_COL.PURPOSE])),
+    totalRows:   raw.length,
+  };
+
   // ── Step 2: Filter to this store ──────────────────────────
   const rows = raw.filter(row => {
     const store = String(row[SL_COL.STORE] || '').trim().toUpperCase();
     return store === target;
   });
 
-  if (rows.length === 0) return _sl_emptyResult(target, log);
+  if (rows.length === 0) return _sl_emptyResult(target, log, prebuiltData);
 
   // ── Step 3: Sort filtered rows by date desc (newest first) ─
   // _parseDateCell() (SVMKPI_CORE.gs) — the same canonical parser
@@ -242,7 +260,7 @@ function sl_getStoreData(storeName) {
   });
 
   // ── Step 9: Health score — canonical engine, shared with Store Health ─
-  const health = _sl_computeCanonicalHealth(log, target);
+  const health = _sl_computeCanonicalHealth(log, target, prebuiltData);
 
   // ── Step 10: AI insight ───────────────────────────────────
   const insight = _sl_generateInsight({
@@ -303,9 +321,23 @@ function _sl_getMeta(storeName) {
  * @param {string} storeName - Already normalized (uppercase, trimmed)
  * @returns {{ score: number, label: string, components: { daysSince: number } }}
  */
-function _sl_computeCanonicalHealth(log, storeName) {
-  const data = _getData(log);
-  const riskRows = _computeStoreRisk(data, new Date());
+function _sl_computeCanonicalHealth(log, storeName, prebuiltData) {
+  const data = prebuiltData || _getData(log);
+  // _computeStoreRisk() falls back to getDefaultReportingYear() when no
+  // year is given, which re-reads MASTER_LOG a THIRD time in this call
+  // (just the Date column) purely to discover the same years already
+  // present in `data.dates` above. Deriving the same "latest year with
+  // data, else current calendar year" answer in memory here — the exact
+  // getDefaultReportingYear()/_ry_extractYearsFromLog() contract, same
+  // source dates, same tie-break — avoids that extra read without
+  // changing the shared getDefaultReportingYear() used elsewhere.
+  let evaluationYear = null;
+  for (let i = 0; i < data.dates.length; i++) {
+    const d = data.dates[i];
+    if (d && (evaluationYear === null || d.getFullYear() > evaluationYear)) evaluationYear = d.getFullYear();
+  }
+  if (evaluationYear === null) evaluationYear = new Date().getFullYear();
+  const riskRows = _computeStoreRisk(data, new Date(), evaluationYear);
   const row = riskRows.find(r => r.store === storeName);
   return {
     score: row ? row.riskScore : 0,
@@ -317,15 +349,16 @@ function _sl_computeCanonicalHealth(log, storeName) {
 }
 
 /**
- * _sl_emptyResult(storeName, log)
+ * _sl_emptyResult(storeName, log, prebuiltData)
  * Returns a zeroed-out result object for a store with no MASTER_LOG history.
  * @param {string} storeName
  * @param {GoogleAppsScript.Spreadsheet.Sheet} log - MASTER_LOG sheet
+ * @param {Object} [prebuiltData] - see _sl_computeCanonicalHealth().
  * @returns {StoreResult}
  */
-function _sl_emptyResult(storeName, log) {
+function _sl_emptyResult(storeName, log, prebuiltData) {
   const meta = _sl_getMeta(storeName);
-  const health = _sl_computeCanonicalHealth(log, storeName);
+  const health = _sl_computeCanonicalHealth(log, storeName, prebuiltData);
   return {
     meta,
     summary:      { totalVisits: 0, lastVisitDate: '—', lastVisitor: '—', lastPurpose: '—' },
@@ -919,6 +952,42 @@ function sl_getComplianceGaps(brandFilter, monthNumber, reportingYear, evaluatio
     });
   }
 
+  // ── Store ID + compliance-rule resolution, built ONCE for every store
+  // up front — not per store inside the loop below (see
+  // SVMI_Project/reviews/REVIEW-003.md on main for the same class of fix
+  // ported onto that branch's own copy of this function; this is the
+  // production-side port of that same fix). store_resolveIdByCurrentName()
+  // previously re-scanned all of CONFIG_STORES once PER STORE NAME looked
+  // up here, and resolveComplianceConfigurationAsOf() re-read CONFIG_STORES
+  // and CONFIG_COMPLIANCE again per store on top of that — O(stores) extra
+  // CONFIG_STORES reads inside this O(stores) loop, i.e. O(stores²)
+  // full-sheet reads for this function alone. cfg_resolveAllAsOf() (added
+  // by D-038) reads each sheet exactly once; the three maps below give
+  // every store's resolution via a plain in-memory lookup, with identical
+  // results.
+  const canResolveViaConfig = typeof cfg_resolveAllAsOf === 'function'
+    && typeof store_resolveIdByCurrentName === 'function'
+    && typeof resolveComplianceConfigurationAsOf === 'function';
+
+  let nameToStoreId = null;
+  let storesAsOfEval = null;
+  let complianceByCategory = null;
+
+  if (canResolveViaConfig) {
+    const storesAsOfToday = cfg_resolveAllAsOf(CFG_AREA.STORES, _store_today());
+    // Same iteration order as _store_listEntityIds() (first-seen entity
+    // order) and the same "first match wins" tie-break
+    // store_resolveIdByCurrentName() used for the (should-never-happen)
+    // case of two stores sharing a current name.
+    nameToStoreId = {};
+    Object.keys(storesAsOfToday).forEach(id => {
+      const nm = String((storesAsOfToday[id].fields || {}).storeName || '').trim().toUpperCase();
+      if (nm && !nameToStoreId[nm]) nameToStoreId[nm] = id;
+    });
+    storesAsOfEval = cfg_resolveAllAsOf(CFG_AREA.STORES, evaluationDate);
+    complianceByCategory = cfg_resolveAllAsOf(CFG_AREA.COMPLIANCE, evaluationDate);
+  }
+
   // ── Check compliance per store ────────────────────────────
   const gaps = [];
 
@@ -930,14 +999,16 @@ function sl_getComplianceGaps(brandFilter, monthNumber, reportingYear, evaluatio
     // Store ID (Phase 1B) is the configuration-resolution entry point;
     // falls back to the raw SETTINGS category when Store ID isn't
     // available/migrated yet — the same graceful-degradation Phase 1B
-    // established elsewhere.
+    // established elsewhere. Resolution itself now comes from the
+    // prebuilt maps above instead of re-scanning CONFIG_STORES/
+    // CONFIG_COMPLIANCE per store.
     let rule = null;
-    if (typeof store_resolveIdByCurrentName === 'function' && typeof resolveComplianceConfigurationAsOf === 'function') {
-      const storeId = store_resolveIdByCurrentName(store);
-      if (storeId) rule = resolveComplianceConfigurationAsOf(storeId, evaluationDate);
+    if (canResolveViaConfig) {
+      const storeId = nameToStoreId[store] || null;
+      if (storeId) rule = resolveComplianceConfigurationAsOf(storeId, evaluationDate, storesAsOfEval, complianceByCategory);
     }
     if (!rule && typeof _cmp_resolveByCategory === 'function') {
-      rule = _cmp_resolveByCategory(category, evaluationDate);
+      rule = _cmp_resolveByCategory(category, evaluationDate, complianceByCategory);
     }
 
     let compliant, windowLabel, requiredCount, actualCount;

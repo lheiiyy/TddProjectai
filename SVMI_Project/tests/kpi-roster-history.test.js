@@ -34,6 +34,11 @@ function check(name, cond, extra) {
 function makeSheet(settingsSheet) {
   const cells = {};
   const key = (r, c) => r + ',' + c;
+  // Read-count instrumentation (same convention as other test files'
+  // getMultiRowReadCount()): counts genuine multi-row getDisplayValues()
+  // calls — the shape of "one round-trip per visitor row" this suite's
+  // new read-count test proves is no longer done.
+  let multiRowDisplayReadCount = 0;
 
   function resolveFormula(f) {
     const m = /^=TRIM\(SETTINGS!F(\d+)\)$/.exec(f);
@@ -79,6 +84,7 @@ function makeSheet(settingsSheet) {
       return out;
     };
     range.getDisplayValues = () => {
+      if (numRows > 1) multiRowDisplayReadCount++;
       const out = [];
       for (let r = 0; r < numRows; r++) {
         const rowArr = [];
@@ -112,6 +118,7 @@ function makeSheet(settingsSheet) {
     // test helper: read a raw written cell's formula text (not evaluated)
     rawFormula(row, col) { const c = cells[key(row, col)]; return c ? c.formula : null; },
     rawCell(row, col) { return cells[key(row, col)] || null; },
+    getMultiRowDisplayReadCount() { return multiRowDisplayReadCount; },
   };
   // Same rationale as makeRange()'s Proxy: any sheet-level layout/format
   // call this test doesn't care about (setRowHeight, insertRowsAfter,
@@ -246,6 +253,36 @@ check('BEA (historical-only) is included in the report', reportNames.includes('B
 check('report correctly stops at TEAM TOTAL, not folded into visitors',
   !reportNames.includes('TEAM TOTAL'), reportNames.join(','));
 check('team total row was captured', report.team && Array.isArray(report.team.monthly), JSON.stringify(report.team));
+
+// getKPI2026Report() used to call sheet.getRange(row, ...).getDisplayValues()
+// ONCE PER VISITOR ROW (V separate round-trips to the Sheets backend for V
+// visitors — see SVMI_Project/reviews/REVIEW-003.md on main, the Reports/
+// KPI tab load-delay root cause). This mechanically proves it now reads
+// the whole visitor block in ONE call regardless of visitor count.
+console.log('\n── getKPI2026Report(): reads the visitor data block ONCE, not once per visitor row ──');
+{
+  const N = 50;
+  const manyRoster = [];
+  const manyLogRows = [];
+  for (let i = 0; i < N; i++) {
+    manyRoster.push(['STORE ' + i, "ANGEL'S PIZZA", 'NCR', '', 'NCR', 'VISITOR ' + i]);
+    manyLogRows.push({ date: '2026-01-05', visitedBy: 'VISITOR ' + i });
+  }
+  const { sandbox: sb2, getKpiSheet: getKpiSheet2 } = newSandbox(manyRoster, manyLogRows);
+  sb2.buildKPI2026();
+  const sheet2 = getKpiSheet2();
+
+  const readsBefore = sheet2.getMultiRowDisplayReadCount();
+  const report2 = sb2.getKPI2026Report();
+  const readsForThisCall = sheet2.getMultiRowDisplayReadCount() - readsBefore;
+
+  check('report lists all ' + N + ' visitors', report2.visitors.length === N, report2.visitors.length);
+  check(
+    'one getKPI2026Report() call for ' + N + ' visitor rows made exactly ONE multi-row getDisplayValues() call, not one per row (was O(' + N + ') before this fix)',
+    readsForThisCall === 1,
+    'reads attributable to this call: ' + readsForThisCall
+  );
+}
 
 console.log('\n══════════════════════════════════');
 console.log('  PASS ' + pass + '   FAIL ' + fail);
