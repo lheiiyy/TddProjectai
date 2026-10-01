@@ -104,12 +104,14 @@ function newSandbox() {
 // moment the real calendar date advances past whatever day this file
 // was authored on — discovered when 2026-09-18 -> 2026-09-19 broke every
 // TODAY-effective (non-backdate-testing) call in this file.
-const TODAY = new Date().toISOString().slice(0, 10);
+const _ymd = d => { d = new Date(d); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); };
+const TODAY = _ymd(new Date());
+const FUTURE = (() => { const d = new Date(); d.setDate(d.getDate() + 60); return _ymd(d); })();
 // One day after TODAY — also computed dynamically, for the handful of
 // tests that need a second, later, distinct Effective From date (the
 // config engine rejects two versions sharing the exact same Effective
 // From). A fixed "day after" literal broke the same way TODAY did.
-const NEXT_DAY = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
+const NEXT_DAY = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return _ymd(d); })();
 
 // ═══════════════════════════════════════════════════════════════
 // 1. STORE IDENTITY
@@ -187,9 +189,9 @@ console.log('\n── Historical: a future-dated version does not apply before i
 {
   const { sandbox } = newSandbox();
   const created = sandbox.store_create({ storeName: 'Future Co', brand: 'FIGARO', region: 'NCR', category: 'A' }, TODAY, 'setup');
-  sandbox.store_update(created.storeId, { storeName: 'Future Co', brand: 'FIGARO', region: 'NCR', category: 'B' }, '2026-12-01', 'future category change');
-  const beforeChange = sandbox.resolveStoreAsOf(created.storeId, '2026-10-01');
-  const afterChange = sandbox.resolveStoreAsOf(created.storeId, '2026-12-01');
+  sandbox.store_update(created.storeId, { storeName: 'Future Co', brand: 'FIGARO', region: 'NCR', category: 'B' }, FUTURE, 'future category change');
+  const beforeChange = sandbox.resolveStoreAsOf(created.storeId, TODAY);
+  const afterChange = sandbox.resolveStoreAsOf(created.storeId, FUTURE);
   check('before the future effective date, old category still applies', beforeChange && beforeChange.fields.category === 'A', JSON.stringify(beforeChange));
   check('on/after the future effective date, new category applies', afterChange && afterChange.fields.category === 'B', JSON.stringify(afterChange));
 }
@@ -290,7 +292,7 @@ console.log('\n── Migration: unambiguous exact-name match maps to a Store ID
   check('the mapping resolves the exact name to that Store ID', result.mapping['ANGEL STORE'] === result.createdStoreIds[0], JSON.stringify(result));
   check('nothing left unmapped', result.unmappedCount === 0, result.unmappedCount);
   const resolved = sandbox.resolveStoreAsOf(result.createdStoreIds[0], '2026-01-15');
-  const effFromStr = resolved && new Date(resolved.effectiveFrom).toISOString().slice(0, 10);
+  const effFromStr = resolved && _ymd(resolved.effectiveFrom);
   check('the earliest MASTER_LOG date becomes the initial effective-from date, not an invented one', effFromStr === '2026-01-15', JSON.stringify(resolved));
 }
 

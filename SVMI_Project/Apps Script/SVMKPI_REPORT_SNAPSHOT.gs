@@ -342,7 +342,7 @@ function _snap_captureCalculatedResult(year, evaluationDate) {
     throw new Error('Executive Summary engine (SVMKPI_LAYOUT.gs / SVMKPI_REPORTS.gs) is not loaded — cannot capture a complete report.');
   }
   buildExecutiveSummaryLayout(year);
-  const executiveSummary = getExecutiveSummaryReport();
+  const executiveSummary = getExecutiveSummaryReport(year);
 
   if (typeof getKPI2026Report !== 'function') {
     throw new Error('KPI report engine (SVMKPI_KPI_REBUILD.gs / SVMKPI_REPORTS.gs) is not loaded — cannot capture a complete report.');

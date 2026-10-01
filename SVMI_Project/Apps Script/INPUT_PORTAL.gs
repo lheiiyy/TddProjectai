@@ -62,7 +62,7 @@ var COL_S_PURPOSE  = 8;
 //  Called by the sidebar on load.
 //  Returns { stores: [{store, brand, region, category}], visitors: [string], purposes: [string] }
 // ============================================================
-function getSidebarData() {
+function _getSidebarData_impl() {
   try {
     var ss       = SpreadsheetApp.getActiveSpreadsheet();
     var settings = ss.getSheetByName(SHEET_SETTINGS);
@@ -781,4 +781,11 @@ function logError(context, error) {
     // Silently ignore — don't let error logging crash anything
     console.error('logError itself failed: ' + innerErr.message);
   }
+}
+
+// #7 timing wrapper — logs "[SVMI PERF] getSidebarData N ms" to Apps Script → Executions.
+function getSidebarData() {
+  const t0 = Date.now();
+  try { return _getSidebarData_impl.apply(this, arguments); }
+  finally { if (typeof _perfLog === 'function') _perfLog('getSidebarData', t0); }
 }

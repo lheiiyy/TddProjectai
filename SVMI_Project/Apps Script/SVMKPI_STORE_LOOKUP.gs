@@ -93,7 +93,7 @@ const SL_TOP_VISITOR_LIMIT = 10;
  *
  * @returns {{ name: string, brand: string, region: string }[]}
  */
-function sl_getStoreList() {
+function _sl_getStoreList_impl() {
   const ss       = SpreadsheetApp.getActiveSpreadsheet();
   const settings = ss.getSheetByName(SL_SHEET.SETTINGS);
   if (!settings) return [];
@@ -145,7 +145,7 @@ function sl_getStoreList() {
  *   insight: string,
  * }
  */
-function sl_getStoreData(storeName) {
+function _sl_getStoreData_impl(storeName) {
   if (!storeName || !String(storeName).trim()) return null;
 
   const target = String(storeName).trim().toUpperCase();
@@ -554,7 +554,7 @@ function _slBrandAllowed(brand, brandFilter) {
  *   lastVisitDate: string, lastPurpose: string, visitors: string
  * }[]}  Sorted most-recently-visited first; same-day ties by store name.
  */
-function sl_getVisitedThisMonth(brandFilter) {
+function _sl_getVisitedThisMonth_impl(brandFilter) {
   const ss  = SpreadsheetApp.getActiveSpreadsheet();
   const now = new Date();
 
@@ -791,7 +791,7 @@ function sl_getUnvisitedThisMonth(brandFilter) {
  *   explicitly historical evaluation.
  * @returns {object[]} sorted A-Z by store name
  */
-function sl_getComplianceGaps(brandFilter, monthNumber, reportingYear, evaluationDateStr) {
+function _sl_getComplianceGaps_impl(brandFilter, monthNumber, reportingYear, evaluationDateStr) {
   const ss       = SpreadsheetApp.getActiveSpreadsheet();
   const now      = new Date();
   const year     = (reportingYear != null && !isNaN(Number(reportingYear)))
@@ -976,4 +976,36 @@ function sl_getComplianceGaps(brandFilter, monthNumber, reportingYear, evaluatio
   // Sort A-Z by store name
   gaps.sort((a, b) => a.store.localeCompare(b.store));
   return gaps;
+}
+
+
+// #7 timing wrapper — logs "[SVMI PERF] sl_getComplianceGaps N ms" to Apps Script → Executions.
+function sl_getComplianceGaps() {
+  const t0 = Date.now();
+  try { return _sl_getComplianceGaps_impl.apply(this, arguments); }
+  finally { if (typeof _perfLog === 'function') _perfLog('sl_getComplianceGaps', t0); }
+}
+
+
+// #7 timing wrapper — logs "[SVMI PERF] sl_getStoreData N ms" to Apps Script → Executions.
+function sl_getStoreData() {
+  const t0 = Date.now();
+  try { return _sl_getStoreData_impl.apply(this, arguments); }
+  finally { if (typeof _perfLog === 'function') _perfLog('sl_getStoreData', t0); }
+}
+
+
+// #7 timing wrapper — logs "[SVMI PERF] sl_getVisitedThisMonth N ms" to Apps Script → Executions.
+function sl_getVisitedThisMonth() {
+  const t0 = Date.now();
+  try { return _sl_getVisitedThisMonth_impl.apply(this, arguments); }
+  finally { if (typeof _perfLog === 'function') _perfLog('sl_getVisitedThisMonth', t0); }
+}
+
+
+// #7 timing wrapper — logs "[SVMI PERF] sl_getStoreList N ms" to Apps Script → Executions.
+function sl_getStoreList() {
+  const t0 = Date.now();
+  try { return _sl_getStoreList_impl.apply(this, arguments); }
+  finally { if (typeof _perfLog === 'function') _perfLog('sl_getStoreList', t0); }
 }
