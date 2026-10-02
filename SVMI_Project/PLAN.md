@@ -1,6 +1,9 @@
 # SVMI — Fix & Improve Plan
 
 Last updated: 2026-10-02 · Working branch: `svmi/functional-fixes`
+
+**🚀 Deployed to LIVE — version 12 (2026-10-02), same Web App URL.** Rollback
+source: `live-backup-20261002-current/`. Next: live checklist below → PR → merge to `main`.
 Rule for now: **functionality first.** Security is parked (except admin access).
 Live backups (`live-backup-*`) are the safe fallback — never edited.
 
@@ -47,7 +50,7 @@ changes (#5, #6, #7, #9) plus `appsscript.json`.
 - Turn MFA enforcement on (`IDENTITY_MFA_ENFORCED`)
 - Deployment setting itself (`USER_DEPLOYING` + anonymous) — see #5 check
 
-## Test-copy checklist (Claude Code / deploy step)
+## Live checklist (after v12 deploy)
 
 1. Reports → Executive Summary loads; numbers look right for 2026
 2. Unvisited / NAC, Store Insights, Visits This Month load
