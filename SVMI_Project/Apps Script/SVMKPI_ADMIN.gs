@@ -99,9 +99,28 @@ function doPost(e) {
 // SECTION 3: MENU HANDLERS
 // ═══════════════════════════════════════════════════════════════
 
+// Phase 1H-B.1 (Required finding 3, reviews/003 §H): these 5 handlers used
+// to reach the same privileged rebuild/validate engines as the Web App's
+// Admin → Configuration → Tools buttons, but were gated only by Google
+// Sheet Editor/Viewer sharing — a second, independent privilege boundary
+// from SETTINGS!G, so a person with Sheet edit access but not on the admin
+// list could run them from the menu with no admin check at all. Each now
+// re-checks sl_isAdmin() itself first, exactly like every portal_* wrapper
+// already does (SECTION 4 below) — the same established convention, not a
+// new one. This is on top of, not instead of, the per-engine checks added
+// to the underlying functions themselves (defense in depth, same posture
+// already used elsewhere in this codebase — e.g. store_create() is
+// double-gated via cfg_createConfiguration()).
+function _menuRequireAdmin_(ui) {
+  if (sl_isAdmin()) return true;
+  ui.alert('Access Denied', 'Admin access required. Ask an administrator to add your account to SETTINGS!G before running this tool.', ui.ButtonSet.OK);
+  return false;
+}
+
 function menuRebuildDashboard() {
   const ui = SpreadsheetApp.getUi();
   try {
+    if (!_menuRequireAdmin_(ui)) return;
     buildExecutiveSummaryLayout();
     ui.alert('Done', 'Executive Summary rebuilt with live formulas.', ui.ButtonSet.OK);
   } catch (e) { _adminError('menuRebuildDashboard', e); }
@@ -110,6 +129,7 @@ function menuRebuildDashboard() {
 function menuRefreshStoreHealth() {
   const ui = SpreadsheetApp.getUi();
   try {
+    if (!_menuRequireAdmin_(ui)) return;
     refreshRiskEngine();
     ui.alert('Done', 'Store Health sheet refreshed.', ui.ButtonSet.OK);
   } catch (e) { _adminError('menuRefreshStoreHealth', e); }
@@ -118,6 +138,7 @@ function menuRefreshStoreHealth() {
 function menuRebuildKPI2026() {
   const ui = SpreadsheetApp.getUi();
   try {
+    if (!_menuRequireAdmin_(ui)) return;
     buildKPI2026();
     ui.alert('Done', 'KPI 2026 rebuilt with SUMPRODUCT formulas.', ui.ButtonSet.OK);
   } catch (e) { _adminError('menuRebuildKPI2026', e); }
@@ -126,6 +147,7 @@ function menuRebuildKPI2026() {
 function menuRebuildDataHeaders() {
   const ui = SpreadsheetApp.getUi();
   try {
+    if (!_menuRequireAdmin_(ui)) return;
     const result = rebuildDataSheetHeaders();
     const msg = result.results.map(r =>
       (r.success ? '✅' : '❌') + ' ' + r.sheet + (r.error ? ': ' + r.error : '')
@@ -137,6 +159,7 @@ function menuRebuildDataHeaders() {
 function menuValidateMasterLog() {
   const ui = SpreadsheetApp.getUi();
   try {
+    if (!_menuRequireAdmin_(ui)) return;
     const result = validateMasterLog();
     let message = result.summary;
     if (!result.valid) {
@@ -254,6 +277,17 @@ function portal_validateMasterLog() {
 
 const TRIGGER_FN_NAME = 'triggerRefreshDashboard';
 
+// Phase 1H-B.1 (Required finding 2, reviews/003 §H): lets the daily
+// unattended trigger below call the now admin-gated refreshRiskEngine()
+// (SVMKPI_RISK.gs) without a signed-in admin session. Generated fresh
+// every time this script executes, never sent to any client, never
+// logged — a normal google.script.run caller has no way to learn or
+// guess it, so this is a capability token, not a client-supplied
+// "isAdmin" flag (see refreshRiskEngine()'s own doc comment).
+const _SYSTEM_TRIGGER_TOKEN_ = (typeof Utilities !== 'undefined' && Utilities.getUuid)
+  ? Utilities.getUuid()
+  : String(Math.random());
+
 function installTriggers() {
   removeTriggers();
   ScriptApp.newTrigger(TRIGGER_FN_NAME)
@@ -273,9 +307,9 @@ function removeTriggers() {
 
 function triggerRefreshDashboard() {
   try {
-    const result = refreshRiskEngine();
+    const result = refreshRiskEngine(undefined, _SYSTEM_TRIGGER_TOKEN_);
     Logger.log('[SVMKPI] Triggered refresh ' +
-      (result.success ? 'succeeded.' : 'failed: ' + result.failed));
+      (result.success ? 'succeeded.' : 'failed: ' + (result.message || result.failed)));
   } catch (e) {
     Logger.log('[SVMKPI] Triggered refresh error: ' + e.message);
   }

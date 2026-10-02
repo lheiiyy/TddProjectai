@@ -473,9 +473,11 @@ function cfg_resolveConfigurationAsOf(area, entityId, dateStr) {
  * (see _cfg_resolveAsOf()); an entity with no version effective on the
  * given date is simply absent from the returned map, exactly as it would
  * be skipped by a per-entity caller checking for a null result.
- * Added to fix sl_getComplianceGaps()/_computeStoreRisk()'s O(n) (or
- * worse, when nested) per-entity CONFIG_* re-reads — see
- * SVMKPI_STORE_LOOKUP.gs and SVMKPI_RISK.gs call sites.
+ * Fixes the O(n) full-sheet-reads-per-load pattern in
+ * store_getOperationalList()/visitor_getOperationalList(), which run on
+ * every Input Portal tab load (see reviews/014-input-portal-load-perf.md)
+ * — the same class of defect D-034/D-035 already fixed in the
+ * migration write path, but never fixed in this read path.
  * @returns {Object<string, {versionId, entityId, versionNum, effectiveFrom, effectiveTo, status, fields}>}
  *          keyed by uppercase entityId
  */
@@ -706,7 +708,17 @@ function cfg_createConfiguration(area, entityId, fields, effectiveFromStr, effec
     if (effectiveToStr && !effectiveTo) return { success: false, message: 'Invalid Effective To date.' };
 
     const sheet = _cfg_ensureSheet(area);
-    const existingVersions = _cfg_readVersions(sheet, schema, entity);
+    // Performance fix (DECISIONS.md D-035): _cfg_readVersions() always
+    // reads the ENTIRE sheet, regardless of entityId — every call here
+    // re-reads a sheet that just keeps growing as a bulk-create loop
+    // (migration) adds more rows, an O(n^2) cost independent of anything
+    // the CALLER does. A caller that already knows, by construction, this
+    // entity cannot possibly have an existing version (a freshly-minted
+    // UUID nobody has ever seen — see store_create()'s own comment for
+    // the specific guarantee) can pass options.knownNewEntity to use `[]`
+    // directly instead — mathematically identical to what the full read
+    // would have found, computed in O(1) instead of O(existing rows).
+    const existingVersions = (options && options.knownNewEntity) ? [] : _cfg_readVersions(sheet, schema, entity);
 
     const validation = cfg_validateConfiguration(area, entity, fields, effectiveFrom, effectiveTo, existingVersions);
     if (!validation.valid) {
@@ -742,17 +754,87 @@ function cfg_createConfiguration(area, entityId, fields, effectiveFromStr, effec
     }, fields);
 
     sheet.appendRow(row);
-    SpreadsheetApp.flush();
+    // deferFlush (D-035): bulk callers flush once after the whole batch
+    // instead of once per entity — appendRow()'s own cost doesn't grow
+    // with sheet size the way a read does, but each flush() is still a
+    // real synchronous round-trip, worth batching too.
+    if (!(options && options.deferFlush)) SpreadsheetApp.flush();
 
     _cfg_writeAudit(area, entity, CFG_ACTION.CREATE,
       previousActive ? _cfg_summarize(schema, previousActive) : '(none)',
       _cfg_summarize(schema, { fields }),
-      effectiveFrom, effectiveTo, reason || '', versionNum, actor);
+      effectiveFrom, effectiveTo, reason || '', versionNum, actor, options && options.deferFlush);
+
+    // suppressLegacyMirror (D-035): skips the SETTINGS-mirror sync
+    // entirely, not just the rebuild inside it — used only when the
+    // caller already knows SETTINGS doesn't need it this time (bulk
+    // migration's source data IS SETTINGS itself — see
+    // store_migrateFromSettings()'s own comment).
+    if (!(options && options.suppressLegacyMirror)) {
+      _cfg_syncLegacyMirror(area, entity, options && options.suppressRebuild);
+    }
 
     return { success: true, versionId, version: versionNum };
   } catch (e) {
     logError('cfg_createConfiguration', e);
     return { success: false, message: e.message };
+  }
+}
+
+/**
+ * _cfg_syncLegacyMirror(area, entityId)
+ * Phase 1G — Admin Configuration is now the ONLY place that creates,
+ * activates, deactivates, or rolls back a Store/Visitor/Purpose (the old
+ * "Store & Roster Manager" write path is gone). This is the single choke
+ * point all three of those mutations pass through (cfg_createConfiguration/
+ * _cfg_setStatus/cfg_rollbackConfiguration — every area-specific wrapper
+ * for STORES/VISITORS/PURPOSES ultimately calls one of these, and Admin's
+ * own client-side code calls two of them directly for VISITORS, which has
+ * no dedicated wrapper), so hooking it here — rather than in each of
+ * SVMKPI_STORE_CONFIG.gs/SVMKPI_VISITOR_CONFIG.gs/SVMKPI_PURPOSE_CONFIG.gs's
+ * own create/activate/deactivate functions — guarantees every mutation
+ * path is covered exactly once, including a raw cfg_rollbackConfiguration()
+ * call that bypasses any area wrapper entirely.
+ *
+ * This file stays domain-agnostic on purpose (see the file header: a
+ * generic, reusable versioning engine, not where SETTINGS column
+ * knowledge belongs) — it only soft-dispatches, by name, to a same-named
+ * per-area sync function defined in that area's OWN file, guarded by
+ * typeof so a test sandbox that loads SVMKPI_CONFIG.gs alone (e.g.
+ * config-service.test.js) never hits a ReferenceError. Each per-area sync
+ * function is what actually knows how to keep the legacy SETTINGS sheet's
+ * Store/Visitor/Purpose columns looking like a correct, read-only,
+ * derived snapshot of CONFIG_STORES/CONFIG_VISITORS/CONFIG_PURPOSES —
+ * never the other way around; nothing here or downstream ever treats
+ * SETTINGS as authoritative again.
+ *
+ * Best-effort: a sync failure is logged, never allowed to fail the
+ * CONFIG_* mutation that already succeeded and was already audited —
+ * same "side effect, not source of truth" discipline the pre-existing
+ * refreshRiskEngine()/buildKPI2026() auto-refresh triggers use.
+ */
+/**
+ * `suppressRebuild` (bulk-migration performance fix — see
+ * DECISIONS.md D-034): STORES/VISITORS sync each trigger a full Store
+ * Health / KPI 2026 rebuild by design (see those functions' own
+ * comments) — correct and cheap for a single interactive admin edit,
+ * but catastrophic when this fires once PER ENTITY inside a bulk
+ * migration loop (each rebuild rescans all of MASTER_LOG). Passed
+ * through unchanged from cfg_createConfiguration()'s own `options`;
+ * every interactive single-entity call site omits it, so its default
+ * (falsy = rebuild as before) is exactly the pre-existing behavior.
+ */
+function _cfg_syncLegacyMirror(area, entityId, suppressRebuild) {
+  try {
+    if (area === CFG_AREA.STORES && typeof _storeSync_toSettings === 'function') {
+      _storeSync_toSettings(entityId, suppressRebuild);
+    } else if (area === CFG_AREA.VISITORS && typeof _visitorSync_toSettings === 'function') {
+      _visitorSync_toSettings(entityId, suppressRebuild);
+    } else if (area === CFG_AREA.PURPOSES && typeof _purposeSync_toSettings === 'function') {
+      _purposeSync_toSettings(entityId);
+    }
+  } catch (e) {
+    logError('_cfg_syncLegacyMirror', e);
   }
 }
 
@@ -784,6 +866,8 @@ function _cfg_setStatus(area, versionId, newStatus, reason) {
         const effTo = _parseDateCell(raw[i][CFG_ENV_COL.EFFECTIVE_TO - 1]);
         const action = newStatus === CFG_STATUS.ACTIVE ? CFG_ACTION.ACTIVATE : CFG_ACTION.DEACTIVATE;
         _cfg_writeAudit(area, entity, action, 'status=' + prevStatus, 'status=' + newStatus, effFrom, effTo, reason || '', versionNum, sl_getCurrentUser());
+
+        _cfg_syncLegacyMirror(area, entity);
 
         return { success: true, versionId, status: newStatus };
       }
@@ -871,6 +955,8 @@ function cfg_rollbackConfiguration(area, entityId, targetVersionId, reason, effe
       _cfg_summarize(schema, target),
       effectiveFrom, null, fullReason, versionNum, actor);
 
+    _cfg_syncLegacyMirror(area, entity);
+
     return { success: true, versionId, version: versionNum, restoredFrom: targetVersionId };
   } catch (e) {
     logError('cfg_rollbackConfiguration', e);
@@ -884,7 +970,14 @@ function cfg_rollbackConfiguration(area, entityId, targetVersionId, reason, effe
 // has fully succeeded (never on a validation failure or rejected change)
 // ═══════════════════════════════════════════════════════════════
 
-function _cfg_writeAudit(area, entityId, action, previousValue, newValue, effectiveFrom, effectiveTo, reason, version, actor) {
+/**
+ * `deferFlush` (D-035): optional, backward-compatible — every pre-existing
+ * call site omits it and keeps flushing immediately, exactly as before.
+ * Only bulk callers (cfg_createConfiguration() with options.deferFlush)
+ * pass it, and are themselves responsible for flushing once after their
+ * whole batch.
+ */
+function _cfg_writeAudit(area, entityId, action, previousValue, newValue, effectiveFrom, effectiveTo, reason, version, actor, deferFlush) {
   const sheet = _cfg_ensureAuditSheet();
   const auditId = area + '-' + entityId + '-' + action + '-' + new Date().getTime();
   sheet.appendRow([
@@ -901,7 +994,7 @@ function _cfg_writeAudit(area, entityId, action, previousValue, newValue, effect
     reason || '',
     version,
   ]);
-  SpreadsheetApp.flush();
+  if (!deferFlush) SpreadsheetApp.flush();
 }
 
 /**

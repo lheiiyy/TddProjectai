@@ -342,7 +342,7 @@ function _snap_captureCalculatedResult(year, evaluationDate) {
     throw new Error('Executive Summary engine (SVMKPI_LAYOUT.gs / SVMKPI_REPORTS.gs) is not loaded — cannot capture a complete report.');
   }
   buildExecutiveSummaryLayout(year);
-  const executiveSummary = getExecutiveSummaryReport(year);
+  const executiveSummary = getExecutiveSummaryReport();
 
   if (typeof getKPI2026Report !== 'function') {
     throw new Error('KPI report engine (SVMKPI_KPI_REBUILD.gs / SVMKPI_REPORTS.gs) is not loaded — cannot capture a complete report.');
@@ -762,6 +762,8 @@ function _report_sheetName(year) {
  * @returns {{success:boolean, message?:string, sheetName?:string, snapshotId?:string, snapshotVersion?:number}}
  */
 function regenerateReportSheet(year) {
+  // #5: client-callable via google.script.run — admin only (same pattern as rebuildDataSheetHeaders()).
+  if (typeof sl_isAdmin === 'function' && !sl_isAdmin()) return { success: false, message: 'Admin access required.' };
   const y = normalizeReportingYear(year);
   if (y === null) return { success: false, message: 'Invalid reporting year: ' + year };
 

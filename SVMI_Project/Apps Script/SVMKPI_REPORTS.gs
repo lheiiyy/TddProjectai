@@ -2,25 +2,35 @@
 // SVMKPI_REPORTS.gs
 // Store Visit Monitoring KPI — Read-Only Report Readers
 // ------------------------------------------------------------
-// Executive Summary: computed directly from MASTER_LOG (see below).
-// KPI 2026 and Store Health: reads the already-computed KPI 2026 and STORE
-// HEALTH sheets (all three are built by formulas/scripts elsewhere —
-// SVMKPI_LAYOUT.gs, SVMKPI_KPI_REBUILD.gs, SVMKPI_RISK.gs — this file
-// only reads their current cell values) into plain JSON for the
-// portal's "📊 Reports" tab, so viewing them doesn't require opening
-// the actual Spreadsheet.
+// getKPI2026Report() and getStoreHealthReport() read the already-computed
+// KPI 2026 / STORE HEALTH sheets (built elsewhere — SVMKPI_KPI_REBUILD.gs,
+// SVMKPI_RISK.gs — this file only reads their current cell values) into
+// plain JSON for the portal's "📊 Reports" tab.
 //
-// Every reader uses getDisplayValues() rather than getValues(): the
-// sheets already carry the right number/date/percent formatting
-// (e.g. "0.0%", "yyyy-mm-dd"), so reading the display string is exact
-// and needs no reformatting here.
+// getExecutiveSummaryReport() is different (source-of-truth fix, see
+// DECISIONS.md): it reads MASTER_LOG directly via the canonical _getData()
+// reader (SVMKPI_CORE.gs) and computes every metric/dimension itself,
+// rather than reading the EXECUTIVE SUMMARY sheet's cells. That sheet
+// (SVMKPI_LAYOUT.gs's buildExecutiveSummaryLayout()) still exists and can
+// still be rebuilt/viewed directly in the Spreadsheet as a presentation
+// artifact — it is simply no longer this reader's authoritative source.
+// Every value getExecutiveSummaryReport() returns is reproducible from
+// Data Records on every call; none of it is cached or read back from a
+// generated report/KPI sheet.
+//
+// getKPI2026Report()/getStoreHealthReport() use getDisplayValues() rather
+// than getValues(): the sheets already carry the right number/date/percent
+// formatting (e.g. "0.0%", "yyyy-mm-dd"), so reading the display string is
+// exact and needs no reformatting here.
 //
 // Read-only module. Never writes to any sheet. Reuses CELL (Executive
-// Summary cell map) from SVMKPI_CORE.gs, KPI_* constants and
-// _kpiSheetName()/_weekRanges() from SVMKPI_KPI_REBUILD.gs, RISK_*
-// constants from SVMKPI_RISK.gs / SVMKPI_RISK_LAYOUT.gs, and (Phase 1C)
-// getDefaultReportingYear() from SVMKPI_REPORTING_YEAR.gs as
-// getKPI2026Report()'s fallback when no year is supplied — never
+// Summary cell map)/COL/SHEET/APPROVED_*/MONTH_NAMES/_getData()/
+// _normalizeVisitors()/_aggregateList()/_aggregateVisitors() from
+// SVMKPI_CORE.gs, _es_discoverReportablePurposes() from SVMKPI_LAYOUT.gs,
+// KPI_* constants and _kpiSheetName()/_weekRanges() from
+// SVMKPI_KPI_REBUILD.gs, RISK_* constants from SVMKPI_RISK.gs /
+// SVMKPI_RISK_LAYOUT.gs, and getDefaultReportingYear()/
+// getAvailableReportingYears() from SVMKPI_REPORTING_YEAR.gs — never
 // redeclares any of them.
 // ============================================================
 
@@ -31,142 +41,174 @@
 
 /**
  * getExecutiveSummaryReport(year)
- * Computes the Executive Summary DIRECTLY from MASTER_LOG (one batch read
- * via _getData()) instead of copying fixed cells off the EXECUTIVE SUMMARY
- * sheet. Same return shape as before, so the portal renderer is unchanged.
+ * Source of truth: MASTER_LOG (Data Records), read once via _getData()
+ * and filtered to the selected reporting year — never the EXECUTIVE
+ * SUMMARY sheet, never a KPI sheet, never another report. `year` is a
+ * pure read filter: nothing here ever writes to MASTER_LOG or any other
+ * sheet, so switching years cannot mutate stored data. Omit `year` for
+ * getDefaultReportingYear() (SVMKPI_REPORTING_YEAR.gs) — same convention
+ * as getKPI2026Report().
  *
- * Mirrors the sheet formulas in _buildESFormulas() (SVMKPI_LAYOUT.gs):
- *   - KPI cards, Region, Purpose, Brand totals, Top Stores, Leaderboard:
- *     all-time counts over every MASTER_LOG row (same as the COUNTIF cells).
- *   - Monthly-by-brand and Brand peak month/count: limited to `year`.
- * Differences from the old sheet read (all intentional):
- *   - Works even if the EXECUTIVE SUMMARY tab is missing or out of date.
- *   - Follows APPROVED_BRANDS automatically (a 6th brand just appears).
- *   - Matching is trim/case/apostrophe-insensitive via _normalizeEnum().
- *   - Leaderboard order is always current (the sheet only re-sorted on rebuild).
+ * `records` carries the complete relevant per-visit Data Record fields
+ * forward (date, store, brand, region, visitor, purpose, plus the
+ * derived `additionalPurpose` flag) — a real, filterable/groupable
+ * dataset, not a display-only label set. Additional Purpose (both the
+ * `kpi` card and each record's `additionalPurpose` flag) is `true`/
+ * counted whenever a visit's Purpose is not one of the 4 fixed legacy
+ * purposes already broken out as their own KPI cards (APPROVED_PURPOSES,
+ * SVMKPI_CORE.gs) — i.e. any purpose configured/used beyond those 4,
+ * discovered from the data itself, never a second hardcoded list.
  *
- * @param {number} [year] reporting year for the monthly section;
- *        defaults to getDefaultReportingYear().
+ * Percentage note: an empty year (0 total) reports 0.0% for every share,
+ * a simpler and more intuitive convention than the EXECUTIVE SUMMARY
+ * sheet's own `IFERROR(0/0, 1)` formula fallback (which showed "100.0%"
+ * for a totals row's self-ratio on an empty year) — a disclosed, minor,
+ * deliberate difference for a degenerate edge case, not a regression in
+ * any populated year.
+ * @param {number} [year]
+ * @returns {{
+ *   selectedYear: number,
+ *   availableYears: number[],
+ *   kpi: {label:string, value:string}[],
+ *   monthBrandLabels: string[],
+ *   monthly: {month:string, byBrand:string[], total:string}[],
+ *   monthlyTotal: {byBrand:string[], total:string},
+ *   region: {name:string, visits:string, pct:string}[],
+ *   regionTotal: {visits:string, pct:string},
+ *   purpose: {name:string, count:string, pct:string}[],
+ *   purposeTotal: {count:string, pct:string},
+ *   topStores: {rank:string, name:string, visits:string}[],
+ *   leaderboard: {rank:string, name:string, visits:string}[],
+ *   brandPerformance: {brand:string, total:string, pct:string, peakMonth:string, peakCount:string}[],
+ *   brandTotal: {total:string, pct:string, peakMonth:string, peakCount:string},
+ *   records: {timestamp:string, date:string, store:string, brand:string, region:string, visitor:string[], purpose:string, additionalPurpose:boolean}[]
+ * }}
  */
-function getExecutiveSummaryReport(year) {
-  const t0 = Date.now();
+function _getExecutiveSummaryReport_impl(year) {
   const reportYear = (year != null && !isNaN(Number(year))) ? Number(year) : getDefaultReportingYear();
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const log = ss.getSheetByName(SHEET.MASTER_LOG);
-  if (!log) throw new Error('MASTER_LOG sheet not found.');
-  const data = _getData(log);
+  const log  = _getSheet(SHEET.MASTER_LOG);
+  const data = _getData(log); // the ONE read this function performs against MASTER_LOG
 
-  const n = v => String(v);
-  const pct = (part, whole, dp) => (whole ? (part / whole * 100) : 0).toFixed(dp) + '%';
-  const brands   = APPROVED_BRANDS;
-  const regions  = APPROVED_REGIONS;
-  const purposes = APPROVED_PURPOSES;
-
-  // ── single pass over MASTER_LOG ──
-  const purposeCount = {}, regionCount = {}, brandCount = {}, storeCount = {};
-  const monthBrand = Array.from({ length: 12 }, () => brands.map(() => 0));
-  let totalVisits = 0;
+  // Index every row belonging to the selected reporting year, once —
+  // every section below reads through this index rather than re-scanning
+  // data.dates itself.
+  const idx = [];
   for (let i = 0; i < data.totalRows; i++) {
-    const store = data.stores[i];
-    if (store) {
-      totalVisits++;                                   // = COUNTA(C:C)-1
-      storeCount[store] = (storeCount[store] || 0) + 1;
-    }
-    purposeCount[data.purposes[i]] = (purposeCount[data.purposes[i]] || 0) + 1;
-    regionCount[data.regions[i]]   = (regionCount[data.regions[i]]   || 0) + 1;
-    brandCount[data.brands[i]]     = (brandCount[data.brands[i]]     || 0) + 1;
     const d = data.dates[i];
-    const bi = brands.indexOf(data.brands[i]);
-    if (d && bi !== -1 && d.getFullYear() === reportYear) monthBrand[d.getMonth()][bi]++;
+    if (d instanceof Date && !isNaN(d.getTime()) && d.getFullYear() === reportYear) idx.push(i);
   }
-  const pc = p => purposeCount[p] || 0;
-  const rc = r => regionCount[r]  || 0;
-  const bc = b => brandCount[b]   || 0;
 
-  // ── KPI cards ──
+  const countWhere = (pred) => {
+    let n = 0;
+    for (let k = 0; k < idx.length; k++) if (pred(idx[k])) n++;
+    return n;
+  };
+  const pct  = (n, total) => total ? (n / total * 100).toFixed(1) + '%'  : '0.0%';
+  const pct2 = (n, total) => total ? (n / total * 100).toFixed(2) + '%' : '0.00%';
+  const isLegacyPurpose = (p) => APPROVED_PURPOSES.indexOf(p) !== -1;
+
+  const totalVisits = idx.length;
+
+  // ── KPI cards ────────────────────────────────────────────────
   const kpi = [
-    { label: 'Total Visits',   value: n(totalVisits) },
-    { label: 'Store Visits',   value: n(pc('STORE VISIT')) },
-    { label: 'TLTC',           value: n(pc('TLTC')) },
-    { label: 'Failed QA/MS',   value: n(pc('FAILED QA/MS')) },
-    { label: 'Curing/Support', value: n(pc('CURING/SUPPORT')) },
-    { label: 'NCR',            value: n(rc('NCR')) },
-    { label: 'Provincial',     value: n(rc('PROVINCIAL')) },
+    { label: 'Total Visits',       value: String(totalVisits) },
+    { label: 'Store Visits',       value: String(countWhere(i => data.purposes[i] === 'STORE VISIT')) },
+    { label: 'TLTC',               value: String(countWhere(i => data.purposes[i] === 'TLTC')) },
+    { label: 'Failed QA/MS',       value: String(countWhere(i => data.purposes[i] === 'FAILED QA/MS')) },
+    { label: 'Curing/Support',     value: String(countWhere(i => data.purposes[i] === 'CURING/SUPPORT')) },
+    { label: 'NCR',                value: String(countWhere(i => data.regions[i] === 'NCR')) },
+    { label: 'Provincial',         value: String(countWhere(i => data.regions[i] === 'PROVINCIAL')) },
+    { label: 'Additional Purpose', value: String(countWhere(i => !isLegacyPurpose(data.purposes[i]))) },
   ];
 
-  // ── Monthly by brand (reportYear) ──
-  const monthBrandLabels = brands.slice();
+  // ── Monthly by Brand ─────────────────────────────────────────
+  const monthBrandLabels = APPROVED_BRANDS.slice(); // single source of truth — SVMKPI_CORE.gs
+  const monthlyBrandTotals = APPROVED_BRANDS.map(() => 0);
+  let grandTotal = 0;
   const monthly = MONTH_NAMES.map((month, m) => {
-    const row = monthBrand[m];
-    return { month, byBrand: row.map(n), total: n(row.reduce((a, b) => a + b, 0)) };
+    const counts = APPROVED_BRANDS.map(brand =>
+      countWhere(i => data.dates[i].getMonth() === m && data.brands[i] === brand));
+    const tot = counts.reduce((a, b) => a + b, 0);
+    counts.forEach((c, bi) => { monthlyBrandTotals[bi] += c; });
+    grandTotal += tot;
+    return { month, byBrand: counts.map(String), total: String(tot) };
   });
-  const colTotals = brands.map((_, bi) => monthBrand.reduce((a, row) => a + row[bi], 0));
-  const monthlyTotal = { byBrand: colTotals.map(n), total: n(colTotals.reduce((a, b) => a + b, 0)) };
+  const monthlyTotal = { byBrand: monthlyBrandTotals.map(String), total: String(grandTotal) };
 
-  // ── Region ──
-  const regionSum = regions.reduce((a, r) => a + rc(r), 0);
-  const region = regions.map(r => ({ name: r, visits: n(rc(r)), pct: pct(rc(r), regionSum, 1) }));
-  const regionTotal = { visits: n(regionSum), pct: pct(regionSum, regionSum, 1) };
+  // ── Visits by Region ─────────────────────────────────────────
+  const region = APPROVED_REGIONS.map(name => {
+    const v = countWhere(i => data.regions[i] === name);
+    return { name, visits: String(v), pct: pct(v, totalVisits) };
+  });
+  const regionTotal = { visits: String(totalVisits), pct: pct(totalVisits, totalVisits) };
 
-  // ── Purpose ──
-  const purposeSum = purposes.reduce((a, p) => a + pc(p), 0);
-  const purpose = purposes.map(p => ({ name: p, count: n(pc(p)), pct: pct(pc(p), purposeSum, 1) }));
-  const purposeTotal = { count: n(purposeSum), pct: pct(purposeSum, purposeSum, 1) };
+  // ── Visit Purpose Breakdown — reuses the SAME discovery function
+  // SVMKPI_LAYOUT.gs's sheet-writer already uses (legacy ∪ configured ∪
+  // actually-in-MASTER_LOG-this-year, SVMKPI_LAYOUT.gs's own
+  // _es_discoverReportablePurposes()), so the two never disagree on which
+  // purposes are reportable for a year, and no second implementation of
+  // that (nontrivial) business rule is created here. Already year-scoped
+  // and already reads MASTER_LOG directly, never a report sheet.
+  const purposeList = (typeof _es_discoverReportablePurposes === 'function')
+    ? _es_discoverReportablePurposes(reportYear)
+    : []; // defensive fallback — same soft-dependency convention used throughout this project
+  const purposeGrandTotal = purposeList.reduce((sum, p) => sum + p.count, 0);
+  const purpose = purposeList.map(p => ({ name: p.name, count: String(p.count), pct: pct(p.count, purposeGrandTotal) }));
+  const purposeTotal = { count: String(purposeGrandTotal), pct: pct(purposeGrandTotal, purposeGrandTotal) };
 
-  // ── Top stores (count desc, then name for a stable order) ──
-  const topStores = Object.keys(storeCount)
-    .sort((a, b) => (storeCount[b] - storeCount[a]) || a.localeCompare(b))
-    .slice(0, CELL.STORES_LIMIT)
-    .map((name, i) => ({ rank: n(i + 1), name, visits: n(storeCount[name]) }));
+  // ── Top 10 Most Visited Stores ───────────────────────────────
+  const topStores = _aggregateList(idx.map(i => data.stores[i]))
+    .slice(0, 10)
+    .map((r, i) => ({ rank: String(i + 1), name: r.name, visits: String(r.total) }));
 
-  // ── Visitor leaderboard (SETTINGS!F roster; a visitor counts once per row) ──
-  const leaderboard = _es_leaderboard(ss, data)
-    .slice(0, CELL.LEADER_LIMIT)
-    .map((v, i) => ({ rank: n(i + 1), name: v.name, visits: n(v.count) }));
+  // ── Visitor Leaderboard — discovered from this year's actual visit
+  // records (never SETTINGS!F, unlike the sheet-formula version), via the
+  // same _aggregateVisitors() rule every other visitor count in this app
+  // already uses (Bible §3.4/§6.4).
+  const leaderboard = _aggregateVisitors(idx.map(i => data.rawVisitors[i]))
+    .slice(0, 12)
+    .map((r, i) => ({ rank: String(i + 1), name: r.name, visits: String(r.total) }));
 
-  // ── Brand performance ──
-  const brandSum = brands.reduce((a, b) => a + bc(b), 0);
-  const brandPerformance = brands.map((brand, bi) => {
-    const counts = monthBrand.map(row => row[bi]);
-    const peak = Math.max.apply(null, counts);
+  // ── Brand Performance ────────────────────────────────────────
+  const brandPerformance = APPROVED_BRANDS.map(brand => {
+    const brandIdx = idx.filter(i => data.brands[i] === brand);
+    let peakMonth = '', peakCount = 0;
+    for (let m = 0; m < 12; m++) {
+      const c = brandIdx.reduce((n, i) => n + (data.dates[i].getMonth() === m ? 1 : 0), 0);
+      if (c > peakCount) { peakCount = c; peakMonth = MONTH_NAMES[m]; }
+    }
     return {
-      brand, total: n(bc(brand)), pct: pct(bc(brand), brandSum, 2),
-      peakMonth: MONTH_NAMES[counts.indexOf(peak)], peakCount: n(peak),
+      brand, total: String(brandIdx.length), pct: pct2(brandIdx.length, totalVisits),
+      peakMonth, peakCount: String(peakCount),
     };
   });
-  const brandTotal = { total: n(brandSum), pct: pct(brandSum, brandSum, 2), peakMonth: '', peakCount: '' };
+  const brandGrandTotal = brandPerformance.reduce((sum, b) => sum + Number(b.total), 0);
+  const brandTotal = { total: String(brandGrandTotal), pct: pct2(brandGrandTotal, totalVisits), peakMonth: '', peakCount: '' };
 
-  _perfLog('getExecutiveSummaryReport', t0, data.totalRows + ' rows');
-  return { year: reportYear, kpi, monthBrandLabels, monthly, monthlyTotal, region, regionTotal, purpose, purposeTotal, topStores, leaderboard, brandPerformance, brandTotal };
-}
+  // ── Records — the complete relevant Data Record set for this year.
+  // Required dimensions (Additional Purpose/Visitor/Brand/Store) are real
+  // fields here, not UI-only labels: available for display, filtering,
+  // grouping, and future report expansion, and reproducible from
+  // MASTER_LOG on every call.
+  const tz = Session.getScriptTimeZone();
+  const records = idx.map(i => ({
+    timestamp:         data.timestamps[i] != null ? String(data.timestamps[i]) : '',
+    date:              Utilities.formatDate(data.dates[i], tz, 'yyyy-MM-dd'),
+    store:             data.stores[i],
+    brand:             data.brands[i],
+    region:            data.regions[i],
+    visitor:           _normalizeVisitors(data.rawVisitors[i]),
+    purpose:           data.purposes[i],
+    additionalPurpose: !isLegacyPurpose(data.purposes[i]),
+  }));
 
-/** Roster from SETTINGS!F with all-time visit counts, sorted desc. */
-function _es_leaderboard(ss, data) {
-  const settings = ss.getSheetByName(SHEET.SETTINGS);
-  if (!settings || settings.getLastRow() < 2) return [];
-  const seen = {};
-  const roster = settings.getRange(2, 6, settings.getLastRow() - 1, 1).getValues()
-    .map(r => _normalizeEnum(r[0]))
-    .filter(name => name && !seen[name] && (seen[name] = true));
-  const counts = {};
-  roster.forEach(name => { counts[name] = 0; });
-  data.rawVisitors.forEach(cell => {
-    const unique = {};
-    _normalizeVisitors(cell).forEach(name => { unique[name] = true; });
-    Object.keys(unique).forEach(name => { if (name in counts) counts[name]++; });
-  });
-  return roster
-    .map((name, i) => ({ name, count: counts[name], order: i }))
-    .sort((a, b) => (b.count - a.count) || (a.order - b.order));
-}
-
-/**
- * _perfLog(fnName, t0, detail)
- * One timing line per server call — visible in Apps Script → Executions
- * (and Logs). Lets you measure live load times without changing behavior.
- */
-function _perfLog(fnName, t0, detail) {
-  try { console.log('[SVMI PERF] ' + fnName + ' ' + (Date.now() - t0) + ' ms' + (detail ? ' · ' + detail : '')); } catch (e) {}
+  return {
+    selectedYear: reportYear,
+    availableYears: getAvailableReportingYears(),
+    kpi, monthBrandLabels, monthly, monthlyTotal, region, regionTotal,
+    purpose, purposeTotal, topStores, leaderboard, brandPerformance, brandTotal,
+    records,
+  };
 }
 
 
@@ -222,7 +264,7 @@ function _getKPI2026Report_impl(year) {
 
   // ONE getDisplayValues() call for the whole potential data block
   // (instead of one call per cell, AND instead of one call PER ROW as
-  // this previously did — see SVMI_Project/reviews/REVIEW-003.md:
+  // this previously did — see SVMI_Project/reviews/REVIEW-003.md on main:
   // a report with V visitor rows was V separate round-trips to the
   // Sheets backend just for this loop) — read the whole data span once
   // (name column included), then slice out what's needed by index from
@@ -348,4 +390,12 @@ function getKPI2026Report() {
   const t0 = Date.now();
   try { return _getKPI2026Report_impl.apply(this, arguments); }
   finally { if (typeof _perfLog === 'function') _perfLog('getKPI2026Report', t0); }
+}
+
+
+// #7 timing wrapper — logs "[SVMI PERF] getExecutiveSummaryReport N ms" to Apps Script → Executions.
+function getExecutiveSummaryReport() {
+  const t0 = Date.now();
+  try { return _getExecutiveSummaryReport_impl.apply(this, arguments); }
+  finally { if (typeof _perfLog === 'function') _perfLog('getExecutiveSummaryReport', t0); }
 }

@@ -143,7 +143,7 @@ console.log('\n── sl_getVisitedThisMonth() / sl_getUnvisitedThisMonth(): str
     };
   });
 
-  const visited = sandbox.sl_getVisitedThisMonth([]).map(r => r.name).sort();
+  const visited = (r => Array.isArray(r) ? r : r.resolved)(sandbox.sl_getVisitedThisMonth([])).map(r => r.name).sort();
   check('native-Date store counts as visited this month', visited.includes('STORE_NATIVE'), JSON.stringify(visited));
   check('string-dated store counts as visited this month (the fix)', visited.includes('STORE_STRING'), JSON.stringify(visited));
   check('invalid-date store is not counted as visited', !visited.includes('STORE_INVALID'), JSON.stringify(visited));

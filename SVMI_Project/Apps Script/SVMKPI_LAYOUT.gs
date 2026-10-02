@@ -84,6 +84,17 @@ const ROW_HEIGHTS = {
  * @param {number} [year]
  */
 function buildExecutiveSummaryLayout(year) {
+  // Phase 1H-B.1 (Required finding 2, reviews/003 §H): this engine has no
+  // wrapper-independent check of its own — google.script.run can call it
+  // directly, bypassing portal_rebuildExecutiveSummary()'s sl_isAdmin()
+  // check. The `typeof sl_isAdmin === 'function'` guard makes this a
+  // no-op when SVMKPI_ACCESS.gs isn't loaded (e.g. a test sandbox that
+  // never intended to exercise auth) — in the real deployed app all
+  // files share one project, so sl_isAdmin is always present and this
+  // check always applies.
+  if (typeof sl_isAdmin === 'function' && !sl_isAdmin()) {
+    throw new Error('Admin access required.');
+  }
   const reportYear = (year != null && !isNaN(Number(year))) ? Number(year) : getDefaultReportingYear();
   const ss    = SpreadsheetApp.getActiveSpreadsheet();
   let   sheet = ss.getSheetByName('EXECUTIVE SUMMARY');
@@ -95,11 +106,25 @@ function buildExecutiveSummaryLayout(year) {
     sheet.clearFormats();
   }
 
-  if (sheet.getMaxRows()    < 65) sheet.insertRowsAfter(sheet.getMaxRows(),    65 - sheet.getMaxRows());
-  if (sheet.getMaxColumns() < 11) sheet.insertColumnsAfter(sheet.getMaxColumns(), 11 - sheet.getMaxColumns());
+  // Purpose Breakdown must show EVERY recognized/configured purpose — no
+  // top-N limit (business decision, this phase). The row it needs is
+  // discovered ONCE here, up front, from the SAME authoritative purpose/
+  // configuration/data model every other engine in this app already
+  // uses (see _es_discoverReportablePurposes()) — never a hardcoded name
+  // list. `offset` is the number of EXTRA rows beyond the original
+  // 4-purpose baseline this reporting year's list needs; every section
+  // below the Purpose Breakdown (Top Stores/Leaderboard/Brand Performance/
+  // Footer) shifts down by exactly this amount, so nothing is ever
+  // overwritten and no purpose is ever silently truncated.
+  const purposeList = _es_discoverReportablePurposes(reportYear);
+  const offset = Math.max(0, purposeList.length - 4);
+  const totalRows = 65 + offset;
+
+  if (sheet.getMaxRows()    < totalRows) sheet.insertRowsAfter(sheet.getMaxRows(), totalRows - sheet.getMaxRows());
+  if (sheet.getMaxColumns() < 11)        sheet.insertColumnsAfter(sheet.getMaxColumns(), 11 - sheet.getMaxColumns());
 
   // Global baseline — applied once; sections override as needed
-  sheet.getRange(1, 1, 65, 11)
+  sheet.getRange(1, 1, totalRows, 11)
     .setBackground(C.WHITE)
     .setFontFamily('Arial')
     .setFontSize(8)
@@ -112,27 +137,88 @@ function buildExecutiveSummaryLayout(year) {
     .setBorder(false, false, false, false, false, false);
 
   _applyColumnWidths(sheet);
-  _applyRowHeights(sheet);
+  _applyRowHeights(sheet, offset);
 
   buildTitle(sheet, reportYear);
   buildKPI(sheet);
   buildMonthly(sheet);
   buildRegion(sheet);
-  buildPurpose(sheet);
-  buildTopStores(sheet);
-  buildLeaderboard(sheet);
-  buildBrandPerformance(sheet);
-  buildFooter(sheet);
+  buildPurpose(sheet, purposeList);
+  buildTopStores(sheet, offset);
+  buildLeaderboard(sheet, offset);
+  buildBrandPerformance(sheet, offset);
+  buildFooter(sheet, offset);
 
   // Borders applied last — overlay all fill formatting
-  _applyAllBorders(sheet);
+  _applyAllBorders(sheet, offset, purposeList.length);
 
   // Write native Google Sheets formulas into all data cells
   // so the dashboard auto-updates when MASTER_LOG receives new rows
-  _buildESFormulas(sheet, reportYear);
+  _buildESFormulas(sheet, reportYear, offset, purposeList);
 
   SpreadsheetApp.flush();
   Logger.log('✅ Executive Summary layout and formulas rebuilt.');
+}
+
+/**
+ * _es_discoverReportablePurposes(year)
+ * The ONE place that decides which purposes the Purpose Breakdown shows,
+ * and in what order — a pure discovery/ranking step, no sheet writes.
+ * "Recognized/configured" = the legacy APPROVED_PURPOSES (SVMKPI_CORE.gs,
+ * always recognized, unchanged) UNION any purpose with its own resolvable
+ * CONFIG_PURPOSES version as of this reporting year's end (via
+ * purpose_getConfigurationStatus() — SVMKPI_PURPOSE_CONFIG.gs, the SAME
+ * function every other purpose-readiness check in this app already uses)
+ * UNION any purpose actually appearing in MASTER_LOG for THIS year (a
+ * purpose can have real visit history before it ever gets a deliberate
+ * CONFIG_PURPOSES row). Never a hardcoded name list beyond the existing
+ * legacy 4. Ordering is COUNT DESC (ties keep their first-seen order —
+ * Array.prototype.sort() is stable — so the legacy 4's existing relative
+ * order is unchanged when counts tie, exactly as before this phase).
+ * Defensive: if the config layer (SVMKPI_CONFIG.gs/PURPOSE_CONFIG.gs)
+ * isn't loaded, silently falls back to legacy + MASTER_LOG-discovered
+ * only — same soft-dependency convention already used throughout this
+ * project (e.g. SVMKPI_RISK.gs's risk_resolvePurposeWeight() call sites).
+ * @param {number} year
+ * @returns {{name:string, count:number}[]}
+ */
+function _es_discoverReportablePurposes(year) {
+  const recognized = new Set(APPROVED_PURPOSES);
+
+  if (typeof cfg_getConfiguration === 'function' && typeof purpose_getConfigurationStatus === 'function') {
+    try {
+      const candidates = new Set();
+      cfg_getConfiguration(CFG_AREA.PURPOSES).forEach(v => candidates.add(v.entityId));
+      candidates.forEach(id => {
+        try {
+          if (purpose_getConfigurationStatus(id, year + '-12-31').exists) recognized.add(id);
+        } catch (e) { /* one bad entry never aborts discovery for the rest */ }
+      });
+    } catch (e) { /* config layer not fully loaded — legacy-only fallback */ }
+  }
+
+  const counts = {};
+  recognized.forEach(p => { counts[p] = 0; });
+
+  const ml = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('MASTER_LOG');
+  if (ml && ml.getLastRow() >= 2) {
+    const raw = ml.getRange(2, 2, ml.getLastRow() - 1, 6).getValues(); // B:G — Date..Purpose
+    raw.forEach(r => {
+      // _parseDateCell() (SVMKPI_CORE.gs) — the same canonical parser
+      // _getData()/sl_getStoreData() already use — handles both a real
+      // Sheets Date object and a plain date string consistently.
+      const date = _parseDateCell(r[0]);
+      if (!date || date.getFullYear() !== year) return;
+      const p = String(r[5] || '').trim().toUpperCase();
+      if (!p) return;
+      counts[p] = (counts[p] || 0) + 1;
+      recognized.add(p);
+    });
+  }
+
+  return Array.from(recognized)
+    .map(name => ({ name, count: counts[name] || 0 }))
+    .sort((a, b) => b.count - a.count);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -320,21 +406,32 @@ function buildRegion(sheet) {
   sheet.getRange('F25:F31').setBackground(C.WHITE).setValue('');
 }
 
-function buildPurpose(sheet) {
+/**
+ * buildPurpose(sheet, purposeList)
+ * Draws the styled skeleton (background bands, fonts) for the VISIT
+ * PURPOSE BREAKDOWN block — one row per entry in `purposeList`
+ * (_es_discoverReportablePurposes(), computed once by the caller) plus a
+ * TOTAL row immediately after, so EVERY recognized/configured purpose
+ * gets a row — never truncated to a fixed count. Rows 25-26 (header/
+ * sub-headers) never move; everything from row 27 grows or shrinks with
+ * `purposeList.length`, which is exactly why the caller computes the
+ * resulting `offset` BEFORE laying out anything below this block (Top
+ * Stores/Leaderboard/Brand Performance/Footer all shift down by it — see
+ * buildExecutiveSummaryLayout()). Name cells are left blank here; the
+ * actual name/count/pct VALUES are written by _buildESFormulas() (below),
+ * which has the year-bound data this pure-layout function doesn't.
+ */
+function buildPurpose(sheet, purposeList) {
   _merge(sheet, 'G25:I25');
   _sectionHeader(sheet.getRange('G25'), 'VISIT PURPOSE BREAKDOWN', C.BURNT_ORANGE);
   _subHeaders(sheet, [['G26','PURPOSE'],['H26','COUNT'],['I26','% SHARE']], C.BURNT_ORANGE);
 
-  const rows = [
-    { name: 'STORE VISIT',    bg: C.LIGHT_PEACH },
-    { name: 'TLTC',           bg: C.WHITE },
-    { name: 'FAILED QA/MS',   bg: C.LIGHT_PEACH },
-    { name: 'CURING/SUPPORT', bg: C.WHITE },
-  ];
-
-  rows.forEach(({ name, bg }, i) => {
+  const n = purposeList.length;
+  for (let i = 0; i < n; i++) {
     const row = 27 + i;
-    sheet.getRange(`G${row}`).setValue(name)
+    const bg  = i % 2 === 0 ? C.LIGHT_PEACH : C.WHITE; // same alternating band as before
+
+    sheet.getRange(`G${row}`).setValue('')
       .setBackground(bg).setFontSize(8).setHorizontalAlignment('left').setFontColor(C.BODY_TEXT).setFontWeight('normal').setWrap(false);
 
     sheet.getRange(`H${row}`).setValue('0')
@@ -342,19 +439,33 @@ function buildPurpose(sheet) {
 
     sheet.getRange(`I${row}`).setValue('0.0%')
       .setBackground(bg).setFontSize(8).setHorizontalAlignment('center').setFontColor(C.BODY_TEXT);
-  });
 
-  _totalRow(sheet, 31, ['G','H','I'], ['TOTAL','0','100.00%'], C.BURNT_ORANGE);
-  sheet.getRange('C32:I32').setBackground(C.WHITE).setValue('');
+    sheet.setRowHeight(row, 17);
+  }
+
+  const totalRow = 27 + n;
+  _totalRow(sheet, totalRow, ['G','H','I'], ['TOTAL','0','100.00%'], C.BURNT_ORANGE);
+  sheet.setRowHeight(totalRow, 18);
+  sheet.getRange(`C${totalRow + 1}:I${totalRow + 1}`).setBackground(C.WHITE).setValue('');
+  sheet.setRowHeight(totalRow + 1, 10);
 }
 
-function buildTopStores(sheet) {
-  _merge(sheet, 'C33:E33');
-  _sectionHeader(sheet.getRange('C33'), 'TOP 10 MOST VISITED STORES', C.NAVY);
-  _subHeaders(sheet, [['C34','#'],['D34','STORE NAME'],['E34','VISITS']], C.NAVY);
+// buildTopStores/buildLeaderboard/buildBrandPerformance/buildFooter all
+// take `offset` — the number of extra rows the Purpose Breakdown block
+// needed beyond its original 4-purpose baseline (0 when there are still
+// only the 4 legacy purposes, exactly reproducing the original fixed
+// rows 33/35/48/etc). Every row literal below is the ORIGINAL constant
+// PLUS `offset`, so these sections' own content/style/order is completely
+// unchanged — they simply start `offset` rows lower, leaving Purpose
+// Breakdown all the room it needs without ever overwriting them.
+function buildTopStores(sheet, offset) {
+  const hdrRow = 33 + offset, subRow = 34 + offset;
+  _merge(sheet, `C${hdrRow}:E${hdrRow}`);
+  _sectionHeader(sheet.getRange(hdrRow, 3), 'TOP 10 MOST VISITED STORES', C.NAVY);
+  _subHeaders(sheet, [[`C${subRow}`,'#'],[`D${subRow}`,'STORE NAME'],[`E${subRow}`,'VISITS']], C.NAVY);
 
   for (let i = 0; i < 10; i++) {
-    const row  = 35 + i;
+    const row  = 35 + offset + i;
     const bg   = _rankBg(i, C.LIGHT_BLUE);
     const bold = i < 3 ? 'bold' : 'normal';
 
@@ -368,16 +479,17 @@ function buildTopStores(sheet) {
       .setBackground(bg).setFontSize(8).setHorizontalAlignment('center').setFontWeight(bold).setFontColor(C.BODY_TEXT);
   }
 
-  sheet.getRange('F33:F46').setBackground(C.WHITE).setValue('');
+  sheet.getRange(`F${hdrRow}:F${46 + offset}`).setBackground(C.WHITE).setValue('');
 }
 
-function buildLeaderboard(sheet) {
-  _merge(sheet, 'G33:I33');
-  _sectionHeader(sheet.getRange('G33'), 'VISITOR LEADERBOARD (YTD)', C.NAVY);
-  _subHeaders(sheet, [['G34','RANK'],['H34','VISITOR'],['I34','VISITS']], C.NAVY);
+function buildLeaderboard(sheet, offset) {
+  const hdrRow = 33 + offset, subRow = 34 + offset;
+  _merge(sheet, `G${hdrRow}:I${hdrRow}`);
+  _sectionHeader(sheet.getRange(hdrRow, 7), 'VISITOR LEADERBOARD (YTD)', C.NAVY);
+  _subHeaders(sheet, [[`G${subRow}`,'RANK'],[`H${subRow}`,'VISITOR'],[`I${subRow}`,'VISITS']], C.NAVY);
 
   for (let i = 0; i < 12; i++) {
-    const row  = 35 + i;
+    const row  = 35 + offset + i;
     const bg   = _rankBg(i, C.VERY_LIGHT_BLUE);
     const bold = i < 3 ? 'bold' : 'normal';
 
@@ -391,25 +503,26 @@ function buildLeaderboard(sheet) {
       .setBackground(bg).setFontSize(8).setHorizontalAlignment('center').setFontWeight(bold).setFontColor(C.BODY_TEXT);
   }
 
-  sheet.getRange('C47:I47').setBackground(C.WHITE).setValue('');
+  sheet.getRange(`C${47 + offset}:I${47 + offset}`).setBackground(C.WHITE).setValue('');
 }
 
-function buildBrandPerformance(sheet) {
-  _merge(sheet, 'C48:I48');
-  _sectionHeader(sheet.getRange('C48'), 'BRAND PERFORMANCE SUMMARY', C.EMERALD_GREEN, 8.5);
+function buildBrandPerformance(sheet, offset) {
+  const hdrRow = 48 + offset, subRow = 49 + offset, totalRow = 55 + offset;
+  _merge(sheet, `C${hdrRow}:I${hdrRow}`);
+  _sectionHeader(sheet.getRange(hdrRow, 3), 'BRAND PERFORMANCE SUMMARY', C.EMERALD_GREEN, 8.5);
 
-  // Header row 49 — cols H:I filled emerald (no label)
-  sheet.getRange(49, 8, 1, 2).setBackground(C.EMERALD_GREEN).setValue('');
+  // Header row — cols H:I filled emerald (no label)
+  sheet.getRange(subRow, 8, 1, 2).setBackground(C.EMERALD_GREEN).setValue('');
 
   _subHeaders(sheet, [
-    ['C49','BRAND'], ['D49','TOTAL VISIT'], ['E49','% SHARE'],
-    ['F49','PEAK MONTH'], ['G49','PEAK COUNT'],
+    [`C${subRow}`,'BRAND'], [`D${subRow}`,'TOTAL VISIT'], [`E${subRow}`,'% SHARE'],
+    [`F${subRow}`,'PEAK MONTH'], [`G${subRow}`,'PEAK COUNT'],
   ], C.EMERALD_GREEN, true);
 
   const brands = APPROVED_BRANDS; // single source of truth — SVMKPI_CORE.gs
 
   brands.forEach((brand, i) => {
-    const row = 50 + i;
+    const row = 50 + offset + i;
     const bg  = i % 2 === 0 ? C.WHITE : C.LIGHT_MINT;
 
     sheet.getRange(row, 3).setValue(brand)
@@ -430,11 +543,11 @@ function buildBrandPerformance(sheet) {
     sheet.getRange(row, 8, 1, 2).setBackground(bg).setValue('');
   });
 
-  // Total row 55 — painted col-by-col to guarantee full emerald fill
+  // Total row — painted col-by-col to guarantee full emerald fill
   [
     [3,'TOTAL'], [4,'0'], [5,'0.00%'], [6,'0'], [7,'0'], [8,''], [9,''],
   ].forEach(([col, val]) => {
-    sheet.getRange(55, col)
+    sheet.getRange(totalRow, col)
       .setValue(val)
       .setBackground(C.EMERALD_GREEN)
       .setFontColor(C.WHITE_TEXT)
@@ -445,12 +558,13 @@ function buildBrandPerformance(sheet) {
       .setWrap(false);
   });
 
-  sheet.getRange('C56:I56').setBackground(C.WHITE).setValue('');
+  sheet.getRange(`C${totalRow + 1}:I${totalRow + 1}`).setBackground(C.WHITE).setValue('');
 }
 
-function buildFooter(sheet) {
-  _merge(sheet, 'C57:I57');
-  sheet.getRange('C57')
+function buildFooter(sheet, offset) {
+  const row = 57 + offset;
+  _merge(sheet, `C${row}:I${row}`);
+  sheet.getRange(`C${row}`)
     .setValue('⚡ Run buildExecutiveSummary() to rebuild · All COUNTIF/QUERY formulas update live from MASTER_LOG')
     .setBackground(C.FOOTER_BG)
     .setFontColor(C.FOOTER_TEXT)
@@ -468,18 +582,32 @@ function _applyColumnWidths(sheet) {
   COL_WIDTHS.forEach(([col, px]) => sheet.setColumnWidth(col, px));
 }
 
-function _applyRowHeights(sheet) {
-  const h = Object.assign({}, ROW_HEIGHTS);
-  for (let row = 11; row <= 22; row++) h[row] = 17;   // Monthly data rows
-  for (let row = 35; row <= 46; row++) h[row] = 17;   // Stores / Leaderboard rows
-  for (let row = 50; row <= 54; row++) h[row] = 17;   // Brand Performance data rows
+// `offset` shifts every ROW_HEIGHTS entry at/after row 33 (Top Stores/
+// Leaderboard/Brand Performance/Footer) down by the same amount the
+// Purpose Breakdown block grew by — rows before 33 (Title/KPI/Monthly/
+// Region/Purpose) are unaffected; Purpose's own row heights (27 onward)
+// are set directly by buildPurpose(), which always runs after this and
+// wins for that range regardless of what's set here.
+function _applyRowHeights(sheet, offset) {
+  const h = {};
+  Object.entries(ROW_HEIGHTS).forEach(([row, px]) => {
+    const r = Number(row);
+    h[r >= 33 ? r + offset : r] = px;
+  });
+  for (let row = 11; row <= 22; row++) h[row] = 17;                  // Monthly data rows
+  for (let row = 35 + offset; row <= 46 + offset; row++) h[row] = 17; // Stores / Leaderboard rows
+  for (let row = 50 + offset; row <= 54 + offset; row++) h[row] = 17; // Brand Performance data rows
   Object.entries(h).forEach(([row, px]) => sheet.setRowHeight(+row, px));
 }
 
 // ═══════════════════════════════════════════════════════════════
 // SECTION 5: BORDER HELPERS
 // ═══════════════════════════════════════════════════════════════
-function _applyAllBorders(sheet) {
+// `offset`/`purposeRowCount` — see buildTopStores()'s header comment for
+// what `offset` means. `purposeRowCount` is purposeList.length (the
+// Purpose block's own row count — Region's border block is UNCHANGED,
+// still always exactly 3 rows, since the region list itself never grows).
+function _applyAllBorders(sheet, offset, purposeRowCount) {
   const r   = (row, col, nR, nC) => sheet.getRange(row, col, nR, nC);
   const box = (rng, style, color) => rng.setBorder(true, true, true, true, null, null, color, style);
   const hl  = (rng, style, color) => rng.setBorder(null, null, null, null, null, true, color, style);
@@ -510,7 +638,7 @@ function _applyAllBorders(sheet) {
   r(23, 3, 1, 6).setBorder(null, null, null, null, true,  null, C.BORDER_WHITE, BS.THIN);
   box(r(9, 3, 15, 7), BS.MEDIUM, C.BORDER_CARD);   // re-stamp outer over internal lines
 
-  // Region rows 25–31
+  // Region rows 25–31 — fixed 3-row region list, never grows
   box(r(25, 3, 7, 3), BS.MEDIUM, C.BORDER_CARD);
   sd( r(25, 3, 1, 3), 'bottom', BS.MEDIUM, C.BORDER_CARD);
   sd( r(26, 3, 1, 3), 'bottom', BS.MEDIUM, '#375623');
@@ -520,53 +648,57 @@ function _applyAllBorders(sheet) {
   sd( r(31, 3, 1, 3), 'top',    BS.MEDIUM, C.BORDER_GOLD);
   box(r(25, 3, 7, 3), BS.MEDIUM, C.BORDER_CARD);
 
-  // Purpose rows 25–31
-  box(r(25, 7, 7, 3), BS.MEDIUM, C.BORDER_CARD);
+  // Purpose rows 25 + (2 header rows + purposeRowCount data rows + 1
+  // TOTAL row) — grows/shrinks with the actual discovered purpose count.
+  const purposeTotalRow = 27 + purposeRowCount;
+  const purposeBoxRows   = 2 + purposeRowCount + 1; // header+subheader, data rows, TOTAL
+  box(r(25, 7, purposeBoxRows, 3), BS.MEDIUM, C.BORDER_CARD);
   sd( r(25, 7, 1, 3), 'bottom', BS.MEDIUM, C.BORDER_CARD);
   sd( r(26, 7, 1, 3), 'bottom', BS.MEDIUM, '#C55A11');
-  hl( r(27, 7, 4, 3), BS.THIN,  C.BORDER_GRID);
-  rb( r(26, 8, 6, 1), BS.THIN,  C.BORDER_COL_SEP);
-  rb( r(26, 9, 6, 1), BS.THIN,  C.BORDER_COL_SEP);
-  sd( r(31, 7, 1, 3), 'top',    BS.MEDIUM, C.BORDER_GOLD);
-  box(r(25, 7, 7, 3), BS.MEDIUM, C.BORDER_CARD);
+  hl( r(27, 7, purposeRowCount, 3), BS.THIN,  C.BORDER_GRID);
+  rb( r(26, 8, purposeBoxRows - 1, 1), BS.THIN,  C.BORDER_COL_SEP);
+  rb( r(26, 9, purposeBoxRows - 1, 1), BS.THIN,  C.BORDER_COL_SEP);
+  sd( r(purposeTotalRow, 7, 1, 3), 'top', BS.MEDIUM, C.BORDER_GOLD);
+  box(r(25, 7, purposeBoxRows, 3), BS.MEDIUM, C.BORDER_CARD);
 
-  // Top Stores rows 33–44
-  box(r(33, 3, 12, 3), BS.MEDIUM, C.BORDER_CARD);
-  sd( r(33, 3,  1, 3), 'bottom', BS.MEDIUM, C.BORDER_CARD);
-  sd( r(34, 3,  1, 3), 'bottom', BS.THIN,   C.BORDER_WHITE);
-  hl( r(35, 3, 10, 3), BS.THIN,  C.BORDER_GRID);
-  rb( r(34, 3, 11, 1), BS.THIN,  C.BORDER_COL_SEP);
-  rb( r(34, 4, 11, 1), BS.THIN,  C.BORDER_COL_SEP);
-  box(r(33, 3, 12, 3), BS.MEDIUM, C.BORDER_CARD);
+  // Top Stores rows 33–44 (shifted by `offset`)
+  box(r(33 + offset, 3, 12, 3), BS.MEDIUM, C.BORDER_CARD);
+  sd( r(33 + offset, 3,  1, 3), 'bottom', BS.MEDIUM, C.BORDER_CARD);
+  sd( r(34 + offset, 3,  1, 3), 'bottom', BS.THIN,   C.BORDER_WHITE);
+  hl( r(35 + offset, 3, 10, 3), BS.THIN,  C.BORDER_GRID);
+  rb( r(34 + offset, 3, 11, 1), BS.THIN,  C.BORDER_COL_SEP);
+  rb( r(34 + offset, 4, 11, 1), BS.THIN,  C.BORDER_COL_SEP);
+  box(r(33 + offset, 3, 12, 3), BS.MEDIUM, C.BORDER_CARD);
 
-  // Leaderboard rows 33–46
-  box(r(33, 7, 14, 3), BS.MEDIUM, C.BORDER_CARD);
-  sd( r(33, 7,  1, 3), 'bottom', BS.MEDIUM, C.BORDER_CARD);
-  sd( r(34, 7,  1, 3), 'bottom', BS.THIN,   C.BORDER_WHITE);
-  hl( r(35, 7, 12, 3), BS.THIN,  C.BORDER_GRID);
-  rb( r(34, 7, 13, 1), BS.MEDIUM, C.BORDER_MED_NAVY);
-  rb( r(34, 7,  1, 1), BS.THIN,   C.BORDER_WHITE);   // G34/H34 internal separator
-  rb( r(34, 8, 13, 1), BS.THIN,   C.BORDER_COL_SEP);
-  box(r(33, 7, 14, 3), BS.MEDIUM, C.BORDER_CARD);
+  // Leaderboard rows 33–46 (shifted by `offset`)
+  box(r(33 + offset, 7, 14, 3), BS.MEDIUM, C.BORDER_CARD);
+  sd( r(33 + offset, 7,  1, 3), 'bottom', BS.MEDIUM, C.BORDER_CARD);
+  sd( r(34 + offset, 7,  1, 3), 'bottom', BS.THIN,   C.BORDER_WHITE);
+  hl( r(35 + offset, 7, 12, 3), BS.THIN,  C.BORDER_GRID);
+  rb( r(34 + offset, 7, 13, 1), BS.MEDIUM, C.BORDER_MED_NAVY);
+  rb( r(34 + offset, 7,  1, 1), BS.THIN,   C.BORDER_WHITE);   // G34/H34 internal separator
+  rb( r(34 + offset, 8, 13, 1), BS.THIN,   C.BORDER_COL_SEP);
+  box(r(33 + offset, 7, 14, 3), BS.MEDIUM, C.BORDER_CARD);
 
-  // Brand Performance rows 48–55 — intentional dark green border retained
-  box(r(48, 3, 8, 7), BS.MEDIUM, C.BORDER_DARK_GREEN);
-  sd( r(48, 3, 1, 7), 'bottom', BS.MEDIUM, C.BORDER_DARK_GREEN);
-  sd( r(49, 3, 1, 7), 'bottom', BS.MEDIUM, C.BORDER_OLIVE);
-  hl( r(50, 3, 5, 7), BS.THIN,  C.BORDER_GRID);
-  [3, 4, 5, 6, 7].forEach(col => rb(r(49, col, 7, 1), BS.THIN, C.BORDER_COL_SEP));
-  r(55, 3, 1, 7).setBorder(true, null, true, null, null, null, C.BORDER_GOLD, BS.MEDIUM);
-  box(r(48, 3, 8, 7), BS.MEDIUM, C.BORDER_DARK_GREEN);
+  // Brand Performance rows 48–55 (shifted by `offset`) — intentional dark
+  // green border retained
+  box(r(48 + offset, 3, 8, 7), BS.MEDIUM, C.BORDER_DARK_GREEN);
+  sd( r(48 + offset, 3, 1, 7), 'bottom', BS.MEDIUM, C.BORDER_DARK_GREEN);
+  sd( r(49 + offset, 3, 1, 7), 'bottom', BS.MEDIUM, C.BORDER_OLIVE);
+  hl( r(50 + offset, 3, 5, 7), BS.THIN,  C.BORDER_GRID);
+  [3, 4, 5, 6, 7].forEach(col => rb(r(49 + offset, col, 7, 1), BS.THIN, C.BORDER_COL_SEP));
+  r(55 + offset, 3, 1, 7).setBorder(true, null, true, null, null, null, C.BORDER_GOLD, BS.MEDIUM);
+  box(r(48 + offset, 3, 8, 7), BS.MEDIUM, C.BORDER_DARK_GREEN);
 
-  // Footer row 57
-  box(r(57, 3, 1, 7), BS.MEDIUM, C.BORDER_CARD);
+  // Footer row 57 (shifted by `offset`)
+  box(r(57 + offset, 3, 1, 7), BS.MEDIUM, C.BORDER_CARD);
 }
 
 // ═══════════════════════════════════════════════════════════════
 // SECTION 7: NATIVE FORMULA WRITER
 // Auto-updates dashboard from MASTER_LOG without script refresh.
 // ═══════════════════════════════════════════════════════════════
-function _buildESFormulas(sheet, year) {
+function _buildESFormulas(sheet, year, offset, purposeList) {
   const ML = 'MASTER_LOG'; // sheet reference prefix
 
   // ── KPI Cards (row 7, cols 3-9) ──────────────────────────────
@@ -620,21 +752,34 @@ function _buildESFormulas(sheet, year) {
   sheet.getRange(31, 4).setFormula('=SUM(D27:D29)');
   sheet.getRange(31, 5).setFormula('=IFERROR(D31/D31,1)').setNumberFormat('0.0%');
 
-  // ── Visit Purpose Breakdown (rows 27-30, cols 8-9) ──────────
-  const purposes = ['STORE VISIT', 'TLTC', 'FAILED QA/MS', 'CURING/SUPPORT'];
-  purposes.forEach((purpose, i) => {
+  // ── Visit Purpose Breakdown (rows 27..27+n-1, cols 7-9) ─────
+  // `purposeList` (_es_discoverReportablePurposes()) already IS every
+  // recognized/configured purpose for this year, in COUNT DESC order —
+  // no LIMIT, nothing truncated. The NAME is written as a plain value
+  // (the SET of purposes is inherently a build-time decision — it drives
+  // this section's own row count, so it can't be decided by a formula
+  // evaluated after the layout is already drawn). The COUNT is still a
+  // live, year-bound COUNTIF formula per that exact name, so it keeps
+  // auto-updating from new MASTER_LOG rows without a rebuild — same
+  // philosophy as every other cell in this dashboard. Never a hardcoded
+  // purpose-name list: `purposeList` came entirely from data/configuration.
+  const purposeTotalRow = 27 + purposeList.length;
+  purposeList.forEach(({ name }, i) => {
     const row = 27 + i;
-    sheet.getRange(row, 8).setFormula(`=COUNTIF(${ML}!G:G,"${purpose}")`);
-    sheet.getRange(row, 9).setFormula(`=IFERROR(H${row}/H31,0)`).setNumberFormat('0.0%');
+    sheet.getRange(row, 7).setValue(name);
+    sheet.getRange(row, 8).setFormula(
+      `=COUNTIFS(${ML}!G:G,"${name}",${ML}!B:B,">="&DATE(${year},1,1),${ML}!B:B,"<="&DATE(${year},12,31))`
+    );
+    sheet.getRange(row, 9).setFormula(`=IFERROR(H${row}/H${purposeTotalRow},0)`).setNumberFormat('0.0%');
   });
-  sheet.getRange(31, 8).setFormula('=SUM(H27:H30)');
-  sheet.getRange(31, 9).setFormula('=IFERROR(H31/H31,1)').setNumberFormat('0.0%');
+  sheet.getRange(purposeTotalRow, 8).setFormula(`=SUM(H27:H${purposeTotalRow - 1})`);
+  sheet.getRange(purposeTotalRow, 9).setFormula(`=IFERROR(H${purposeTotalRow}/H${purposeTotalRow},1)`).setNumberFormat('0.0%');
 
-  // ── Top 10 Most Visited Stores (rows 35-44, cols 4-5) ───────
+  // ── Top 10 Most Visited Stores (rows 35-44, cols 4-5; shifted by `offset`) ───
   // QUERY auto-sorts live; INDEX extracts each rank
   const storeQuery = `"SELECT C, COUNT(C) WHERE C<>'' GROUP BY C ORDER BY COUNT(C) DESC LIMIT 10 LABEL COUNT(C) ''"`;
   for (let i = 0; i < 10; i++) {
-    const row  = 35 + i;
+    const row  = 35 + offset + i;
     const rank = i + 1;
     sheet.getRange(row, 3).setValue(rank);
     sheet.getRange(row, 4).setFormula(
@@ -645,19 +790,19 @@ function _buildESFormulas(sheet, year) {
     );
   }
 
-  // ── Visitor Leaderboard (rows 35-46, cols 7-9) ──────────────
+  // ── Visitor Leaderboard (rows 35-46, cols 7-9; shifted by `offset`) ─
   // Read SETTINGS!F roster + sort by current count at rebuild time
-  _buildLeaderboardFormulas(sheet, ML);
+  _buildLeaderboardFormulas(sheet, ML, offset);
 
-  // ── Brand Performance (rows 50-54, cols 4-7) ────────────────
+  // ── Brand Performance (rows 50-54, cols 4-7; shifted by `offset`) ──
   const dateFrom = Array.from({length:12},(_,i)=>`DATE(${year},${i+1},1)`).join(',');
   const dateTo   = Array.from({length:12},(_,i)=>i<11?`DATE(${year},${i+2},1)`:`DATE(${year + 1},1,1)`).join(',');
   const mnNames  = MONTH_NAMES.map(m=>`"${m}"`).join(','); // single source of truth — SVMKPI_CORE.gs
 
   brands.forEach((brand, i) => {
-    const row = 50 + i;
+    const row = 50 + offset + i;
     sheet.getRange(row, 4).setFormula(`=COUNTIF(${ML}!D:D,"${brand}")`);
-    sheet.getRange(row, 5).setFormula(`=IFERROR(D${row}/D55,0)`).setNumberFormat('0.00%');
+    sheet.getRange(row, 5).setFormula(`=IFERROR(D${row}/D${55 + offset},0)`).setNumberFormat('0.00%');
 
     // Peak month / peak count logic left intact
     const monthlyCounts =
@@ -669,18 +814,21 @@ function _buildESFormulas(sheet, year) {
     sheet.getRange(row, 7).setFormula(`=IFERROR(MAX(${monthlyCounts}),0)`);
   });
 
-  // Grand total row 55
-  sheet.getRange(55, 4).setFormula('=SUM(D50:D54)');
-  sheet.getRange(55, 5).setFormula('=IFERROR(D55/D55,1)').setNumberFormat('0.00%');
+  // Grand total row (shifted by `offset`)
+  sheet.getRange(55 + offset, 4).setFormula(`=SUM(D${50 + offset}:D${54 + offset})`);
+  sheet.getRange(55 + offset, 5).setFormula(`=IFERROR(D${55 + offset}/D${55 + offset},1)`).setNumberFormat('0.00%');
 }
 
 /**
- * _buildLeaderboardFormulas(sheet, ML)
+ * _buildLeaderboardFormulas(sheet, ML, offset)
  * Reads SETTINGS!F visitor roster, computes current visit counts,
  * sorts by count desc, writes formulas referencing SETTINGS!F per row.
  * Counts auto-update live; rank order refreshes on next rebuild.
+ * `offset` shifts the written rows down to match however many extra
+ * rows the Purpose Breakdown block needed this rebuild — see
+ * buildTopStores()'s header comment.
  */
-function _buildLeaderboardFormulas(sheet, ML) {
+function _buildLeaderboardFormulas(sheet, ML, offset) {
   const ss       = SpreadsheetApp.getActiveSpreadsheet();
   const settings = ss.getSheetByName('SETTINGS');
   if (!settings || settings.getLastRow() < 2) return;
@@ -713,9 +861,9 @@ function _buildLeaderboardFormulas(sheet, ML) {
   // Sort roster by count descending
   const sorted = roster.sort((a, b) => (visitorCounts[b.name] || 0) - (visitorCounts[a.name] || 0));
 
-  // Write up to 12 leaderboard rows (rows 35-46)
+  // Write up to 12 leaderboard rows (rows 35-46, shifted by `offset`)
   sorted.slice(0, 12).forEach(({ row: settingsRow }, i) => {
-    const sheetRow = 35 + i;
+    const sheetRow = 35 + offset + i;
     sheet.getRange(sheetRow, 7).setValue(i + 1);
     sheet.getRange(sheetRow, 8).setFormula(`=SETTINGS!F${settingsRow}`);
 

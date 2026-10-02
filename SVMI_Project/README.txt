@@ -25,6 +25,8 @@ SVMI COMMAND CENTER — PROJECT FILES
     6. In the Apps Script editor: Deploy (top right) -> New deployment.
     7. Click the gear icon next to "Select type" -> Web app.
     8. Description: anything (e.g. "SVMI Command Center v1").
+       (Live uses Execute as "Me" + "Anyone, even anonymous" — see
+       DEPLOY.md "Google sign-in" for the admin-check caveat.)
        Execute as: "Me" (so visitors don't need their own edit access
        to the Sheet). Who has access: "Anyone" (any Google account can
        open the link) or "Anyone within [your org]" if you're on

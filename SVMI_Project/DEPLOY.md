@@ -196,7 +196,15 @@ Three layers, each answering a different question:
 
 ### 1. Google sign-in
 
-`Apps Script/appsscript.json` sets:
+> **Live setting (as of 2026-09-30 backup, now also in `Apps Script/appsscript.json`):**
+> `"executeAs": "USER_DEPLOYING", "access": "ANYONE_ANONYMOUS"` — runs as the
+> deployer, no Google sign-in required. With this setting
+> `sl_getCurrentUser()` usually only sees the **deployer's** email, so only
+> the deployer passes `sl_isAdmin()`. Verify on the test copy (PLAN.md #5)
+> before changing anything. The section below describes the stricter
+> alternative and its trade-offs.
+
+The stricter alternative is:
 
 ```json
 "webapp": {

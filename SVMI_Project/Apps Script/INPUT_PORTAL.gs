@@ -59,62 +59,50 @@ var COL_S_PURPOSE  = 8;
 
 // ============================================================
 //  getSidebarData()
-//  Called by the sidebar on load.
+//  Called by the Input Portal tab on load.
 //  Returns { stores: [{store, brand, region, category}], visitors: [string], purposes: [string] }
+//
+//  Phase 1G: sources directly from the authoritative, effective-dated
+//  CONFIG_STORES/CONFIG_VISITORS/CONFIG_PURPOSES (via
+//  store_getOperationalList()/visitor_getOperationalList()/
+//  admin_listPurposes()), NOT from the legacy SETTINGS sheet — a value
+//  activated through Admin → Configuration becomes selectable here
+//  immediately, and a deactivated one stops appearing here immediately,
+//  per that area's own effective-date/status resolution. SETTINGS is
+//  still kept in sync (see SVMKPI_CONFIG.gs's _cfg_syncLegacyMirror())
+//  for the handful of things that still read it directly (Store Health,
+//  Executive Summary/KPI 2026's live formulas) — this function no longer
+//  needs or reads it, and falls back to an empty result rather than
+//  SETTINGS if any of the three CONFIG_* readers aren't loaded (should
+//  never happen in the real deployment, only relevant to a unit test
+//  sandbox that loads this file in isolation).
 // ============================================================
 function _getSidebarData_impl() {
   try {
-    var ss       = SpreadsheetApp.getActiveSpreadsheet();
-    var settings = ss.getSheetByName(SHEET_SETTINGS);
+    // Normalized to uppercase here (Store Name/Brand/Region/Category are
+    // plain CONFIG_STORES domain fields, stored exactly as an admin typed
+    // them — unlike Store ID, they are never forced to uppercase by the
+    // generic versioning engine) to match SVMKPI_CORE.gs's enum
+    // convention, same normalization the old SETTINGS-backed
+    // getSidebarData() always applied.
+    var stores = (typeof store_getOperationalList === 'function')
+      ? store_getOperationalList().map(function (s) {
+          return {
+            store: String(s.storeName || '').trim().toUpperCase(),
+            brand: String(s.brand || '').trim().toUpperCase(),
+            region: String(s.region || '').trim().toUpperCase(),
+            category: String(s.category || '').trim().toUpperCase(),
+          };
+        })
+      : [];
 
-    if (!settings) {
-      throw new Error('SETTINGS sheet not found.');
-    }
+    var visitors = (typeof visitor_getOperationalList === 'function')
+      ? visitor_getOperationalList()
+      : [];
 
-    var lastRow = settings.getLastRow();
-    if (lastRow < 2) {
-      return { stores: [], visitors: [], purposes: [] };
-    }
-
-    // Read all SETTINGS data in one call — cols A:H (width 8)
-    var data = settings.getRange(2, 1, lastRow - 1, 8).getValues();
-
-    var stores   = [];
-    var visitors = [];
-    var purposes = [];
-    var storeSet   = {};
-    var visitorSet = {};
-    var purposeSet = {};
-
-    data.forEach(function (row) {
-      // Normalize to uppercase to match SVMKPI_CORE enum values
-      var store    = String(row[COL_S_STORE    - 1] || '').trim().toUpperCase();
-      var brand    = String(row[COL_S_BRAND    - 1] || '').trim().toUpperCase();
-      var region   = String(row[COL_S_REGION   - 1] || '').trim().toUpperCase();
-      var category = String(row[COL_S_CATEGORY - 1] || '').trim().toUpperCase();
-      var visitor  = String(row[COL_S_VISITOR  - 1] || '').trim().toUpperCase();
-      var purpose  = String(row[COL_S_PURPOSE  - 1] || '').trim().toUpperCase();
-
-      if (store && !storeSet[store]) {
-        storeSet[store] = true;
-        stores.push({ store: store, brand: brand, region: region, category: category });
-      }
-
-      if (visitor && !visitorSet[visitor]) {
-        visitorSet[visitor] = true;
-        visitors.push(visitor);
-      }
-
-      if (purpose && !purposeSet[purpose]) {
-        purposeSet[purpose] = true;
-        purposes.push(purpose);
-      }
-    });
-
-    // Sort alphabetically
-    stores.sort(function (a, b) { return a.store.localeCompare(b.store); });
-    visitors.sort();
-    // Purposes retain SETTINGS row order (insertion order preserved above)
+    var purposes = (typeof admin_listPurposes === 'function')
+      ? admin_listPurposes().filter(function (p) { return p.active; }).map(function (p) { return p.purposeName; })
+      : [];
 
     return { stores: stores, visitors: visitors, purposes: purposes };
 
@@ -455,16 +443,25 @@ function checkDuplicateVisit(payload) {
 //  action: 'add' | 'remove'
 //  visitorName: string (will be uppercased and trimmed)
 //
-//  Input Portal's own everyday "⚙ Manage Roster" quick panel (formerly
-//  here, open to any guest-password-holding visitor) has been removed —
-//  the System Tools "Store & Roster Manager" card is now the only caller,
-//  so this is admin-gated like its siblings (managePurpose(),
-//  portal_saveStore(), portal_removeStore()).
+//  Phase 1G: no longer reachable from any UI. The "Store & Roster
+//  Manager" card (its only caller since Input Portal's own "⚙ Manage
+//  Roster" quick panel was removed) is itself gone — Admin → Configuration
+//  → Visitors is now the ONE place a visitor is created, activated, or
+//  deactivated. This function is now internal plumbing: SVMKPI_CONFIG.gs's
+//  _cfg_syncLegacyMirror() calls it (via SVMKPI_VISITOR_CONFIG.gs's
+//  _visitorSync_toSettings()) after every CONFIG_VISITORS mutation, purely
+//  to keep this legacy SETTINGS!F roster looking like a correct mirror for
+//  the code that still reads it directly (buildKPI2026()'s/Executive
+//  Summary's live SETTINGS!F formula references). Still admin-gated below
+//  as defense-in-depth, like its siblings (managePurpose(),
+//  portal_saveStore(), portal_removeStore()) — none of them are exposed
+//  to google.script.run from the client anymore, but nothing stops a
+//  server-side caller from invoking one directly, so the gate stays.
 //
 //  Returns { success: true, visitors: [string] }
 //       or { success: false, message: string }
 // ============================================================
-function manageVisitor(action, visitorName) {
+function manageVisitor(action, visitorName, suppressRebuild) {
   try {
     if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
 
@@ -509,9 +506,16 @@ function manageVisitor(action, visitorName) {
       // now (only triggered by this relatively rare admin action, never by
       // an ordinary visit submission) means their next visit shows up
       // without anyone having to remember to run "Rebuild KPI 2026" by hand.
-      try {
-        if (ss.getSheetByName(_kpiSheetName())) buildKPI2026();
-      } catch (e) { logError('manageVisitor (KPI 2026 auto-refresh)', e); }
+      // suppressRebuild (DECISIONS.md D-034): bulk migration creates many
+      // visitors in one loop — rebuilding KPI 2026 (a full MASTER_LOG scan)
+      // after EVERY one of them is what timed the migration out. The
+      // migration orchestrator suppresses this per-call rebuild and runs it
+      // once, after the whole batch, instead.
+      if (!suppressRebuild) {
+        try {
+          if (ss.getSheetByName(_kpiSheetName())) buildKPI2026();
+        } catch (e) { logError('manageVisitor (KPI 2026 auto-refresh)', e); }
+      }
 
     } else if (action === 'remove') {
       if (!roster[name]) {
@@ -537,10 +541,13 @@ function manageVisitor(action, visitorName) {
 
 // ============================================================
 //  managePurpose(action, purposeName)
-//  Adds or removes an entry in SETTINGS col H (Purpose List) — the same
-//  list getSidebarData() reads into the Input Portal's Purpose dropdown.
-//  Mirrors manageVisitor() one column over. Admin-only: exposed solely
-//  through the System Tools "Store & Roster Manager" card.
+//  Adds or removes an entry in SETTINGS col H (Purpose List). Mirrors
+//  manageVisitor() one column over — see its comment above for the full
+//  Phase 1G "internal plumbing only" story. getSidebarData() no longer
+//  reads this column (it reads CONFIG_PURPOSES directly); this function
+//  is now called only by SVMKPI_PURPOSE_CONFIG.gs's _purposeSync_toSettings(),
+//  itself only invoked by SVMKPI_CONFIG.gs's _cfg_syncLegacyMirror() after
+//  a CONFIG_PURPOSES mutation, to keep SETTINGS!H a correct legacy mirror.
 //  action: 'add' | 'remove'
 //  purposeName: string (will be uppercased and trimmed)
 //
@@ -614,13 +621,21 @@ function managePurpose(action, purposeName) {
 //  formula rebuildDataHeaders() writes in SVMKPI_MASTER_REBUILD.gs) —
 //  an edit to an existing row leaves col D alone since it's a live
 //  formula referencing B/C and recalculates on its own.
-//  Admin-only: exposed solely through the System Tools
-//  "Store & Roster Manager" card.
+//
+//  Phase 1G: no longer reachable from any UI — Admin → Configuration →
+//  Stores is the ONE place a store is created or edited now (the "Store
+//  & Roster Manager" card that used to be this function's only caller is
+//  gone). Called only by SVMKPI_STORE_CONFIG.gs's _storeSync_toSettings(),
+//  itself only invoked by SVMKPI_CONFIG.gs's _cfg_syncLegacyMirror() after
+//  a CONFIG_STORES mutation, purely to keep this legacy SETTINGS mirror
+//  correct for the code that still reads it directly (Store Health, Store
+//  Master Insight, Executive Summary/KPI 2026's live SETTINGS!F/H formula
+//  references, sl_getComplianceGaps()/sl_getUnvisitedThisMonth()).
 //
 //  Returns { success: true, message: string, isNew: boolean }
 //       or { success: false, message: string }
 // ============================================================
-function portal_saveStore(store, brand, region, category) {
+function portal_saveStore(store, brand, region, category, suppressRebuild) {
   try {
     if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
 
@@ -672,9 +687,15 @@ function portal_saveStore(store, brand, region, category) {
     // triggered by this relatively rare admin action, never by an
     // ordinary visit submission) means a new or edited store shows up
     // without anyone having to remember to run "Rebuild Store Health".
-    try {
-      if (ss.getSheetByName(RISK_SHEET_NAME)) refreshRiskEngine();
-    } catch (e) { logError('portal_saveStore (Store Health auto-refresh)', e); }
+    // suppressRebuild (DECISIONS.md D-034): see manageVisitor()'s matching
+    // comment — bulk migration creates many stores in one loop, and
+    // refreshRiskEngine() firing after EVERY one of them (each a full
+    // MASTER_LOG scan) is what timed the migration out.
+    if (!suppressRebuild) {
+      try {
+        if (ss.getSheetByName(RISK_SHEET_NAME)) refreshRiskEngine();
+      } catch (e) { logError('portal_saveStore (Store Health auto-refresh)', e); }
+    }
 
     return {
       success: true,
@@ -704,13 +725,16 @@ function portal_saveStore(store, brand, region, category) {
 //  region fall back to whatever MASTER_LOG recorded on each visit;
 //  category has no MASTER_LOG fallback and degrades to "—"/UNKNOWN
 //  (cadence expectations become "no target" rather than wrong ones).
-//  Admin-only: exposed solely through the System Tools
-//  "Store & Roster Manager" card.
+//
+//  Phase 1G: no longer reachable from any UI, for the same reason as
+//  portal_saveStore() above — called only by SVMKPI_STORE_CONFIG.gs's
+//  _storeSync_toSettings() to clear this legacy mirror's row for a store
+//  that CONFIG_STORES now says is deactivated, renamed, or removed.
 //
 //  Returns { success: true, message: string }
 //       or { success: false, message: string }
 // ============================================================
-function portal_removeStore(storeName) {
+function portal_removeStore(storeName, suppressRebuild) {
   try {
     if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
 
@@ -743,10 +767,12 @@ function portal_removeStore(storeName) {
 
     // Reflect the removal in Store Health immediately, same as add/edit —
     // its numbers are plain computed values with nothing to recalculate
-    // on their own.
-    try {
-      if (ss.getSheetByName(RISK_SHEET_NAME)) refreshRiskEngine();
-    } catch (e) { logError('portal_removeStore (Store Health auto-refresh)', e); }
+    // on their own. suppressRebuild: see portal_saveStore()'s comment.
+    if (!suppressRebuild) {
+      try {
+        if (ss.getSheetByName(RISK_SHEET_NAME)) refreshRiskEngine();
+      } catch (e) { logError('portal_removeStore (Store Health auto-refresh)', e); }
+    }
 
     return {
       success: true,
