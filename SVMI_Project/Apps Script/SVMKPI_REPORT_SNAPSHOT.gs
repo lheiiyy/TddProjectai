@@ -97,7 +97,7 @@
 //   SVMKPI_ACCESS.gs:          sl_isAdmin(), sl_getCurrentUser()
 //   SVMKPI_REPORTING_YEAR.gs:  normalizeReportingYear(), validateReportingYear()
 //   SVMKPI_CONFIG.gs:          CFG_AREA.REPORT, CFG_ACTION.FINALIZE/SUPERSEDE,
-//                              _cfg_writeAudit(), cfg_getAuditLog()
+//                              _cfg_writeAudit_(), cfg_getAuditLog()
 //   SVMKPI_RISK.gs:            _computeStoreRisk(), RISK_HEADERS, RISK_COL
 //   SVMKPI_STORE_LOOKUP.gs:    sl_getComplianceGaps()
 //   SVMKPI_RISK_CONFIG.gs:     resolveRiskConfigurationAsOf() (optional/soft)
@@ -522,7 +522,7 @@ function finalizeReport(year, evaluationDateStr, reason, options) {
       });
       SpreadsheetApp.flush();
 
-      _cfg_writeAudit(CFG_AREA.REPORT, String(y), CFG_ACTION.FINALIZE,
+      _cfg_writeAudit_(CFG_AREA.REPORT, String(y), CFG_ACTION.FINALIZE,
         '(none)', snapshotId, evaluationDate, null, String(reason).trim(), nextVersion, actor);
 
       try { regenerateReportSheet(y); } catch (e) { /* best-effort presentation artifact — the logical snapshot above is already durable */ }
@@ -633,7 +633,7 @@ function supersedeReportSnapshot(year, previousSnapshotId, evaluationDateStr, re
       _snap_setStatusInPlace(sheet, previousSnapshotId, REPORT_SNAPSHOT_STATUS.SUPERSEDED);
       SpreadsheetApp.flush();
 
-      _cfg_writeAudit(CFG_AREA.REPORT, String(y), CFG_ACTION.SUPERSEDE,
+      _cfg_writeAudit_(CFG_AREA.REPORT, String(y), CFG_ACTION.SUPERSEDE,
         previousSnapshotId, snapshotId, evaluationDate, null, String(reason).trim(), nextVersion, actor);
 
       try { regenerateReportSheet(y); } catch (e) { /* best-effort presentation artifact */ }

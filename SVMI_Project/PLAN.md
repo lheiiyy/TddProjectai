@@ -12,9 +12,13 @@ incl. identity/MFA, MASTER_LOG Executive Summary, nav-perf fix) and applied
 the changes below on top. `.clasp.json` now targets the **test copy**
 (`1UU582…`) — it previously pointed at the **live** script (`1QHH…`).
 
-Note: that backup was taken *before* the CONFIG_AUDIT security-fix deploy.
-If anything was deployed to live after it, `clasp pull` the live script and
-compare before pushing.
+D-039 (CONFIG_AUDIT writer made private), deployed to live after that
+backup from `claude/svmi-reports-source-of-truth`, is now ported in too.
+Code compared against that branch: the only differences are this plan's
+changes (#5, #6, #7, #9) plus `appsscript.json`.
+
+**Manifest:** keep live's. Before pushing, copy `appsscript.json` from a fresh
+`clasp pull` of live over ours (records disagree on which setting live has).
 
 ## 🔴 Fix
 
@@ -54,4 +58,4 @@ compare before pushing.
 
 ## Tests
 
-21 files, 1,039 checks, all passing (`node tests/<file>.test.js`).
+22 files, 1,047 checks, all passing (`node tests/<file>.test.js`).

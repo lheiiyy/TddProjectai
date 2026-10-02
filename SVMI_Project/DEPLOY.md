@@ -196,13 +196,13 @@ Three layers, each answering a different question:
 
 ### 1. Google sign-in
 
-> **Live setting (as of 2026-09-30 backup, now also in `Apps Script/appsscript.json`):**
-> `"executeAs": "USER_DEPLOYING", "access": "ANYONE_ANONYMOUS"` — runs as the
-> deployer, no Google sign-in required. With this setting
-> `sl_getCurrentUser()` usually only sees the **deployer's** email, so only
-> the deployer passes `sl_isAdmin()`. Verify on the test copy (PLAN.md #5)
-> before changing anything. The section below describes the stricter
-> alternative and its trade-offs.
+> **Live manifest is uncertain — always keep whatever live has.** The
+> 2026-09-30 backups show `USER_DEPLOYING` + `ANYONE_ANONYMOUS`, but the D-039
+> push (branch `claude/svmi-reports-source-of-truth`) carried `USER_ACCESSING`
+> + `ANYONE`. Before any push, copy the `appsscript.json` from a fresh
+> `clasp pull` of live over `Apps Script/appsscript.json` so access does not
+> change. With `USER_DEPLOYING`, `sl_getCurrentUser()` usually only sees the
+> deployer's email, so only the deployer passes `sl_isAdmin()` (PLAN.md #5).
 
 The stricter alternative is:
 

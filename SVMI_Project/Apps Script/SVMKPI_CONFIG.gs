@@ -94,7 +94,7 @@ const CFG_ACTION = {
   DEACTIVATE: 'DEACTIVATE',
   ROLLBACK:   'ROLLBACK',
   // Phase 1E: report-snapshot lifecycle events, reusing this exact enum +
-  // _cfg_writeAudit()/cfg_getAuditLog() rather than a second audit
+  // _cfg_writeAudit_()/cfg_getAuditLog() rather than a second audit
   // mechanism — see SVMKPI_REPORT_SNAPSHOT.gs.
   FINALIZE:   'FINALIZE',
   SUPERSEDE:  'SUPERSEDE',
@@ -110,7 +110,7 @@ const CFG_AREA = {
   // Phase 1E: not a CFG_AREA_SCHEMAS entry (report snapshots are NOT a
   // versioned-configuration area — no cfg_createConfiguration() call ever
   // uses this) — it exists solely as the audit-log Area tag
-  // SVMKPI_REPORT_SNAPSHOT.gs passes to _cfg_writeAudit()/cfg_getAuditLog(),
+  // SVMKPI_REPORT_SNAPSHOT.gs passes to _cfg_writeAudit_()/cfg_getAuditLog(),
   // so audit queries can filter on it the same way they filter STORES/RISK/etc.
   REPORT:     'REPORT',
   SYSTEM:     'SYSTEM',
@@ -760,7 +760,7 @@ function cfg_createConfiguration(area, entityId, fields, effectiveFromStr, effec
     // real synchronous round-trip, worth batching too.
     if (!(options && options.deferFlush)) SpreadsheetApp.flush();
 
-    _cfg_writeAudit(area, entity, CFG_ACTION.CREATE,
+    _cfg_writeAudit_(area, entity, CFG_ACTION.CREATE,
       previousActive ? _cfg_summarize(schema, previousActive) : '(none)',
       _cfg_summarize(schema, { fields }),
       effectiveFrom, effectiveTo, reason || '', versionNum, actor, options && options.deferFlush);
@@ -865,7 +865,7 @@ function _cfg_setStatus(area, versionId, newStatus, reason) {
         const effFrom = _parseDateCell(raw[i][CFG_ENV_COL.EFFECTIVE_FROM - 1]);
         const effTo = _parseDateCell(raw[i][CFG_ENV_COL.EFFECTIVE_TO - 1]);
         const action = newStatus === CFG_STATUS.ACTIVE ? CFG_ACTION.ACTIVATE : CFG_ACTION.DEACTIVATE;
-        _cfg_writeAudit(area, entity, action, 'status=' + prevStatus, 'status=' + newStatus, effFrom, effTo, reason || '', versionNum, sl_getCurrentUser());
+        _cfg_writeAudit_(area, entity, action, 'status=' + prevStatus, 'status=' + newStatus, effFrom, effTo, reason || '', versionNum, sl_getCurrentUser());
 
         _cfg_syncLegacyMirror(area, entity);
 
@@ -950,7 +950,7 @@ function cfg_rollbackConfiguration(area, entityId, targetVersionId, reason, effe
     sheet.appendRow(row);
     SpreadsheetApp.flush();
 
-    _cfg_writeAudit(area, entity, CFG_ACTION.ROLLBACK,
+    _cfg_writeAudit_(area, entity, CFG_ACTION.ROLLBACK,
       previousActive ? _cfg_summarize(schema, previousActive) : '(none)',
       _cfg_summarize(schema, target),
       effectiveFrom, null, fullReason, versionNum, actor);
@@ -977,7 +977,7 @@ function cfg_rollbackConfiguration(area, entityId, targetVersionId, reason, effe
  * pass it, and are themselves responsible for flushing once after their
  * whole batch.
  */
-function _cfg_writeAudit(area, entityId, action, previousValue, newValue, effectiveFrom, effectiveTo, reason, version, actor, deferFlush) {
+function _cfg_writeAudit_(area, entityId, action, previousValue, newValue, effectiveFrom, effectiveTo, reason, version, actor, deferFlush) {
   const sheet = _cfg_ensureAuditSheet();
   const auditId = area + '-' + entityId + '-' + action + '-' + new Date().getTime();
   sheet.appendRow([
