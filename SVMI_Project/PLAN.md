@@ -1,9 +1,9 @@
 # SVMI — Fix & Improve Plan
 
-Last updated: 2026-10-03 · Working branch: `svmi/functional-fixes`
+Last updated: 2026-10-03 · Working branch: `svmi/phase-c-visit-tables` (PR #13)
 
-**🚀 LIVE = version 13 (2026-10-03)**, same Web App URL. v12 = 2026-10-02.
-Rollback source for v13: `live-backup-20261003-pre-v13/` (= v12). Next: live checklist below → PR → merge to `main`.
+**🚀 LIVE = version 14 (2026-10-03)** — Phase C visit tables, same Web App URL. v13 = 2026-10-03, v12 = 2026-10-02.
+Rollback source for v14: `live-backup-20261003-pre-v14/` (= v13).
 Rule for now: **functionality first.** Security is parked (except admin access).
 Live backups (`live-backup-*`) are the safe fallback — never edited.
 
@@ -50,7 +50,7 @@ changes (#5, #6, #7, #9) plus `appsscript.json`.
 | 11 | Visited By: type + Enter does nothing (phones) | ✅ `keyup` fallback for Android keyboards that send Enter as keyCode 229; Enter also works if the list was closed. Applied to Store, Visitor, Purpose, Store Insights search |
 | 12 | Executive Summary slow (`[SVMI PERF] 5108 ms`) | ✅ MASTER_LOG read 3× → 1×; purpose check read PURPOSES+KPI+RISK config per purpose → 1 PURPOSES read. Same results. Re-measure after deploy |
 
-## 🧱 Phase C — visit tables in Google Sheets (branch `svmi/phase-c-visit-tables`, not deployed)
+## 🧱 Phase C — visit tables in Google Sheets (live in v14)
 
 Decision 2026-10-03: stay in Google Sheets, but with proper tables; MASTER_LOG becomes the audit trail.
 Design: [`PHASE_C_TABLES.md`](PHASE_C_TABLES.md) (mirrors `database/migrations/008_store_visits.sql`).
@@ -61,9 +61,26 @@ Design: [`PHASE_C_TABLES.md`](PHASE_C_TABLES.md) (mirrors `database/migrations/0
 | System Tools → Rebuild Visit Tables / Check Visit Tables | ✅ built |
 | Input Portal dual-write (never blocks a submission) | ✅ built (one line in `INPUT_PORTAL.gs`) |
 | Tests | ✅ `tests/visit-tables.test.js` (48 checks) |
-| Deploy, run Rebuild once, then Check | ⏳ needs Leo's go |
-| Phase D: reports read the tables instead of MASTER_LOG | ⏳ next |
+| Deploy, run Rebuild once, then Check | ✅ v14, 2026-10-03: **In sync — 1,136 visits, 1,248 visitor links**; rebuild took ~18 s |
+| C.1 Data cleanup before Phase D | ⏳ see below |
+| Phase D: reports read the tables instead of MASTER_LOG | ⏳ after C.1 |
 | Phase E: MASTER_LOG audit-trail only | ⏳ later |
+
+### C.1 — data notes from the first Check (2026-10-03)
+
+- **230 visits with no Store ID.** Names shown are almost all S–W (Shangrila, Tien Mas Makati/Retiro, Timog,
+  Trinoma, UN Ave Shell, V Mapa, Valenzuela, Veloce, WM North EDSA). Live has **no `CONFIG_UNMAPPED_STORES` tab**,
+  which the SETTINGS → Configuration migration only creates when it finishes — so the original migration most
+  likely stopped partway through the store list (the code notes it used to time out; fixed by D-034/D-035).
+  Phase D takes brand/region from CONFIG_STORES via Store ID, so these must be mapped first.
+  **Fix:** Admin → Tools → *Migrate Legacy SETTINGS Data* (existing, additive, skips what exists) →
+  *Rebuild Visit Tables* → *Check Visit Tables*. Whatever is still unmapped after that is a real typo or a
+  store missing from SETTINGS, and will be listed in `CONFIG_UNMAPPED_STORES`.
+- **Visitors not in CONFIG_VISITORS:** CHEF ARVIN, CHA, LEOREYY. The same migration adds names from the
+  SETTINGS!F roster; any left over need Leo's call (real person → add in Admin → Configuration → Visitors;
+  typo → decide how to map).
+- Live has no `CONFIG_COMPLIANCE`, `CONFIG_RISK` or `CONFIG_KPI` tabs, so NAC cadence, Store Health thresholds
+  and KPI targets run on the built-in defaults. Fine for now; set them in Admin → Configuration when the rules change.
 
 Also confirmed 2026-10-03: the PostgreSQL design in `database/` still runs end-to-end on PostgreSQL 16
 (12 migrations, fixture import, 29/29 validation, 158/158 dry-run checks). Setup note: `pgcrypto` must be
