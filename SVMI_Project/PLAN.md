@@ -2,8 +2,8 @@
 
 Last updated: 2026-10-03 · Working branch: `svmi/functional-fixes`
 
-**🚀 Deployed to LIVE — version 12 (2026-10-02), same Web App URL.** Rollback
-source: `live-backup-20261002-current/`. Next: live checklist below → PR → merge to `main`.
+**🚀 LIVE = version 13 (2026-10-03)**, same Web App URL. v12 = 2026-10-02.
+Rollback source for v13: `live-backup-20261003-pre-v13/` (= v12). Next: live checklist below → PR → merge to `main`.
 Rule for now: **functionality first.** Security is parked (except admin access).
 Live backups (`live-backup-*`) are the safe fallback — never edited.
 
@@ -43,7 +43,7 @@ changes (#5, #6, #7, #9) plus `appsscript.json`.
 | 9 | Escaping in portal | ✅ Load-error message escaped; visitor colors sanitized |
 | 10 | Project status doc | ✅ This file |
 
-## 🔵 Round 2 (from live check, 2026-10-03) — ready for v13
+## 🔵 Round 2 (from live check, 2026-10-03) — deployed in v13
 
 | # | Item | Status |
 |---|------|--------|
