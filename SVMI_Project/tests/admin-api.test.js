@@ -349,7 +349,7 @@ console.log('\n── CONFIGURATION — create/rollback/audit/validation/backdat
   eq('exactly 2 versions', detail.history.length, 2);
   eq('v1 fields remain exactly as originally created', detail.history[0].fields.visitorName, 'LEO');
 
-  const rollback = sandbox.cfg_rollbackConfiguration('VISITORS', 'LEO', v1.versionId, 'undo the rename', '2026-09-19', {});
+  const rollback = sandbox.cfg_rollbackConfiguration('VISITORS', 'LEO', v1.versionId, 'undo the rename', (() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })(), {});
   check('rollback succeeds', rollback.success === true, JSON.stringify(rollback));
   const afterRollback = sandbox.admin_getConfigEntityDetail('VISITORS', 'LEO', null);
   eq('rollback created a NEW (3rd) version, never edited v1/v2', afterRollback.history.length, 3);

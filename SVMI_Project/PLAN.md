@@ -1,0 +1,90 @@
+# SVMI — Fix & Improve Plan
+
+Last updated: 2026-10-03 · Working branch: `svmi/functional-fixes`
+
+**🚀 LIVE = version 13 (2026-10-03)**, same Web App URL. v12 = 2026-10-02.
+Rollback source for v13: `live-backup-20261003-pre-v13/` (= v12). Next: live checklist below → PR → merge to `main`.
+Rule for now: **functionality first.** Security is parked (except admin access).
+Live backups (`live-backup-*`) are the safe fallback — never edited.
+
+## Important: source of truth
+
+`main`'s `Apps Script/` was **older than live**. This branch rebuilt
+`Apps Script/` from `live-backup-20260930-pre-secfix/` (latest live backup,
+incl. identity/MFA, MASTER_LOG Executive Summary, nav-perf fix) and applied
+the changes below on top. `.clasp.json` now targets the **test copy**
+(`1UU582…`) — it previously pointed at the **live** script (`1QHH…`).
+
+D-039 (CONFIG_AUDIT writer made private), deployed to live after that
+backup from `claude/svmi-reports-source-of-truth`, is now ported in too.
+Code compared against that branch: the only differences are this plan's
+changes (#5, #6, #7, #9) plus `appsscript.json`.
+
+**Manifest:** keep live's. Before pushing, copy `appsscript.json` from a fresh
+`clasp pull` of live over ours (records disagree on which setting live has).
+
+## 🔴 Fix
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Compliance rule not switching after store category change | ✅ Test bug (UTC "today" + expired dates); app logic correct |
+| 2 | Visitor config rollback crash | ✅ Same stale-date test bug |
+| 3 | Wrong effective date in audit / migration | ✅ Test compared in UTC; data correct |
+| 4 | "Visits This Month" table empty | ✅ Demo data had no visits early in month; test updated for live `{resolved, unmapped}` shape |
+| 5 | Admin access | ✅ Code: added admin guard to `rebuildMasterLogHeaders`, `rebuildSettingsHeaders`, `regenerateReportSheet`. ⏳ **Verify on test copy** (see below) |
+
+## 🟡 Improve
+
+| # | Item | Status |
+|---|------|--------|
+| 6 | Reports Executive Summary from MASTER_LOG | ✅ Already on live (D-036/D-037). Added test (31 checks). Fixed leaderboard double-count when a name repeats in one row (`ANN\|ANN`) |
+| 7 | Measure load speed on real data | 🟡 Timing logs added to 8 server functions — read `[SVMI PERF]` lines in Apps Script → Executions |
+| 8 | Deployment setting mismatch | ✅ Docs now match live (`USER_DEPLOYING` + `ANYONE_ANONYMOUS`); manifest unchanged |
+| 9 | Escaping in portal | ✅ Load-error message escaped; visitor colors sanitized |
+| 10 | Project status doc | ✅ This file |
+
+## 🔵 Round 2 (from live check, 2026-10-03) — deployed in v13
+
+| # | Item | Status |
+|---|------|--------|
+| 11 | Visited By: type + Enter does nothing (phones) | ✅ `keyup` fallback for Android keyboards that send Enter as keyCode 229; Enter also works if the list was closed. Applied to Store, Visitor, Purpose, Store Insights search |
+| 12 | Executive Summary slow (`[SVMI PERF] 5108 ms`) | ✅ MASTER_LOG read 3× → 1×; purpose check read PURPOSES+KPI+RISK config per purpose → 1 PURPOSES read. Same results. Re-measure after deploy |
+
+## ⚙️ Configuration checklist (what must be set up)
+
+| Where | What | Needed for |
+|---|---|---|
+| SETTINGS!G2:G | Admin emails (one per row) — **must include the deployer's account** | System Tools, config editing |
+| SETTINGS!I2 | Guest password (blank = no password) | Portal lock screen |
+| CONFIG_STORES | Every store: name, brand, region, category, status | Input Portal list, compliance, risk |
+| CONFIG_VISITORS | Every visitor name | Visited By list, leaderboard |
+| CONFIG_PURPOSES | Purposes beyond the 4 built-in ones (+ optional risk weight) | Purpose list, reports |
+| CONFIG_COMPLIANCE | One rule per store category (NCR, NEAR / FAR / FLIGHT PROVINCIAL): cadence + required visits | Unvisited / NAC |
+| CONFIG_RISK | Low / Medium / High thresholds | Store Health tiers |
+| CONFIG_KPI | KPI targets per purpose / visitor | KPI report |
+
+Known gaps (not configurable yet):
+- **Brands and regions are hard-coded** (`APPROVED_BRANDS` / `APPROVED_REGIONS` in SVMKPI_CORE.gs). A 6th brand
+  needs a code change, otherwise its visits are left out of the brand sections of reports.
+- Store category list is also hard-coded (`APPROVED_CATEGORIES`).
+- `DATA_YEAR = 2026` in SVMKPI_CORE.gs is unused (dead code) — safe, can be removed later.
+
+## ⏸️ Parked — security (after everything works)
+
+- Server-side password check on every data function
+- Guest password stored in browser localStorage
+- Turn MFA enforcement on (`IDENTITY_MFA_ENFORCED`)
+- Deployment setting itself (`USER_DEPLOYING` + anonymous) — see #5 check
+
+## Live checklist (after v12 deploy)
+
+1. Reports → Executive Summary loads; numbers look right for 2026
+2. Unvisited / NAC, Store Insights, Visits This Month load
+3. Executions → note `[SVMI PERF] … ms` for each screen (#7)
+4. **#5:** open as a SETTINGS!G admin who is *not* the deployer — do System
+   Tools work? With `USER_DEPLOYING`, likely only the deployer is seen as admin.
+5. Submit one test visit through Input Portal
+
+## Tests
+
+22 files, 1,049 checks, all passing (`node tests/<file>.test.js`).

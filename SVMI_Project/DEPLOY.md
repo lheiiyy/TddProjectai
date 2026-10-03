@@ -196,7 +196,15 @@ Three layers, each answering a different question:
 
 ### 1. Google sign-in
 
-`Apps Script/appsscript.json` sets:
+> **Live manifest is uncertain — always keep whatever live has.** The
+> 2026-09-30 backups show `USER_DEPLOYING` + `ANYONE_ANONYMOUS`, but the D-039
+> push (branch `claude/svmi-reports-source-of-truth`) carried `USER_ACCESSING`
+> + `ANYONE`. Before any push, copy the `appsscript.json` from a fresh
+> `clasp pull` of live over `Apps Script/appsscript.json` so access does not
+> change. With `USER_DEPLOYING`, `sl_getCurrentUser()` usually only sees the
+> deployer's email, so only the deployer passes `sl_isAdmin()` (PLAN.md #5).
+
+The stricter alternative is:
 
 ```json
 "webapp": {

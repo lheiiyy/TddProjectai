@@ -1042,6 +1042,18 @@ textarea.fi{padding-right:28px}
       store: 'CEBU - IT PARK', brand: "TIEN MA'S", region: 'PROVINCIAL',
       visitedBy: 'JOSH', purpose: 'STORE-VISIT', remarks: 'Entered by relief admin; purpose code typo.' });
 
+    // Early in a month the random cadence may not have produced any visits
+    // yet, which made "Visited This Month" look empty. Guarantee a few
+    // visits dated within the current month (the 1st, so never in the future).
+    const curMonthDay = new Date(GEN_END.getFullYear(), GEN_END.getMonth(), 1);
+    [['MAKATI - AYALA AVENUE', "ANGEL'S PIZZA", 'NCR', 'LEO', 'STORE VISIT'],
+     ['CEBU - IT PARK', "TIEN MA'S", 'PROVINCIAL', 'JOSH | RICE', 'TLTC'],
+     ['ILOILO CITY', 'APEX', 'PROVINCIAL', 'RICE', 'STORE VISIT']].forEach(([store, brand, region, visitedBy, purpose], i) => {
+      if (!STORES_SEED.some(s => s[0] === store)) return;
+      log.push({ timestamp: new Date(curMonthDay.getTime() + (9 + i) * 3600000), date: curMonthDay,
+        store, brand, region, visitedBy, purpose, remarks: 'Demo: current-month visit.' });
+    });
+
     log.sort((a, b) => a.date - b.date);
     return log;
   }

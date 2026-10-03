@@ -139,7 +139,9 @@ function row(y, m, d, store, visitor, purpose) {
 // in this file are unaffected — those are period-to-date read queries,
 // not configuration-creation calls, and are never subject to backdate
 // confirmation.
-const TODAY = new Date().toISOString().slice(0, 10);
+const _ymd = d => { d = new Date(d); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); };
+const TODAY = _ymd(new Date());
+const FUTURE = (() => { const d = new Date(); d.setDate(d.getDate() + 30); return _ymd(d); })();
 
 // ═══════════════════════════════════════════════════════════════
 // 1. PERIOD-TO-DATE COMPLIANCE — compliant / insufficient / excludes
@@ -285,8 +287,8 @@ console.log('\n── resolveComplianceConfigurationAsOf(storeId, date): resolve
   const beforeChange = sandbox.resolveComplianceConfigurationAsOf(store.storeId, TODAY);
   check('before the category change, resolves the NCR (Monthly) rule', beforeChange && beforeChange.periodDefinition === 'MONTH', JSON.stringify(beforeChange));
 
-  sandbox.store_update(store.storeId, { storeName: 'Category Changer', brand: 'FIGARO', region: 'NCR', category: 'FAR PROVINCIAL' }, '2026-10-01', 'category changed');
-  const afterChange = sandbox.resolveComplianceConfigurationAsOf(store.storeId, '2026-10-01');
+  sandbox.store_update(store.storeId, { storeName: 'Category Changer', brand: 'FIGARO', region: 'NCR', category: 'FAR PROVINCIAL' }, FUTURE, 'category changed');
+  const afterChange = sandbox.resolveComplianceConfigurationAsOf(store.storeId, FUTURE);
   check('after the category change, resolves the FAR PROVINCIAL (Quarterly) rule instead — via Store ID, never Store Name', afterChange && afterChange.periodDefinition === 'QUARTER', JSON.stringify(afterChange));
 }
 
@@ -298,10 +300,10 @@ console.log('\n── Store Name changes do not break configuration identity; tw
   sandbox.cmp_create('NCR', { cadenceType: 'MONTHLY', cadenceDays: 31, requiredCount: 1 }, TODAY, 'ncr', {});
   sandbox.cmp_create('FAR PROVINCIAL', { cadenceType: 'QUARTERLY', cadenceDays: 92, requiredCount: 1 }, TODAY, 'far', {});
 
-  sandbox.store_update(alpha.storeId, { storeName: 'Store Alpha RENAMED', brand: 'FIGARO', region: 'NCR', category: 'NCR' }, '2026-10-01', 'rename');
+  sandbox.store_update(alpha.storeId, { storeName: 'Store Alpha RENAMED', brand: 'FIGARO', region: 'NCR', category: 'NCR' }, FUTURE, 'rename');
 
-  const alphaResolved = sandbox.resolveComplianceConfigurationAsOf(alpha.storeId, '2026-10-01');
-  const alphaTwoResolved = sandbox.resolveComplianceConfigurationAsOf(alphaTwo.storeId, '2026-10-01');
+  const alphaResolved = sandbox.resolveComplianceConfigurationAsOf(alpha.storeId, FUTURE);
+  const alphaTwoResolved = sandbox.resolveComplianceConfigurationAsOf(alphaTwo.storeId, FUTURE);
   check('the renamed store still resolves its OWN (NCR/Monthly) rule correctly', alphaResolved && alphaResolved.periodDefinition === 'MONTH', JSON.stringify(alphaResolved));
   check('the similarly-named second store remains distinct (FAR PROVINCIAL/Quarterly), never confused by name similarity', alphaTwoResolved && alphaTwoResolved.periodDefinition === 'QUARTER', JSON.stringify(alphaTwoResolved));
 }
@@ -311,8 +313,8 @@ console.log('\n── A store\'s historical Store ID remains stable across confi
   const { sandbox } = newSandbox([], []);
   const store = sandbox.store_create({ storeName: 'Stable ID Co', brand: 'FIGARO', region: 'NCR', category: 'NCR' }, TODAY, 'setup');
   const idBefore = store.storeId;
-  sandbox.store_update(store.storeId, { storeName: 'Stable ID Co', brand: 'FIGARO', region: 'NCR', category: 'FAR PROVINCIAL' }, '2026-10-01', 'category change');
-  const resolvedLater = sandbox.resolveStoreAsOf(idBefore, '2026-10-01');
+  sandbox.store_update(store.storeId, { storeName: 'Stable ID Co', brand: 'FIGARO', region: 'NCR', category: 'FAR PROVINCIAL' }, FUTURE, 'category change');
+  const resolvedLater = sandbox.resolveStoreAsOf(idBefore, FUTURE);
   check('the Store ID is unchanged and still resolves after a category change', resolvedLater && resolvedLater.storeId === idBefore, JSON.stringify(resolvedLater));
 }
 

@@ -112,7 +112,8 @@ function newSandbox(settingsRows) {
 // moment the real calendar date advances past whatever day this file
 // was authored on — discovered when 2026-09-18 -> 2026-09-19 broke every
 // TODAY-effective (non-backdate-testing) call in this file.
-const TODAY = new Date().toISOString().slice(0, 10);
+const _ymd = d => { d = new Date(d); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); };
+const TODAY = _ymd(new Date());
 // Same "today", but as a sandbox-realm Date object built from Y/M/D
 // components (never an ISO-string reparse, to sidestep any UTC/local
 // timezone ambiguity) — for call sites needing a real Date rather than a
@@ -234,7 +235,7 @@ console.log('\n── Audit records backdating (reason + version) ──');
   const audit = sandbox.cfg_getAuditLog('RISK', 'DEFAULT');
   const entry = audit[audit.length - 1];
   check('audit entry records the reason', entry && /a documented backdate reason/.test(entry.reason), JSON.stringify(entry));
-  const effFromStr = entry && entry.effectiveFrom && typeof entry.effectiveFrom.toISOString === 'function' ? entry.effectiveFrom.toISOString().slice(0, 10) : String(entry && entry.effectiveFrom);
+  const effFromStr = entry && entry.effectiveFrom && typeof entry.effectiveFrom.toISOString === 'function' ? _ymd(entry.effectiveFrom) : String(entry && entry.effectiveFrom);
   check('audit entry records the effective date', effFromStr === '2020-06-15', effFromStr);
 }
 

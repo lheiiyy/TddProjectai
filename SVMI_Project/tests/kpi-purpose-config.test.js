@@ -123,7 +123,8 @@ function row(y, m, d, store, visitor, purpose) {
 // moment the real calendar date advances past whatever day this file
 // was authored on — discovered when 2026-09-18 -> 2026-09-19 broke every
 // TODAY-effective (non-backdate-testing) call in this file.
-const TODAY = new Date().toISOString().slice(0, 10);
+const _ymd = d => { d = new Date(d); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); };
+const TODAY = _ymd(new Date());
 
 // ═══════════════════════════════════════════════════════════════
 // KPI CONFIGURATION
