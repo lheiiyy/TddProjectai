@@ -283,6 +283,11 @@ function processSubmissionAsync(payload) {
         master.appendRow(newRow);
         SpreadsheetApp.flush();
 
+        // Phase C: mirror the new row into STORE_VISITS / STORE_VISIT_VISITORS
+        // (SVMKPI_TABLES.gs). Never throws — the visit is already saved above;
+        // a failure is logged and shows up in System Tools → Check Visit Tables.
+        if (typeof svt_recordVisitFromRow_ === 'function') svt_recordVisitFromRow_(master.getLastRow());
+
         if (alreadyRecorded.length > 0) {
           result = {
             success: true,

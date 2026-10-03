@@ -50,6 +50,25 @@ changes (#5, #6, #7, #9) plus `appsscript.json`.
 | 11 | Visited By: type + Enter does nothing (phones) | ✅ `keyup` fallback for Android keyboards that send Enter as keyCode 229; Enter also works if the list was closed. Applied to Store, Visitor, Purpose, Store Insights search |
 | 12 | Executive Summary slow (`[SVMI PERF] 5108 ms`) | ✅ MASTER_LOG read 3× → 1×; purpose check read PURPOSES+KPI+RISK config per purpose → 1 PURPOSES read. Same results. Re-measure after deploy |
 
+## 🧱 Phase C — visit tables in Google Sheets (branch `svmi/phase-c-visit-tables`, not deployed)
+
+Decision 2026-10-03: stay in Google Sheets, but with proper tables; MASTER_LOG becomes the audit trail.
+Design: [`PHASE_C_TABLES.md`](PHASE_C_TABLES.md) (mirrors `database/migrations/008_store_visits.sql`).
+
+| Step | Status |
+|---|---|
+| `STORE_VISITS` + `STORE_VISIT_VISITORS`, stable content-derived Visit IDs | ✅ built (`SVMKPI_TABLES.gs`) |
+| System Tools → Rebuild Visit Tables / Check Visit Tables | ✅ built |
+| Input Portal dual-write (never blocks a submission) | ✅ built (one line in `INPUT_PORTAL.gs`) |
+| Tests | ✅ `tests/visit-tables.test.js` (48 checks) |
+| Deploy, run Rebuild once, then Check | ⏳ needs Leo's go |
+| Phase D: reports read the tables instead of MASTER_LOG | ⏳ next |
+| Phase E: MASTER_LOG audit-trail only | ⏳ later |
+
+Also confirmed 2026-10-03: the PostgreSQL design in `database/` still runs end-to-end on PostgreSQL 16
+(12 migrations, fixture import, 29/29 validation, 158/158 dry-run checks). Setup note: `pgcrypto` must be
+enabled by a superuser before migrations, and the importer must run as `svmi_migrator`.
+
 ## ⚙️ Configuration checklist (what must be set up)
 
 | Where | What | Needed for |

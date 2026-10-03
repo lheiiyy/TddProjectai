@@ -979,6 +979,34 @@ textarea.fi{padding-right:28px}
         </div>
       </div>
 
+      <div class="srm-hdr" style="grid-column:1/-1;margin-top:4px">🧱 Visit Tables (Phase C)</div>
+
+      <div class="tool-card" data-admin-only="true">
+        <div class="tool-hdr"><span class="tool-icon">🧱</span>
+          <div><div class="tool-title">Rebuild Visit Tables</div>
+          <div class="tool-desc-hdr">STORE_VISITS + STORE_VISIT_VISITORS</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge info">🔄 Regenerated from MASTER_LOG</span>
+          <p>Writes one row per visit (by Store ID and Purpose ID) and one row per visitor per visit. MASTER_LOG is only read. Run once to start, then any time Check Visit Tables says they're out of sync.</p>
+          <button class="tool-run" onclick="runTool('rebuildVisitTables','stat-VT')">▶ Rebuild Visit Tables</button>
+          <div class="tool-stat idle" id="stat-VT">Ready</div>
+          <div class="tool-lock" id="lock-VT" hidden>🔒 Admin access required to run this tool.</div>
+        </div>
+      </div>
+
+      <div class="tool-card" data-admin-only="true">
+        <div class="tool-hdr"><span class="tool-icon">🔎</span>
+          <div><div class="tool-title">Check Visit Tables</div>
+          <div class="tool-desc-hdr">Compare tables with MASTER_LOG</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge safe">✓ Read-only · safe</span>
+          <p>Counts missing, extra or outdated visits and visitor links, and lists stores with no Store ID, unknown visitors and unconfigured purposes. Changes nothing.</p>
+          <button class="tool-run" onclick="runTool('checkVisitTables','stat-VTC')">▶ Check Visit Tables</button>
+          <div class="tool-stat idle" id="stat-VTC">Ready</div>
+          <div class="tool-lock" id="lock-VTC" hidden>🔒 Admin access required to run this tool.</div>
+        </div>
+      </div>
+
       <div class="srm-hdr" style="grid-column:1/-1;margin-top:4px">🗄️ Legacy Data Setup</div>
 
       <div class="tool-card" data-admin-only="true" style="grid-column:1/-1">
@@ -2794,7 +2822,9 @@ var toolMap = {
   rebuildKPI2026:          'portal_rebuildKPI2026',
   rebuildDataHeaders:      'portal_rebuildDataHeaders',
   rebuildStoreMaster:      'portal_rebuildStoreMaster',
-  validateMasterLog:       'portal_validateMasterLog'
+  validateMasterLog:       'portal_validateMasterLog',
+  rebuildVisitTables:      'portal_rebuildVisitTables',
+  checkVisitTables:        'portal_checkVisitTables'
 };
 
 // Every rebuild overwrites a whole sheet, so it asks first. Validation is
@@ -2812,6 +2842,9 @@ var TOOL_META = {
   rebuildKPI2026: { label: 'KPI 2026', confirm: 'warn',
     detail: 'Clears the KPI 2026 sheet and rebuilds the weekly tracker from the SETTINGS!F visitor roster.' },
   validateMasterLog: { label: 'Validate MASTER_LOG', confirm: 'none', detail: '' },
+  rebuildVisitTables: { label: 'Visit Tables', confirm: 'update',
+    detail: 'STORE_VISITS and STORE_VISIT_VISITORS are regenerated from MASTER_LOG — they hold derived rows only, and MASTER_LOG is not changed. On a large log this can take a minute; a visit submitted meanwhile is asked to retry.' },
+  checkVisitTables: { label: 'Check Visit Tables', confirm: 'none', detail: '' },
   rebuildDataHeaders: { label: 'Data Sheet Headers', confirm: 'warn',
     detail: 'Rewrites row 1 headers, column widths and conditional formatting on MASTER_LOG and SETTINGS, and regenerates the SETTINGS column D helper formula. Data rows are not touched.' }
 };
