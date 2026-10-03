@@ -13,10 +13,10 @@ function check(name, cond, extra) {
   else { console.log('  ✗ ' + name + (extra !== undefined ? '  → ' + JSON.stringify(extra) : '')); fail++; }
 }
 
-function fakeSheet(rows) {
+function fakeSheet(rows, counter) {
   return {
     getLastRow: () => rows.length,
-    getRange: (r, c, nr, nc) => ({
+    getRange: (r, c, nr, nc) => (counter && counter.n++, {
       getValues: () => rows.slice(r - 1, r - 1 + nr).map(row => {
         const out = [];
         for (let i = 0; i < nc; i++) out.push(row[c - 1 + i] === undefined ? '' : row[c - 1 + i]);
@@ -30,7 +30,8 @@ function newSandbox(logRows, rosterNames, opts) {
   opts = opts || {};
   const header = ['Timestamp', 'Date Visited', 'Store', 'Brand', 'Region', 'Visited By', 'Purpose'];
   const settingsRows = [['', '', '', '', '', 'VISITORS']].concat(rosterNames.map(n => ['', '', '', '', '', n]));
-  const sheets = { MASTER_LOG: fakeSheet([header].concat(logRows)), SETTINGS: fakeSheet(settingsRows) };
+  const mlReads = { n: 0 };
+  const sheets = { MASTER_LOG: fakeSheet([header].concat(logRows), mlReads), SETTINGS: fakeSheet(settingsRows) };
   let summaryReads = 0;
   const sandbox = {
     SpreadsheetApp: { BorderStyle: { SOLID: 1, SOLID_MEDIUM: 2, SOLID_THICK: 3, DOTTED: 4, DASHED: 5, DOUBLE: 6 }, getActiveSpreadsheet: () => ({ getSheetByName: name => {
@@ -42,13 +43,13 @@ function newSandbox(logRows, rosterNames, opts) {
     Logger: { log: () => {} },
     console: { log: () => {} },
     getDefaultReportingYear: () => 2026,
-    getAvailableReportingYears: () => [2025, 2026],
   };
   vm.createContext(sandbox);
   vm.runInContext(src('SVMKPI_CORE.gs'), sandbox);
   vm.runInContext(src('SVMKPI_LAYOUT.gs'), sandbox);
   vm.runInContext(src('SVMKPI_REPORTS.gs'), sandbox);
   sandbox._summaryReads = () => summaryReads;
+  sandbox._mlReads = () => mlReads.n;
   return sandbox;
 }
 
@@ -68,11 +69,14 @@ console.log('\n── Reads MASTER_LOG, never the EXECUTIVE SUMMARY sheet ──
 {
   const sb = newSandbox(LOG, ROSTER);
   const es = sb.getExecutiveSummaryReport(2026);
+  const readsForOneCall = sb._mlReads();
   check('works with no EXECUTIVE SUMMARY tab at all', !!es);
   check('EXECUTIVE SUMMARY sheet is never looked up', sb._summaryReads() === 0, sb._summaryReads());
   check('reports the year used', es.selectedYear === 2026, es.selectedYear);
   check('defaults to getDefaultReportingYear()', sb.getExecutiveSummaryReport().selectedYear === 2026);
   check('one record per 2026 row', es.records.length === 6, es.records.length);
+  check('MASTER_LOG is read exactly once per call (perf fix)', readsForOneCall === 1, readsForOneCall);
+  check('availableYears computed from that same read', JSON.stringify(es.availableYears) === '[2025,2026]', es.availableYears);
 }
 
 console.log('\n── KPI cards (scoped to the reporting year) ──');

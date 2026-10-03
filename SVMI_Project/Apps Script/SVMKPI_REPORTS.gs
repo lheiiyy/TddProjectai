@@ -150,7 +150,7 @@ function _getExecutiveSummaryReport_impl(year) {
   // that (nontrivial) business rule is created here. Already year-scoped
   // and already reads MASTER_LOG directly, never a report sheet.
   const purposeList = (typeof _es_discoverReportablePurposes === 'function')
-    ? _es_discoverReportablePurposes(reportYear)
+    ? _es_discoverReportablePurposes(reportYear, data)
     : []; // defensive fallback — same soft-dependency convention used throughout this project
   const purposeGrandTotal = purposeList.reduce((sum, p) => sum + p.count, 0);
   const purpose = purposeList.map(p => ({ name: p.name, count: String(p.count), pct: pct(p.count, purposeGrandTotal) }));
@@ -204,7 +204,10 @@ function _getExecutiveSummaryReport_impl(year) {
 
   return {
     selectedYear: reportYear,
-    availableYears: getAvailableReportingYears(),
+    // Same rule as getAvailableReportingYears() (every parseable year in
+    // MASTER_LOG), computed from the rows already read — no second read.
+    availableYears: Object.keys(data.dates.reduce((seen, d) => { if (d) seen[d.getFullYear()] = true; return seen; }, {}))
+      .map(Number).sort((a, b) => a - b),
     kpi, monthBrandLabels, monthly, monthlyTotal, region, regionTotal,
     purpose, purposeTotal, topStores, leaderboard, brandPerformance, brandTotal,
     records,

@@ -602,7 +602,7 @@ textarea.fi{padding-right:28px}
         <div class="ss-wrap">
           <input type="text" id="storeSearch" class="ss-input" placeholder="Search store or brand…"
             oninput="filterStores()" onfocus="filterStores()" onblur="comboBlur('storeDrop')"
-            onkeydown="comboKey(event,'storeDrop','storeSearch','dateVisitedText')"
+            onkeydown="comboKey(event,'storeDrop','storeSearch','dateVisitedText')" onkeyup="comboKeyUp(event,'storeDrop','storeSearch','dateVisitedText')" enterkeyhint="enter"
             autocomplete="off">
           <button type="button" class="field-x" id="storeX" onclick="clearField('store')" title="Clear store" hidden>&times;</button>
           <button type="button" class="combo-caret" title="Show all stores"
@@ -646,7 +646,7 @@ textarea.fi{padding-right:28px}
             <span id="chipHolder"></span>
             <input type="text" id="visSearch" class="token-input" placeholder="Search or pick visitors…"
               oninput="filterVisitors()" onfocus="filterVisitors()" onblur="comboBlur('visDrop')"
-              onkeydown="comboKey(event,'visDrop','visSearch','purpSearch')"
+              onkeydown="comboKey(event,'visDrop','visSearch','purpSearch')" onkeyup="comboKeyUp(event,'visDrop','visSearch','purpSearch')" enterkeyhint="enter"
               autocomplete="off">
           </div>
           <button type="button" class="combo-caret" title="Show all visitors"
@@ -663,7 +663,7 @@ textarea.fi{padding-right:28px}
         <div class="ss-wrap">
           <input type="text" id="purpSearch" class="ss-input" placeholder="Type or pick a purpose…"
             oninput="filterPurpose()" onfocus="filterPurpose()" onblur="comboBlur('purpDrop')"
-            onkeydown="comboKey(event,'purpDrop','purpSearch','remarks')"
+            onkeydown="comboKey(event,'purpDrop','purpSearch','remarks')" onkeyup="comboKeyUp(event,'purpDrop','purpSearch','remarks')" enterkeyhint="enter"
             autocomplete="off">
           <button type="button" class="field-x" id="purpX" onclick="clearField('purpose')" title="Clear purpose" hidden>&times;</button>
           <button type="button" class="combo-caret" title="Show all purposes"
@@ -713,7 +713,7 @@ textarea.fi{padding-right:28px}
       <div class="ss-wrap">
         <input type="text" class="si-search" id="siSearch" placeholder="Search or pick a store…"
           oninput="filterSIStores()" onfocus="filterSIStores()" onblur="comboBlur('siDrop')"
-          onkeydown="comboKey(event,'siDrop','siSearch',null)" autocomplete="off">
+          onkeydown="comboKey(event,'siDrop','siSearch',null)" onkeyup="comboKeyUp(event,'siDrop','siSearch',null)" enterkeyhint="enter" autocomplete="off">
         <button type="button" class="field-x" id="siX" onclick="clearSIStore()" title="Clear store" hidden>&times;</button>
         <button type="button" class="combo-caret" title="Show all stores"
           onmousedown="event.preventDefault();toggleCombo('siDrop','siSearch')">▼</button>
@@ -1706,6 +1706,18 @@ function focusNext(nextId) {
   if (el) el.focus();
 }
 
+// Phone keyboards (e.g. Android Gboard) often send Enter's keydown as
+// keyCode 229 / key "Unidentified" while a word is still being composed, so
+// comboKey() never sees it. keyup still reports Enter — use it as a fallback.
+var _comboEnterAt = 0;   // time of the last Enter comboKey() handled
+function comboKeyUp(e, dropId, inputId, nextId) {
+  var isEnter = e.key === 'Enter' || e.keyCode === 13;
+  if (!isEnter) return;
+  if (Date.now() - _comboEnterAt < 1000) return;   // keydown already handled this Enter
+  comboKey({ key: 'Enter', keyCode: 13, ctrlKey: e.ctrlKey, metaKey: e.metaKey, preventDefault: function(){} },
+           dropId, inputId, nextId);
+}
+
 function comboKey(e, dropId, inputId, nextId) {
   var drop = document.getElementById(dropId);
   var open = drop.classList.contains('open');
@@ -1728,10 +1740,15 @@ function comboKey(e, dropId, inputId, nextId) {
     return;
   }
 
-  if (e.key === 'Enter') {
+  if (e.key === 'Enter' || e.keyCode === 13) {
+    _comboEnterAt = Date.now();
     if (e.ctrlKey || e.metaKey) { e.preventDefault(); submitForm(); return; }
     e.preventDefault();
-    var picked = open ? pickActiveOpt(dropId, document.getElementById(inputId).value, true) : false;
+    var typedNow = document.getElementById(inputId).value;
+    // Typed text but the list is closed (e.g. a phone keyboard skipped the
+    // input event): rebuild the list first so Enter still picks the match.
+    if (!open && typedNow.trim()) { COMBOS[dropId].refresh(); open = drop.classList.contains('open'); }
+    var picked = open ? pickActiveOpt(dropId, typedNow, true) : false;
     if (picked) {
       drop.classList.remove('open');
       setActiveOpt(dropId, -1);

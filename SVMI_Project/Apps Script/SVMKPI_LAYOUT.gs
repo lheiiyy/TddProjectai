@@ -182,38 +182,38 @@ function buildExecutiveSummaryLayout(year) {
  * @param {number} year
  * @returns {{name:string, count:number}[]}
  */
-function _es_discoverReportablePurposes(year) {
+function _es_discoverReportablePurposes(year, prebuiltData) {
   const recognized = new Set(APPROVED_PURPOSES);
 
-  if (typeof cfg_getConfiguration === 'function' && typeof purpose_getConfigurationStatus === 'function') {
+  // ES perf fix: ONE read of the PURPOSES config (cfg_resolveAllAsOf) instead
+  // of cfg_getConfiguration() + purpose_getConfigurationStatus() per purpose
+  // (which also read the KPI and RISK config sheets — not needed for "exists").
+  // Same rule: a purpose counts if it resolves as of Dec 31 of `year`.
+  if (typeof cfg_resolveAllAsOf === 'function' && typeof CFG_AREA !== 'undefined') {
     try {
-      const candidates = new Set();
-      cfg_getConfiguration(CFG_AREA.PURPOSES).forEach(v => candidates.add(v.entityId));
-      candidates.forEach(id => {
-        try {
-          if (purpose_getConfigurationStatus(id, year + '-12-31').exists) recognized.add(id);
-        } catch (e) { /* one bad entry never aborts discovery for the rest */ }
-      });
+      Object.keys(cfg_resolveAllAsOf(CFG_AREA.PURPOSES, year + '-12-31')).forEach(id => recognized.add(id));
     } catch (e) { /* config layer not fully loaded — legacy-only fallback */ }
   }
 
   const counts = {};
   recognized.forEach(p => { counts[p] = 0; });
+  const tally = (date, purposeRaw) => {
+    if (!date || date.getFullYear() !== year) return;
+    const p = String(purposeRaw || '').trim().toUpperCase();
+    if (!p) return;
+    counts[p] = (counts[p] || 0) + 1;
+    recognized.add(p);
+  };
 
-  const ml = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('MASTER_LOG');
-  if (ml && ml.getLastRow() >= 2) {
-    const raw = ml.getRange(2, 2, ml.getLastRow() - 1, 6).getValues(); // B:G — Date..Purpose
-    raw.forEach(r => {
-      // _parseDateCell() (SVMKPI_CORE.gs) — the same canonical parser
-      // _getData()/sl_getStoreData() already use — handles both a real
-      // Sheets Date object and a plain date string consistently.
-      const date = _parseDateCell(r[0]);
-      if (!date || date.getFullYear() !== year) return;
-      const p = String(r[5] || '').trim().toUpperCase();
-      if (!p) return;
-      counts[p] = (counts[p] || 0) + 1;
-      recognized.add(p);
-    });
+  if (prebuiltData && prebuiltData.dates) {
+    // Caller already read MASTER_LOG via _getData() — reuse it, no second read.
+    for (let i = 0; i < prebuiltData.totalRows; i++) tally(prebuiltData.dates[i], prebuiltData.purposes[i]);
+  } else {
+    const ml = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('MASTER_LOG');
+    if (ml && ml.getLastRow() >= 2) {
+      const raw = ml.getRange(2, 2, ml.getLastRow() - 1, 6).getValues(); // B:G — Date..Purpose
+      raw.forEach(r => tally(_parseDateCell(r[0]), r[5]));
+    }
   }
 
   return Array.from(recognized)

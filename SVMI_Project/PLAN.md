@@ -1,6 +1,6 @@
 # SVMI — Fix & Improve Plan
 
-Last updated: 2026-10-02 · Working branch: `svmi/functional-fixes`
+Last updated: 2026-10-03 · Working branch: `svmi/functional-fixes`
 
 **🚀 Deployed to LIVE — version 12 (2026-10-02), same Web App URL.** Rollback
 source: `live-backup-20261002-current/`. Next: live checklist below → PR → merge to `main`.
@@ -43,6 +43,32 @@ changes (#5, #6, #7, #9) plus `appsscript.json`.
 | 9 | Escaping in portal | ✅ Load-error message escaped; visitor colors sanitized |
 | 10 | Project status doc | ✅ This file |
 
+## 🔵 Round 2 (from live check, 2026-10-03) — ready for v13
+
+| # | Item | Status |
+|---|------|--------|
+| 11 | Visited By: type + Enter does nothing (phones) | ✅ `keyup` fallback for Android keyboards that send Enter as keyCode 229; Enter also works if the list was closed. Applied to Store, Visitor, Purpose, Store Insights search |
+| 12 | Executive Summary slow (`[SVMI PERF] 5108 ms`) | ✅ MASTER_LOG read 3× → 1×; purpose check read PURPOSES+KPI+RISK config per purpose → 1 PURPOSES read. Same results. Re-measure after deploy |
+
+## ⚙️ Configuration checklist (what must be set up)
+
+| Where | What | Needed for |
+|---|---|---|
+| SETTINGS!G2:G | Admin emails (one per row) — **must include the deployer's account** | System Tools, config editing |
+| SETTINGS!I2 | Guest password (blank = no password) | Portal lock screen |
+| CONFIG_STORES | Every store: name, brand, region, category, status | Input Portal list, compliance, risk |
+| CONFIG_VISITORS | Every visitor name | Visited By list, leaderboard |
+| CONFIG_PURPOSES | Purposes beyond the 4 built-in ones (+ optional risk weight) | Purpose list, reports |
+| CONFIG_COMPLIANCE | One rule per store category (NCR, NEAR / FAR / FLIGHT PROVINCIAL): cadence + required visits | Unvisited / NAC |
+| CONFIG_RISK | Low / Medium / High thresholds | Store Health tiers |
+| CONFIG_KPI | KPI targets per purpose / visitor | KPI report |
+
+Known gaps (not configurable yet):
+- **Brands and regions are hard-coded** (`APPROVED_BRANDS` / `APPROVED_REGIONS` in SVMKPI_CORE.gs). A 6th brand
+  needs a code change, otherwise its visits are left out of the brand sections of reports.
+- Store category list is also hard-coded (`APPROVED_CATEGORIES`).
+- `DATA_YEAR = 2026` in SVMKPI_CORE.gs is unused (dead code) — safe, can be removed later.
+
 ## ⏸️ Parked — security (after everything works)
 
 - Server-side password check on every data function
@@ -61,4 +87,4 @@ changes (#5, #6, #7, #9) plus `appsscript.json`.
 
 ## Tests
 
-22 files, 1,047 checks, all passing (`node tests/<file>.test.js`).
+22 files, 1,049 checks, all passing (`node tests/<file>.test.js`).
