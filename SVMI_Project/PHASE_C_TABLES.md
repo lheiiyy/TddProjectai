@@ -84,6 +84,7 @@ problem and fixes only what an admin picks, after a preview:
 | A MASTER_LOG name that matches no store | **New store — closed** (open from the first visit, inactive from a date after the last visit), **New store — still open**, **Same store as…** an existing store, Skip | CONFIG_STORES (+ CONFIG_AUDIT); the name's CONFIG_UNMAPPED_STORES entry → RECONCILED |
 | Two stores of the **same brand** that are one store (e.g. Figaro SANTA MARIA + STA MARIA) | **Merge** into the store marked Keep, with one name for all visits | The duplicate's versions are voided (it resolves on no date, so no report treats it as a store that needed visits); CONFIG_STORE_MERGES row "duplicate → kept"; the kept store gets a new name version from today |
 | One store whose visits carry different spellings | **One name** for all its visits | Optional new name version |
+| A store whose name differs from the same town's store of another brand only by spelling or a tag (Figaro "STA. MARIA (F)" vs Angel's Pizza "STA. MARIA") | **Section 4: use the other brand's spelling** (pre-ticked for tag/punctuation-only differences) | The store gets a new name version from today; its MASTER_LOG rows get the name (Store ID and brand unchanged) |
 | An unmatched name saved under two or more brands (may be two stores) | **Split by brand** first: the other brands' visits get "NAME (F)" etc. (column C only), then each name is handled on its own | Nothing in Configuration |
 
 Every choice also writes the store's name (column C) and Store ID (column I)

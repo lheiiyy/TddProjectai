@@ -139,6 +139,7 @@ function portal_getStoreCleanup() {
     }).sort((a, b) => (b.visits - a.visits) || a.name.localeCompare(b.name));
 
     const groups = smt_groups_(ctx, stats, unmatched);
+    const sameName = smt_sameNameAcrossBrands_(ctx, stats);
 
     if (typeof _perfLog === 'function') _perfLog('portal_getStoreCleanup', t0, unmatchedOut.length + ' names, ' + groups.length + ' groups');
     return {
@@ -152,6 +153,7 @@ function portal_getStoreCleanup() {
       stores,
       unmatched: unmatchedOut,
       groups,
+      sameName,
       unmatchedVisits,
     };
   } catch (e) {
@@ -432,6 +434,79 @@ function smt_describeGroup_(ctx, stats, unmatched, ids, type) {
     suggestedKeep: keep.storeId,
     suggestedName: smt_suggestName_(ctx, ctx.entities[keep.storeId], Object.keys(names), unmatched),
   };
+}
+
+/**
+ * Same town, different brands, different spelling — e.g. Figaro
+ * "STA. MARIA (F)" next to Angel's Pizza "STA. MARIA". Since v16 two brands
+ * may share a name (the Store ID / brand tells them apart), so each such
+ * store gets a suggestion to use the one plain spelling. Applied as a
+ * rename (a merge with nothing merged), which also rewrites the store's
+ * past MASTER_LOG rows, so name-based reports keep its whole history.
+ *
+ * Target spelling: the name with no brand tag ("(F)", "FIGARO", a lone F);
+ * if several, the Angel's Pizza store's name, then the most common, then A–Z.
+ * `tagOnly` = the two names differ only by a brand tag or punctuation — those
+ * are pre-ticked; anything else (SM SAN PEDRO vs SAN PEDRO) is left unticked.
+ * Groups where one brand has two stores are left to section 2 (merge first).
+ */
+function smt_sameNameAcrossBrands_(ctx, stats) {
+  const byKey = {};
+  Object.keys(ctx.entities).forEach(id => {
+    const e = ctx.entities[id];
+    if (e.isVoid || !e.brand) return;
+    const key = smt_canonKey_(e.name);
+    if (key) (byKey[key] = byKey[key] || []).push(e);
+  });
+  const out = [];
+  Object.keys(byKey).sort().forEach(key => {
+    const list = byKey[key];
+    const brands = {};
+    list.forEach(e => { brands[e.brand] = (brands[e.brand] || 0) + 1; });
+    if (Object.keys(brands).length < 2 || Object.keys(brands).some(b => brands[b] > 1)) return;
+    const names = {};
+    list.forEach(e => { names[e.name] = true; });
+    if (Object.keys(names).length < 2) return;
+
+    const plain = list.filter(e => smt_stripBrandTag_(e.name) === e.name);
+    const pool = plain.length ? plain : list.slice().sort((a, b) => a.name.length - b.name.length).slice(0, 1);
+    const pick = pool.slice().sort((a, b) =>
+      ((b.brand === "ANGEL'S PIZZA") - (a.brand === "ANGEL'S PIZZA"))
+      || (pool.filter(x => x.name === b.name).length - pool.filter(x => x.name === a.name).length)
+      || a.name.localeCompare(b.name))[0];
+    const target = pick.name;
+
+    list.forEach(e => {
+      if (e.name === target) return;
+      const s = stats[e.id] || { visits: 0 };
+      out.push({
+        storeId: e.id,
+        storeName: e.name,
+        brand: e.brand,
+        status: e.status,
+        visits: s.visits,
+        targetName: target,
+        targetStore: smt_label_(pick),
+        tagOnly: smt_compact_(smt_stripBrandTag_(e.name)) === smt_compact_(target),
+        changedToday: smt_hasVersionOn_(e, ctx.today),
+      });
+    });
+  });
+  return out.sort((a, b) => a.targetName.localeCompare(b.targetName) || a.brand.localeCompare(b.brand));
+}
+
+/** Name without a brand tag: "STA. MARIA (F)", "SAN MIGUEL (F))", "DAGUPAN FIGARO", "F DASMA", "BALIWAG F". */
+function smt_stripBrandTag_(name) {
+  return smt_cleanName_(String(name || '')
+    .replace(/\(\s*(F|FIGARO)\s*\)+/g, ' ')
+    .replace(/\bFIGARO\b/g, ' ')
+    .replace(/^\s*F\s+/, ' ')
+    .replace(/\s+F\s*$/, ' '));
+}
+
+/** Letters and digits only — "STA. MARIA" and "STA MARIA" compare equal. */
+function smt_compact_(name) {
+  return String(name || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
 /**

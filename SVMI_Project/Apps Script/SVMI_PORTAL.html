@@ -3128,9 +3128,11 @@ function smtLoad() {
       smtData = r;
       smtStoreById = {};
       r.stores.forEach(function(s) { smtStoreById[s.storeId] = s; });
-      var n = r.unmatched.length + r.groups.length;
+      var sameN = (r.sameName || []).length;
+      var n = r.unmatched.length + r.groups.length + sameN;
       var summary = n
         ? r.unmatched.length + ' name(s) with no store (' + r.unmatchedVisits + ' visit' + (r.unmatchedVisits === 1 ? '' : 's') + ') · ' + r.groups.length + ' store(s) to review'
+          + (sameN ? ' · ' + sameN + ' name(s) to match another brand' : '')
         : 'Every visit already has a store — nothing to fix.';
       stat.className = n ? 'tool-stat running' : 'tool-stat success';
       stat.textContent = (n ? '🔎 ' : '✅ ') + summary;
@@ -3203,7 +3205,7 @@ function smtRender() {
         h += '<div id="smtUSplit-' + i + '"><label class="smt-lbl">Keeps the name "' + esc(u.name) + '"</label>'
           + '<select class="fi" id="smtUKeepBrand-' + i + '">'
           + u.brands.map(function(b) { return '<option value="' + esc(b.brand) + '"' + (b.brand === u.splitKeepBrand ? ' selected' : '') + '>' + esc(b.brand) + '</option>'; }).join('')
-          + '</select><div class="hint">The other brand\'s visits get their own name, e.g. "' + esc(u.name) + ' (F)" for Figaro. Then press Find again and set each name up on its own.</div></div>';
+          + '</select><div class="hint">The other brand\'s visits get a temporary name, e.g. "' + esc(u.name) + ' (F)" for Figaro. Press Find again, set each name up on its own, then use section 4 to give both stores the same name.</div></div>';
       } else {
         h += '<div class="smt-fields" id="smtUNew-' + i + '">'
           +   '<div class="smt-span"><label>Store name</label><input class="fi" id="smtUName-' + i + '" value="' + esc(u.name) + '"></div>'
@@ -3261,6 +3263,30 @@ function smtRender() {
     +   '<div><label>New name (optional)</label><input class="fi" id="smtMName" placeholder="Blank = keep its name"></div>'
     + '</div></div>';
 
+  // 4 — same town, other brand, different spelling
+  var sn = d.sameName || [];
+  h += '<div class="smt-sec"><div class="smt-sec-hdr">4 · Same name as another brand\'s store (' + sn.length + ')</div>';
+  if (!sn.length) {
+    h += '<div class="no-data">None — stores of different brands in the same town already share one spelling.</div>';
+  } else {
+    h += '<div class="smt-sec-note">Two brands may now use the same name (e.g. Figaro <b>STA. MARIA</b> and Angel\'s Pizza <b>STA. MARIA</b>) — the Input Portal and the reports tell them apart by brand. '
+      + 'Ticked = the names differ only by a tag like "(F)" or punctuation. Unticked = they only look alike; tick only if they are really the same town. '
+      + 'The store keeps its brand and Store ID; it and its past visits get the new name.</div>'
+      + '<div class="tbl-scroll"><table class="admin-hist-table smt-tbl"><thead><tr><th>Use</th><th>Store now</th><th>Visits</th><th>New name</th><th>Same as</th></tr></thead><tbody>';
+    sn.forEach(function(x, k) {
+      var blocked = x.changedToday;
+      h += '<tr>'
+        + '<td class="c"><input type="checkbox" id="smtSUse-' + k + '"' + (x.tagOnly && !blocked ? ' checked' : '') + (blocked ? ' disabled' : '') + '></td>'
+        + '<td><b>' + esc(x.storeName) + '</b> <span class="hint">' + esc(x.brand) + '</span>' + (x.status === 'INACTIVE' ? ' <span class="admin-badge no">closed</span>' : '')
+        + (blocked ? '<div class="hint" style="color:var(--orange)">Changed today already — can be renamed tomorrow.</div>' : '') + '</td>'
+        + '<td class="c" data-label="Visits">' + x.visits + '</td>'
+        + '<td><input class="fi" id="smtSName-' + k + '" value="' + esc(x.targetName) + '"' + (blocked ? ' disabled' : '') + '></td>'
+        + '<td data-label="Same as">' + esc(x.targetStore) + '</td></tr>';
+    });
+    h += '</tbody></table></div>';
+  }
+  h += '</div>';
+
   h += '<div class="smt-foot"><button class="tool-run" id="smtPreviewBtn" onclick="smtPreview()">👀 Preview changes</button></div>'
     + '<div id="smtResult"></div>';
 
@@ -3298,6 +3324,11 @@ function smtCollect() {
       key: 'G' + j, type: 'merge', keepId: keep, finalName: val('smtGName-' + j),
       mergeIds: g.type === 'duplicate' ? g.stores.map(function(s) { return s.storeId; }).filter(function(id) { return id !== keep; }) : []
     });
+  });
+  (d.sameName || []).forEach(function(x, k) {
+    var cb = document.getElementById('smtSUse-' + k);
+    if (!cb || !cb.checked) return;
+    out.push({ key: 'S' + k, type: 'merge', keepId: x.storeId, mergeIds: [], finalName: val('smtSName-' + k) });
   });
   if (val('smtMKeep')) {
     out.push({ key: 'M', type: 'merge', keepId: val('smtMKeep'), mergeIds: val('smtMMerge') ? [val('smtMMerge')] : [], finalName: val('smtMName') });

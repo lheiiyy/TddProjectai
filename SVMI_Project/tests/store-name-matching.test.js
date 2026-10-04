@@ -613,6 +613,52 @@ console.log('\n── Suggestion helpers ──');
   check('unrelated names score low', s.smt_similarity_('GLORIETTA', 'TRINOMA') < 0.6);
 }
 
+console.log('\n── Section 4: same town, other brand, different spelling → one name ──');
+{
+  const env = newSandbox(); const ids = seed(env);
+  const s = env.sandbox, SDate = env.SDate;
+  const mk = (name, base, cat, from) => s.store_create(Object.assign({ storeName: name, category: cat || base.category }, base), from, 'setup', OPTS).storeId;
+  const t = new SDate(); const p2 = n => String(n).padStart(2, '0');
+  const todayStr = t.getFullYear() + '-' + p2(t.getMonth() + 1) + '-' + p2(t.getDate());
+  const x = {
+    FSF:  mk('SAN FERNANDO (F)', FIG, null, '2026-03-01'),
+    APSF: mk('SAN FERNANDO', AP_PROV, 'NEAR PROVINCIAL', '2026-02-01'),
+    FSP:  mk('SM SAN PEDRO', FIG, null, '2026-03-01'),          // only LOOKS like AP SAN PEDRO
+    FSM:  mk('SAN MIGUEL (F))', FIG, null, todayStr),           // typo, created today
+    APSM2: mk('SAN MIGUEL', AP_PROV, 'NEAR PROVINCIAL', '2026-02-01'),
+  };
+  const d = (y, m, dd) => new SDate(y, m - 1, dd);
+  env.master.getRange(13, 1, 2, 9).setValues([
+    [new SDate(2026, 3, 5, 9), d(2026, 4, 5), 'SAN FERNANDO (F)', 'FIGARO', 'FRANCHISE', 'LEO', 'STORE VISIT', '', x.FSF],
+    [new SDate(2026, 3, 6, 9), d(2026, 4, 6), 'SAN FERNANDO', "ANGEL'S PIZZA", 'PROVINCIAL', 'ANN', 'STORE VISIT', '', x.APSF],
+  ]);
+
+  const r = s.portal_getStoreCleanup();
+  const sn = r.sameName || [];
+  const by = id => sn.filter(e => e.storeId === id)[0];
+  check('Figaro SAN FERNANDO (F) → suggested SAN FERNANDO, pre-ticked (tag only)', by(x.FSF) && by(x.FSF).targetName === 'SAN FERNANDO' && by(x.FSF).tagOnly === true, JSON.stringify(by(x.FSF)));
+  check('the Angel\'s Pizza store keeps its name (not listed)', !by(x.APSF) && !by(ids.SP) && !by(x.APSM2));
+  check('SM SAN PEDRO only looks alike → listed but NOT pre-ticked', by(x.FSP) && by(x.FSP).targetName === 'SAN PEDRO' && by(x.FSP).tagOnly === false, JSON.stringify(by(x.FSP)));
+  check('SAN MIGUEL (F)) typo → SAN MIGUEL, but changed today so flagged', by(x.FSM) && by(x.FSM).targetName === 'SAN MIGUEL' && by(x.FSM).tagOnly && by(x.FSM).changedToday, JSON.stringify(by(x.FSM)));
+  check('a brand with two stores for the town is left to section 2 (Figaro Sta. Maria)', !by(ids.K) && !by(ids.M));
+  check('no Date objects in the result (google.script.run)', !anyDate(r));
+
+  const pv = s.portal_previewStoreCleanup([{ key: 'S0', type: 'merge', keepId: x.FSF, mergeIds: [], finalName: 'SAN FERNANDO' }]);
+  check('preview: rename to the other brand\'s name is allowed', pv.success && pv.plans[0].ok, JSON.stringify(pv.plans && pv.plans[0]));
+  const blocked = s.portal_previewStoreCleanup([{ key: 'S1', type: 'merge', keepId: x.FSM, mergeIds: [], finalName: 'SAN MIGUEL' }]);
+  check('preview: a store changed today is refused until tomorrow', !blocked.plans[0].ok && /tomorrow/.test(blocked.plans[0].errors.join(' ')), blocked.plans[0].errors);
+
+  const ap = s.portal_applyStoreCleanupDecision({ type: 'merge', keepId: x.FSF, mergeIds: [], finalName: 'SAN FERNANDO' });
+  check('apply succeeds', ap.success, ap);
+  check('Figaro store renamed SAN FERNANDO, brand and Store ID unchanged', s.store_getById(x.FSF).fields.storeName === 'SAN FERNANDO' && s.store_getById(x.FSF).fields.brand === 'FIGARO');
+  check('its past visit gets the new name, keeps its Store ID', cell(env, 13, 3) === 'SAN FERNANDO' && cell(env, 13, 9) === x.FSF);
+  check('the Angel\'s Pizza visit is untouched', cell(env, 14, 3) === 'SAN FERNANDO' && cell(env, 14, 9) === x.APSF);
+  const st = sheetRows(env, 'SETTINGS', 2).map(r => r[0] + '|' + r[1]);
+  check('SETTINGS: one SAN FERNANDO row per brand, no "(F)" row', st.filter(v => v === 'SAN FERNANDO|FIGARO').length === 1 && st.filter(v => v === "SAN FERNANDO|ANGEL'S PIZZA").length === 1 && !st.some(v => /^SAN FERNANDO \(F\)/.test(v)), st);
+  const again = s.portal_getStoreCleanup();
+  check('Find again: SAN FERNANDO no longer listed', !(again.sameName || []).some(e => e.storeId === x.FSF));
+}
+
 console.log('\n── Same name, different brands (Figaro STA. MARIA + Angel\'s Pizza STA. MARIA) ──');
 {
   const env = newSandbox(); const ids = seed(env);
