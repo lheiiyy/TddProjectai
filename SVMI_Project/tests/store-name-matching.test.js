@@ -659,6 +659,28 @@ console.log('\n── Section 4: same town, other brand, different spelling → 
   check('Find again: SAN FERNANDO no longer listed', !(again.sameName || []).some(e => e.storeId === x.FSF));
 }
 
+console.log('\n── One name, three brands ──');
+{
+  const env = newSandbox(); seed(env);
+  const s = env.sandbox;
+  const mk = (name, brand, region) => s.store_create({ storeName: name, brand, region, category: 'NCR' }, '2026-02-01', 'setup', OPTS).storeId;
+  const ap = mk('SM NORTH', "ANGEL'S PIZZA", 'NCR');
+  const fg = mk('SM NORTH (F)', 'FIGARO', 'FRANCHISE');
+  const tm = mk('SM NORTH TM', "TIEN MA'S", 'NCR');   // Tien Ma's tag TM
+  const sn = s.portal_getStoreCleanup().sameName.filter(e => e.targetName === 'SM NORTH');
+  check('section 4: the two other brands are listed with target SM NORTH', sn.length === 2 && sn.some(e => e.storeId === fg && e.tagOnly) && sn.some(e => e.storeId === tm && e.tagOnly), JSON.stringify(sn));
+  check('rename Figaro', s.portal_applyStoreCleanupDecision({ type: 'merge', keepId: fg, mergeIds: [], finalName: 'SM NORTH' }).success);
+  check('rename Tien Ma\'s', s.portal_applyStoreCleanupDecision({ type: 'merge', keepId: tm, mergeIds: [], finalName: 'SM NORTH' }).success);
+  const st = sheetRows(env, 'SETTINGS', 2).filter(r => r[0] === 'SM NORTH').map(r => r[1]).sort();
+  check('SETTINGS: three SM NORTH rows, one per brand', JSON.stringify(st) === JSON.stringify(["ANGEL'S PIZZA", 'FIGARO', "TIEN MA'S"]), st);
+  check('each brand resolves to its own Store ID', s.store_resolveIdByCurrentName('SM NORTH', 'FIGARO') === fg && s.store_resolveIdByCurrentName('SM NORTH', "TIEN MA'S") === tm && s.store_resolveIdByCurrentName('SM NORTH', "ANGEL'S PIZZA") === ap);
+  check('without a brand it is never guessed', s.store_resolveIdByCurrentName('SM NORTH') === null);
+  const p4 = s.portal_previewStoreCleanup([{ key: 'x', type: 'create', name: 'SHANGRILA', storeName: 'SM NORTH', brand: 'FIGARO', region: 'NCR', category: 'NCR', active: true }]).plans[0];
+  check('a 2nd FIGARO store named SM NORTH is still refused (same brand)', !p4.ok && /already a name of SM NORTH \(FIGARO\)/.test(p4.errors.join(' ')), p4.errors);
+  const rs = s.svt_buildStoreResolver_();
+  check('visit tables place a no-ID row by brand among 3', rs('SM NORTH', '', "TIEN MA'S") === tm && rs('SM NORTH', '', 'FIGARO') === fg && rs('SM NORTH', '', "ANGEL'S PIZZA") === ap);
+}
+
 console.log('\n── Same name, different brands (Figaro STA. MARIA + Angel\'s Pizza STA. MARIA) ──');
 {
   const env = newSandbox(); const ids = seed(env);

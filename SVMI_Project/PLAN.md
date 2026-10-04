@@ -88,6 +88,11 @@ Design: [`PHASE_C_TABLES.md`](PHASE_C_TABLES.md) (mirrors `database/migrations/0
   spelling (pre-ticked when they differ only by "(F)"/FIGARO/punctuation) and renames the store + its past
   MASTER_LOG rows (brand and Store ID unchanged). A store already changed today can be renamed tomorrow
   (one config version per day). Branch `svmi/same-name-rename` → v17.
+- Leo: must scale — one name can belong to 3+ brands. Tested: portal, SETTINGS mirror, Visited/Unvisited/NAC,
+  Store Health, Store Insights, visit tables and section 4 with SM NORTH × Angel's Pizza / Figaro / Tien Ma's.
+  Brand tags ("(F)", "TM", "AP", …) are one table, `SMT_BRAND_TAGS` (SVMKPI_STORE_MATCH.gs).
+  Still not scalable without code: the brand list itself (`APPROVED_BRANDS`); two stores of the SAME brand can't
+  share a name (by design).
 - Tool: **Admin → Tools → Store Name Matching** (v15, `SVMKPI_STORE_MATCH.gs`, design in
   [`PHASE_C_TABLES.md`](PHASE_C_TABLES.md#c1--store-name-matching-admin--tools)). Find → check each choice →
   Preview → Apply. Run it when nobody is submitting visits. Afterwards Check Visit Tables should show 0 visits
@@ -151,6 +156,6 @@ Known gaps (not configurable yet):
 
 ## Tests
 
-25 files, 1,331 checks, all passing (`node tests/<file>.test.js`).
+25 files, 1,344 checks, all passing (`node tests/<file>.test.js`).
 `store-name-matching-ui.test.js` clicks through the real `SVMI_PORTAL.html` with the real `.gs` code
 behind it (Playwright); the other portal tests use the demo page.
