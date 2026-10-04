@@ -71,12 +71,30 @@ function portal_compareReports() {
       c.diffs.forEach(d => diffs.push(Object.assign({ month: m }, d)));
     }
     const monthName = m => ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1];
-    const errors = diffs.slice(0, 60).map(d => ({
-      row: monthName(d.month),
-      message: d.store + ' (' + (d.brand || '—') + '): MASTER_LOG ' + d.oldVisits + ' visit(s), tables ' + d.newVisits,
-    }));
+    // Each difference with the MASTER_LOG rows behind it: where the tables put
+    // every visit recorded under that name that month.
+    const storeNow = svd_storeLookup_(null);
+    const where = (m, name) => data
+      .filter(v => v.date && v.date.getFullYear() === year && v.date.getMonth() === m - 1 && v.recordedName === _normalizeEnum(name))
+      .map(v => {
+        const info = v.storeId ? storeNow(v.storeId) : null;
+        return 'row ' + v.sourceRow + ' → ' + (info ? info.name + ' (' + info.brand + ')' : (v.storeId ? v.storeId + ' (no active store)' : 'no Store ID'));
+      });
+    const errors = diffs.slice(0, 60).map(d => {
+      const rows = where(d.month, d.store);
+      return {
+        row: monthName(d.month),
+        message: d.store + ' (' + (d.brand || '—') + '): MASTER_LOG ' + d.oldVisits + ' visit(s), tables ' + d.newVisits
+          + (rows.length ? ' · ' + rows.slice(0, 6).join('; ') : ''),
+      };
+    });
     // Why they differ: the old report trusts the Brand column (D) when two
     // brands share a name, the tables trust the Store ID (column I).
+    const unplaced = svd_unplaced_(data, year);
+    unplaced.slice(0, 60).forEach(x => errors.push({
+      row: x.row,
+      message: '"' + x.name + '" on ' + x.date + ' — ' + x.why,
+    }));
     const mismatches = svd_brandMismatches_(data, year);
     mismatches.slice(0, 60).forEach(x => errors.push({
       row: x.row,
@@ -86,9 +104,10 @@ function portal_compareReports() {
       + same + ' store-month(s) identical'
       + (placed ? ' · ' + placed + ' visit(s) the old report could not place are now in their store' : '')
       + (diffs.length ? ' · ⚠ ' + diffs.length + ' difference(s)' : ' · no other differences ✔')
+      + (unplaced.length ? ' · ' + unplaced.length + ' visit(s) the tables can\'t place in a store — listed below by MASTER_LOG row' : '')
       + (mismatches.length ? ' · ' + mismatches.length + ' MASTER_LOG row(s) whose Brand (D) is not the brand of their Store ID (I) — listed below by row' : '')
       + ' · reports now read: ' + (svd_useTables_() ? 'visit tables' : 'MASTER_LOG');
-    return { success: diffs.length === 0, message: msg, errors, diffs: diffs.length, mismatches: mismatches.length };
+    return { success: diffs.length === 0, message: msg, errors, diffs: diffs.length, mismatches: mismatches.length, unplaced: unplaced.length };
   } catch (e) {
     if (typeof logError === 'function') logError('portal_compareReports', e);
     return { success: false, message: e.message, errors: [] };
@@ -255,6 +274,34 @@ function svd_visitedThisMonth_(brandFilter, monthNumber, reportingYear, preloade
   unmapped.sort((a, b) => (b.visits - a.visits) || a.name.localeCompare(b.name));
 
   return { resolved, unmapped };
+}
+
+/**
+ * Visits (in the reporting year) the tables count as "unmapped": no Store ID,
+ * or a Store ID that no store resolves to (e.g. a store whose versions were
+ * all deactivated in Admin → Configuration instead of being marked closed).
+ * @returns {{row:number, date:string, name:string, storeId:string, why:string}[]}
+ */
+function svd_unplaced_(visits, year) {
+  const storeOf = svd_storeLookup_(null);
+  const out = [];
+  visits.forEach(v => {
+    if (!v.date || v.date.getFullYear() !== year) return;
+    if (v.storeId && storeOf(v.storeId)) return;
+    let why;
+    if (!v.storeId) {
+      why = 'no Store ID — fix in Store Name Matching';
+    } else {
+      const history = (typeof cfg_getConfiguration === 'function') ? cfg_getConfiguration(CFG_AREA.STORES, v.storeId) : [];
+      const last = history.length ? history[history.length - 1] : null;
+      const f = (last && last.fields) || {};
+      why = last
+        ? 'Store ID ' + v.storeId + ' (' + _normalizeEnum(f.storeName) + ', ' + _normalizeEnum(f.brand) + ') has no active version in CONFIG_STORES — it was deactivated, not closed'
+        : 'Store ID ' + v.storeId + ' is not in CONFIG_STORES';
+    }
+    out.push({ row: v.sourceRow, date: _sl_formatDate(v.date), name: v.recordedName, storeId: v.storeId, why });
+  });
+  return out.sort((a, b) => a.row - b.row);
 }
 
 /**

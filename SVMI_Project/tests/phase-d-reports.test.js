@@ -121,6 +121,7 @@ console.log('\n── Compare Reports ──');
     c.diffs === 2 && c.errors.every(x => x.row === 'May' && /^URDANETA/.test(x.message))
     && c.errors.some(x => /URDANETA \(ANGEL'S PIZZA\): MASTER_LOG 1 visit\(s\), tables 0/.test(x.message))
     && c.errors.some(x => /URDANETA \(FIGARO\): MASTER_LOG 0 visit\(s\), tables 1/.test(x.message)), c.errors);
+  check('each difference shows the MASTER_LOG rows and where the tables put them', c.errors.some(x => /URDANETA \(FIGARO\).*row 11 → URDANETA \(FIGARO\)/.test(x.message)), c.errors);
   check('message names what reports read now', /reports now read: MASTER_LOG/.test(c.message), c.message);
 
   const cmp = s.svd_compareVisited_(
@@ -141,6 +142,17 @@ console.log('\n── Compare explains differences by MASTER_LOG row ──');
   check('January STA. MARIA shows as a difference', c.diffs >= 2 && c.errors.some(x => x.row === 'Jan' && /STA\. MARIA \(ANGEL'S PIZZA\): MASTER_LOG 0 visit\(s\), tables 1/.test(x.message)), c.errors);
   check('...and the cause is listed with its MASTER_LOG row number', c.mismatches === 1 && c.errors.some(x => x.row === 7 && /MASTER_LOG brand FIGARO, but its Store ID is STA\. MARIA \(ANGEL'S PIZZA\)/.test(x.message)), c.errors);
   check('message counts the rows', /1 MASTER_LOG row\(s\) whose Brand \(D\) is not the brand of their Store ID \(I\)/.test(c.message), c.message);
+}
+
+console.log('\n── Compare lists visits whose Store ID points to a deactivated store ──');
+{
+  const { s, ids } = cleaned();
+  // Deactivate (void) every version of SAN PEDRO in Configuration — it then
+  // resolves on no date, so the tables can't place its visits.
+  s.cfg_getConfiguration('STORES', ids.SP).forEach(v => s.cfg_deactivateConfiguration('STORES', v.versionId, 'test', {}));
+  const c = s.portal_compareReports();
+  check('its visits are listed by MASTER_LOG row with the reason', c.unplaced >= 2 && c.errors.some(x => x.row === 12 && /Store ID STR-[^ ]+ \(SAN PEDRO, ANGEL'S PIZZA\) has no active version in CONFIG_STORES/.test(x.message)), c.errors);
+  check('message counts them', /visit\(s\) the tables can't place in a store/.test(c.message), c.message);
 }
 
 console.log('\n── Admin only ──');
