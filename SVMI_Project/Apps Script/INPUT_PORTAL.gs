@@ -640,7 +640,7 @@ function managePurpose(action, purposeName) {
 //  Returns { success: true, message: string, isNew: boolean }
 //       or { success: false, message: string }
 // ============================================================
-function portal_saveStore(store, brand, region, category, suppressRebuild) {
+function portal_saveStore(store, brand, region, category, suppressRebuild, strictBrand) {
   try {
     if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
 
@@ -660,9 +660,15 @@ function portal_saveStore(store, brand, region, category, suppressRebuild) {
     var lastRow   = settings.getLastRow();
     var targetRow = -1;
     if (lastRow >= 2) {
-      var colA = settings.getRange(2, COL_S_STORE, lastRow - 1, 1).getValues();
-      for (var i = 0; i < colA.length; i++) {
-        if (String(colA[i][0] || '').trim().toUpperCase() === name) { targetRow = i + 2; break; }
+      // strictBrand (used by the CONFIG_STORES -> SETTINGS mirror): a row is
+      // the same store only if NAME and BRAND both match, so two brands can
+      // share a name without overwriting each other. Without it (older
+      // callers) the first row with this name is updated, as before.
+      var colAB = settings.getRange(2, COL_S_STORE, lastRow - 1, COL_S_BRAND - COL_S_STORE + 1).getValues();
+      for (var i = 0; i < colAB.length; i++) {
+        if (String(colAB[i][0] || '').trim().toUpperCase() !== name) continue;
+        if (strictBrand && String(colAB[i][COL_S_BRAND - COL_S_STORE] || '').trim().toUpperCase() !== brand) continue;
+        targetRow = i + 2; break;
       }
     }
 
@@ -739,7 +745,7 @@ function portal_saveStore(store, brand, region, category, suppressRebuild) {
 //  Returns { success: true, message: string }
 //       or { success: false, message: string }
 // ============================================================
-function portal_removeStore(storeName, suppressRebuild) {
+function portal_removeStore(storeName, suppressRebuild, brandOnly) {
   try {
     if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
 
@@ -753,9 +759,14 @@ function portal_removeStore(storeName, suppressRebuild) {
     var lastRow   = settings.getLastRow();
     var targetRow = -1;
     if (lastRow >= 2) {
-      var colA = settings.getRange(2, COL_S_STORE, lastRow - 1, 1).getValues();
-      for (var i = 0; i < colA.length; i++) {
-        if (String(colA[i][0] || '').trim().toUpperCase() === name) { targetRow = i + 2; break; }
+      // brandOnly (optional): remove only the row of that brand, so a shared
+      // name never removes another brand's store.
+      var wantBrand = String(brandOnly || '').trim().toUpperCase();
+      var colAB2 = settings.getRange(2, COL_S_STORE, lastRow - 1, COL_S_BRAND - COL_S_STORE + 1).getValues();
+      for (var j = 0; j < colAB2.length; j++) {
+        if (String(colAB2[j][0] || '').trim().toUpperCase() !== name) continue;
+        if (wantBrand && String(colAB2[j][COL_S_BRAND - COL_S_STORE] || '').trim().toUpperCase() !== wantBrand) continue;
+        targetRow = j + 2; break;
       }
     }
 
