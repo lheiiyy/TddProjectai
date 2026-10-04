@@ -361,9 +361,14 @@ console.log('\n── Validation: refused before anything is written ──');
 
   const two = s.portal_previewStoreCleanup([
     Object.assign({ key: 'a' }, base),
+    { key: 'b', type: 'create', name: 'URDANETA FIGARO', storeName: 'SHANGRILA', brand: "ANGEL'S PIZZA", region: 'NCR', category: 'NCR', active: false },
+  ]).plans;
+  check('two new stores of the SAME brand with one name in one list: second refused', two[0].ok && !two[1].ok && /another change in this list/.test(two[1].errors.join(' ')), two);
+  const twoBrands = s.portal_previewStoreCleanup([
+    Object.assign({ key: 'a' }, base),
     { key: 'b', type: 'create', name: 'URDANETA FIGARO', storeName: 'SHANGRILA', brand: 'FIGARO', region: 'FRANCHISE', category: 'FAR PROVINCIAL', active: false },
   ]).plans;
-  check('two new stores with the same name in one list: second refused', two[0].ok && !two[1].ok && /another change in this list/.test(two[1].errors.join(' ')), two);
+  check('...of DIFFERENT brands: both allowed', twoBrands[0].ok && twoBrands[1].ok, JSON.stringify(twoBrands.map(p => p.errors)));
   const both = s.portal_previewStoreCleanup([
     { key: 'a', type: 'merge', keepId: ids.K, mergeIds: [ids.M], finalName: 'STA. MARIA (F)' },
     { key: 'b', type: 'merge', keepId: ids.M, mergeIds: [], finalName: 'STA MARIA 2' },
@@ -611,6 +616,85 @@ console.log('\n── Suggestion helpers ──');
   check('numbers kept: MANULIFE 1 ≠ MANULIFE 2', s.smt_canonKey_('MANULIFE 1') !== s.smt_canonKey_('MANULIFE 2'));
   check('SHANGRI-LA ~ SHANGRILA scores high', s.smt_similarity_(s.smt_canonKey_('SHANGRI-LA'), s.smt_canonKey_('SHANGRILA')) >= 0.9);
   check('unrelated names score low', s.smt_similarity_('GLORIETTA', 'TRINOMA') < 0.6);
+}
+
+console.log('\n── Section 4: same town, other brand, different spelling → one name ──');
+{
+  const env = newSandbox(); const ids = seed(env);
+  const s = env.sandbox, SDate = env.SDate;
+  const mk = (name, base, cat, from) => s.store_create(Object.assign({ storeName: name, category: cat || base.category }, base), from, 'setup', OPTS).storeId;
+  const t = new SDate(); const p2 = n => String(n).padStart(2, '0');
+  const todayStr = t.getFullYear() + '-' + p2(t.getMonth() + 1) + '-' + p2(t.getDate());
+  const x = {
+    FSF:  mk('SAN FERNANDO (F)', FIG, null, '2026-03-01'),
+    APSF: mk('SAN FERNANDO', AP_PROV, 'NEAR PROVINCIAL', '2026-02-01'),
+    FSP:  mk('SM SAN PEDRO', FIG, null, '2026-03-01'),          // only LOOKS like AP SAN PEDRO
+    FSM:  mk('SAN MIGUEL (F))', FIG, null, todayStr),           // typo, created today
+    APSM2: mk('SAN MIGUEL', AP_PROV, 'NEAR PROVINCIAL', '2026-02-01'),
+  };
+  const d = (y, m, dd) => new SDate(y, m - 1, dd);
+  env.master.getRange(13, 1, 2, 9).setValues([
+    [new SDate(2026, 3, 5, 9), d(2026, 4, 5), 'SAN FERNANDO (F)', 'FIGARO', 'FRANCHISE', 'LEO', 'STORE VISIT', '', x.FSF],
+    [new SDate(2026, 3, 6, 9), d(2026, 4, 6), 'SAN FERNANDO', "ANGEL'S PIZZA", 'PROVINCIAL', 'ANN', 'STORE VISIT', '', x.APSF],
+  ]);
+
+  const r = s.portal_getStoreCleanup();
+  const sn = r.sameName || [];
+  const by = id => sn.filter(e => e.storeId === id)[0];
+  check('Figaro SAN FERNANDO (F) → suggested SAN FERNANDO, pre-ticked (tag only)', by(x.FSF) && by(x.FSF).targetName === 'SAN FERNANDO' && by(x.FSF).tagOnly === true, JSON.stringify(by(x.FSF)));
+  check('the Angel\'s Pizza store keeps its name (not listed)', !by(x.APSF) && !by(ids.SP) && !by(x.APSM2));
+  check('SM SAN PEDRO only looks alike → listed but NOT pre-ticked', by(x.FSP) && by(x.FSP).targetName === 'SAN PEDRO' && by(x.FSP).tagOnly === false, JSON.stringify(by(x.FSP)));
+  check('SAN MIGUEL (F)) typo → SAN MIGUEL, but changed today so flagged', by(x.FSM) && by(x.FSM).targetName === 'SAN MIGUEL' && by(x.FSM).tagOnly && by(x.FSM).changedToday, JSON.stringify(by(x.FSM)));
+  check('a brand with two stores for the town is left to section 2 (Figaro Sta. Maria)', !by(ids.K) && !by(ids.M));
+  check('no Date objects in the result (google.script.run)', !anyDate(r));
+
+  const pv = s.portal_previewStoreCleanup([{ key: 'S0', type: 'merge', keepId: x.FSF, mergeIds: [], finalName: 'SAN FERNANDO' }]);
+  check('preview: rename to the other brand\'s name is allowed', pv.success && pv.plans[0].ok, JSON.stringify(pv.plans && pv.plans[0]));
+  const blocked = s.portal_previewStoreCleanup([{ key: 'S1', type: 'merge', keepId: x.FSM, mergeIds: [], finalName: 'SAN MIGUEL' }]);
+  check('preview: a store changed today is refused until tomorrow', !blocked.plans[0].ok && /tomorrow/.test(blocked.plans[0].errors.join(' ')), blocked.plans[0].errors);
+
+  const ap = s.portal_applyStoreCleanupDecision({ type: 'merge', keepId: x.FSF, mergeIds: [], finalName: 'SAN FERNANDO' });
+  check('apply succeeds', ap.success, ap);
+  check('Figaro store renamed SAN FERNANDO, brand and Store ID unchanged', s.store_getById(x.FSF).fields.storeName === 'SAN FERNANDO' && s.store_getById(x.FSF).fields.brand === 'FIGARO');
+  check('its past visit gets the new name, keeps its Store ID', cell(env, 13, 3) === 'SAN FERNANDO' && cell(env, 13, 9) === x.FSF);
+  check('the Angel\'s Pizza visit is untouched', cell(env, 14, 3) === 'SAN FERNANDO' && cell(env, 14, 9) === x.APSF);
+  const st = sheetRows(env, 'SETTINGS', 2).map(r => r[0] + '|' + r[1]);
+  check('SETTINGS: one SAN FERNANDO row per brand, no "(F)" row', st.filter(v => v === 'SAN FERNANDO|FIGARO').length === 1 && st.filter(v => v === "SAN FERNANDO|ANGEL'S PIZZA").length === 1 && !st.some(v => /^SAN FERNANDO \(F\)/.test(v)), st);
+  const again = s.portal_getStoreCleanup();
+  check('Find again: SAN FERNANDO no longer listed', !(again.sameName || []).some(e => e.storeId === x.FSF));
+}
+
+console.log('\n── One name, three brands ──');
+{
+  const env = newSandbox(); seed(env);
+  const s = env.sandbox;
+  const mk = (name, brand, region) => s.store_create({ storeName: name, brand, region, category: 'NCR' }, '2026-02-01', 'setup', OPTS).storeId;
+  const ap = mk('SM NORTH', "ANGEL'S PIZZA", 'NCR');
+  const fg = mk('SM NORTH (F)', 'FIGARO', 'FRANCHISE');
+  const tm = mk('SM NORTH TM', "TIEN MA'S", 'NCR');   // Tien Ma's tag TM
+  const sn = s.portal_getStoreCleanup().sameName.filter(e => e.targetName === 'SM NORTH');
+  check('section 4: the two other brands are listed with target SM NORTH', sn.length === 2 && sn.some(e => e.storeId === fg && e.tagOnly) && sn.some(e => e.storeId === tm && e.tagOnly), JSON.stringify(sn));
+  const batch = s.portal_previewStoreCleanup([
+    { key: 'a', type: 'merge', keepId: fg, mergeIds: [], finalName: 'SM NORTH' },
+    { key: 'b', type: 'merge', keepId: tm, mergeIds: [], finalName: 'SM NORTH' },
+  ]);
+  check('ONE batch may rename two brands to the same name (Koobideh + Tien Ma\'s → MAKATI case)', batch.success && batch.plans.every(p => p.ok), JSON.stringify(batch.plans.map(p => p.errors)));
+  const fg2 = mk('NORTH EDSA', 'FIGARO', 'FRANCHISE'), fg3 = mk('EDSA NORTH', 'FIGARO', 'FRANCHISE');
+  const same = s.portal_previewStoreCleanup([
+    { key: 'c', type: 'merge', keepId: fg2, mergeIds: [], finalName: 'TRINOMA' },
+    { key: 'd', type: 'merge', keepId: fg3, mergeIds: [], finalName: 'TRINOMA' },
+  ]);
+  check('...but two stores of the SAME brand to one name in a batch is still refused', same.plans.some(p => !p.ok && /also used by another change/.test(p.errors.join(' '))), JSON.stringify(same.plans.map(p => p.errors)));
+  check('rename Figaro', s.portal_applyStoreCleanupDecision({ type: 'merge', keepId: fg, mergeIds: [], finalName: 'SM NORTH' }).success);
+  check('rename Tien Ma\'s', s.portal_applyStoreCleanupDecision({ type: 'merge', keepId: tm, mergeIds: [], finalName: 'SM NORTH' }).success);
+  const st = sheetRows(env, 'SETTINGS', 2).filter(r => r[0] === 'SM NORTH').map(r => r[1]).sort();
+  check('SETTINGS: three SM NORTH rows, one per brand', JSON.stringify(st) === JSON.stringify(["ANGEL'S PIZZA", 'FIGARO', "TIEN MA'S"]), st);
+  check('each brand resolves to its own Store ID', s.store_resolveIdByCurrentName('SM NORTH', 'FIGARO') === fg && s.store_resolveIdByCurrentName('SM NORTH', "TIEN MA'S") === tm && s.store_resolveIdByCurrentName('SM NORTH', "ANGEL'S PIZZA") === ap);
+  check('without a brand it is never guessed', s.store_resolveIdByCurrentName('SM NORTH') === null);
+  const p4 = s.portal_previewStoreCleanup([{ key: 'x', type: 'create', name: 'SHANGRILA', storeName: 'SM NORTH', brand: 'FIGARO', region: 'NCR', category: 'NCR', active: true }]).plans[0];
+  check('a 2nd FIGARO store named SM NORTH is still refused (same brand)', !p4.ok && /already a name of SM NORTH \(FIGARO\)/.test(p4.errors.join(' ')), p4.errors);
+  const rs = s.svt_buildStoreResolver_();
+  check('visit tables place a no-ID row by brand among 3', rs('SM NORTH', '', "TIEN MA'S") === tm && rs('SM NORTH', '', 'FIGARO') === fg && rs('SM NORTH', '', "ANGEL'S PIZZA") === ap);
 }
 
 console.log('\n── Same name, different brands (Figaro STA. MARIA + Angel\'s Pizza STA. MARIA) ──');

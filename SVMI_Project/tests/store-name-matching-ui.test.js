@@ -82,6 +82,37 @@ async function openTools(page) {
     return { page, errors, ctx };
   }
 
+  // ── Section 4 only: nothing else to fix, two brands spelled differently ──
+  console.log('\n── Section 4: same name as another brand (desktop) ──');
+  {
+    const env = lib.newSandbox();
+    const s = env.sandbox;
+    const mk = (name, base, cat) => s.store_create(Object.assign({ storeName: name, category: cat }, base), '2026-02-01', 'setup', { backdateConfirmed: true }).storeId;
+    const fsf = mk('SAN FERNANDO (F)', { brand: 'FIGARO', region: 'FRANCHISE' }, 'NEAR PROVINCIAL');
+    const apsf = mk('SAN FERNANDO', { brand: "ANGEL'S PIZZA", region: 'PROVINCIAL' }, 'NEAR PROVINCIAL');
+    const SD = env.SDate;
+    env.master.getRange(2, 1, 2, 9).setValues([
+      [new SD(2026, 3, 5, 9), new SD(2026, 3, 5), 'SAN FERNANDO (F)', 'FIGARO', 'FRANCHISE', 'LEO', 'STORE VISIT', '', fsf],
+      [new SD(2026, 3, 6, 9), new SD(2026, 3, 6), 'SAN FERNANDO', "ANGEL'S PIZZA", 'PROVINCIAL', 'ANN', 'STORE VISIT', '', apsf],
+    ]);
+    const { page, errors } = await newPage(env, { width: 1280, height: 900 });
+    await openTools(page);
+    await page.click('#smtFindBtn');
+    await page.waitForSelector('#smtPreviewBtn', { timeout: 5000 });
+    check('section 4 shows even when nothing else needs fixing', /1 name\(s\) to match another brand/.test(await page.textContent('#stat-SMT')), await page.textContent('#stat-SMT'));
+    check('SAN FERNANDO (F) is pre-ticked with new name SAN FERNANDO', await page.isChecked('#smtSUse-0') && await page.inputValue('#smtSName-0') === 'SAN FERNANDO');
+    await page.click('#smtPreviewBtn');
+    await page.waitForSelector('#smtApplyBtn', { timeout: 5000 });
+    check('preview lists the rename', /Rename SAN FERNANDO \(F\) → SAN FERNANDO/.test(await page.textContent('#smtResult')), (await page.textContent('#smtResult')).slice(0, 300));
+    await page.click('#smtApplyBtn');
+    await page.waitForSelector('#confirmOv.show', { timeout: 3000 });
+    await page.click('#confirmGo');
+    await page.waitForFunction(() => /Find again/.test(document.getElementById('smtPanel').textContent), null, { timeout: 15000 });
+    check('spreadsheet: Figaro store is now SAN FERNANDO, still FIGARO', s.store_getById(fsf).fields.storeName === 'SAN FERNANDO' && s.store_getById(fsf).fields.brand === 'FIGARO');
+    check('spreadsheet: its visit renamed, Angel\'s Pizza visit untouched', lib.cell(env, 2, 3) === 'SAN FERNANDO' && lib.cell(env, 2, 9) === fsf && lib.cell(env, 3, 9) === apsf);
+    check('no page errors', !errors.length, errors);
+  }
+
   // ── Desktop: the whole Sta. Maria flow ──────────────────────────────
   console.log('\n── Find → choose → Preview → Apply (desktop) ──');
   {
@@ -154,8 +185,9 @@ async function openTools(page) {
     check('activity log has a line per change', (logText.match(/Store Name Matching:/g) || []).length >= 6, logText.slice(0, 300));
 
     await page.click('text=🔍 Find again');
-    await page.waitForFunction(() => /nothing to fix/.test(document.getElementById('stat-SMT').textContent), null, { timeout: 5000 });
-    check('Find again: nothing left', true);
+    await page.waitForFunction(() => /0 name\(s\) with no store .* 0 store\(s\) to review · 1 name\(s\) to match another brand/.test(document.getElementById('stat-SMT').textContent), null, { timeout: 5000 });
+    check('Find again: nothing left to fix; only section 4 suggests URDANETA FIGARO → URDANETA (Angel\'s Pizza has URDANETA)',
+      await page.inputValue('#smtSName-0') === 'URDANETA' && /URDANETA FIGARO/.test(await page.textContent('.smt-sec:nth-of-type(4)')), await page.textContent('#stat-SMT'));
     check('no page errors', errors.length === 0, errors);
   }
 

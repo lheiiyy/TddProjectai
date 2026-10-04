@@ -1,10 +1,12 @@
 # SVMI — Fix & Improve Plan
 
-Last updated: 2026-10-04 · Working branch: `svmi/store-name-matching` (PR #14 — merge PR #13 first)
+Last updated: 2026-10-04 · Working branch: `svmi/same-name-rename` (PR #18)
 
-**🚀 LIVE = version 14 (2026-10-03)** — Phase C visit tables, same Web App URL. v13 = 2026-10-03, v12 = 2026-10-02.
-Rollback source for v14: `live-backup-20261003-pre-v14/` (= v13).
-**Next: v15 = Store Name Matching (C.1)** — built and tested, not deployed yet.
+**🚀 LIVE = version 18 (2026-10-04)** — same Web App URL. v18 = same name for 3+ brands in one batch + brand tags;
+v17 = Store Name Matching section 4 (same name as another brand's store); v16 = Store ID portal / same name across
+brands; v15 = Store Name Matching; v14 = Phase C visit tables (2026-10-03).
+Rollback sources: `live-backup-20261004-pre-v18/` (= v17), `-pre-v17/` (= v16), `-pre-v16/` (= v15), `-pre-v15/` (= v14).
+**Next: Phase D** — reports read STORE_VISITS by Store ID.
 Rule for now: **functionality first.** Security is parked (except admin access).
 Live backups (`live-backup-*`) are the safe fallback — never edited.
 
@@ -63,7 +65,7 @@ Design: [`PHASE_C_TABLES.md`](PHASE_C_TABLES.md) (mirrors `database/migrations/0
 | Input Portal dual-write (never blocks a submission) | ✅ built (one line in `INPUT_PORTAL.gs`) |
 | Tests | ✅ `tests/visit-tables.test.js` (48 checks) |
 | Deploy, run Rebuild once, then Check | ✅ v14, 2026-10-03: **In sync — 1,136 visits, 1,248 visitor links**; rebuild took ~18 s |
-| C.1 Data cleanup before Phase D | 🟡 Store Name Matching tool built (v15) — run it once after deploy, see below |
+| C.1 Data cleanup before Phase D | ✅ 2026-10-04 (v15–v18): every visit has a Store ID; closed stores created; Figaro Sta. Maria merged; 16+ stores given the same name as the other brand's store (Leo: "naka set na tamang store names") |
 | Phase D: reports read the tables instead of MASTER_LOG | ⏳ after C.1 |
 | Phase E: MASTER_LOG audit-trail only | ⏳ later |
 
@@ -82,7 +84,17 @@ Design: [`PHASE_C_TABLES.md`](PHASE_C_TABLES.md) (mirrors `database/migrations/0
   **Store ID**; the duplicate check, MASTER_LOG column I and the resolver use it. Reports/SETTINGS mirror treat a
   name as the key unless two brands share it, then NAME+BRAND (`svmiStoreKey_`, SVMKPI_CORE.gs). Store Name
   Matching only refuses a name already used by a store of the SAME brand. Branch `svmi/store-id-identity`
-  (on top of `svmi/store-name-matching`) — deploy as v15 together.
+  (on top of `svmi/store-name-matching`). **Live as v16 (2026-10-04)**; v15 = Store Name Matching alone.
+- Leo: several stores were given a slightly different spelling only to avoid the clash (e.g. "STA. MARIA (F)").
+  Store Name Matching **section 4 — Same name as another brand's store** lists each one with the other brand's
+  spelling (pre-ticked when they differ only by "(F)"/FIGARO/punctuation) and renames the store + its past
+  MASTER_LOG rows (brand and Store ID unchanged). A store already changed today can be renamed tomorrow
+  (one config version per day). Branch `svmi/same-name-rename` → v17.
+- Leo: must scale — one name can belong to 3+ brands. Tested: portal, SETTINGS mirror, Visited/Unvisited/NAC,
+  Store Health, Store Insights, visit tables and section 4 with SM NORTH × Angel's Pizza / Figaro / Tien Ma's.
+  Brand tags ("(F)", "TM", "AP", …) are one table, `SMT_BRAND_TAGS` (SVMKPI_STORE_MATCH.gs).
+  Still not scalable without code: the brand list itself (`APPROVED_BRANDS`); two stores of the SAME brand can't
+  share a name (by design).
 - Tool: **Admin → Tools → Store Name Matching** (v15, `SVMKPI_STORE_MATCH.gs`, design in
   [`PHASE_C_TABLES.md`](PHASE_C_TABLES.md#c1--store-name-matching-admin--tools)). Find → check each choice →
   Preview → Apply. Run it when nobody is submitting visits. Afterwards Check Visit Tables should show 0 visits
@@ -146,6 +158,6 @@ Known gaps (not configurable yet):
 
 ## Tests
 
-25 files, 1,311 checks, all passing (`node tests/<file>.test.js`).
+25 files, 1,347 checks, all passing (`node tests/<file>.test.js`).
 `store-name-matching-ui.test.js` clicks through the real `SVMI_PORTAL.html` with the real `.gs` code
 behind it (Playwright); the other portal tests use the demo page.

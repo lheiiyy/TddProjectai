@@ -70,23 +70,10 @@ const SMT_TYPE = { CREATE: 'create', MAP: 'map', MERGE: 'merge', SPLIT: 'split' 
 
 // Name comparison for SUGGESTIONS only (never for an automatic match).
 const SMT_WORD_MAP = { STA: 'SANTA', STO: 'SANTO', MT: 'MOUNT', GEN: 'GENERAL' };
-// Tags people add to a store name to say which brand it is ("STA. MARIA (F)",
-// "SM NORTH TM"). One list per brand — add a brand or a tag here only.
-// A tag counts as "(TAG)" anywhere, or as a whole word at the start or end.
-const SMT_BRAND_TAGS = {
-  FIGARO: ['F', 'FIG', 'FIGARO'],
-  "ANGEL'S PIZZA": ['AP', "ANGEL'S PIZZA", 'ANGELS PIZZA', "ANGEL'S", 'ANGELS'],
-  APEX: ['APEX'],
-  "TIEN MA'S": ['TM', "TIEN MA'S", 'TIEN MAS'],
-  KOOBIDEH: ['KK', 'KOOBIDEH'],
+const SMT_DROP_WORDS = {
+  F: 1, FIG: 1, FIGARO: 1, AP: 1, ANGELS: 1, PIZZA: 1, APEX: 1, TIEN: 1, MAS: 1, KOOBIDEH: 1,
+  SM: 1, CITY: 1, MALL: 1, BRANCH: 1, STORE: 1, THE: 1,
 };
-const SMT_DROP_WORDS = (function () {
-  const out = { PIZZA: 1, TIEN: 1, MAS: 1, SM: 1, CITY: 1, MALL: 1, BRANCH: 1, STORE: 1, THE: 1 };
-  Object.keys(SMT_BRAND_TAGS).forEach(b => SMT_BRAND_TAGS[b].forEach(t => {
-    String(t).replace(/'S\b/g, 'S').replace(/[^A-Z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean).forEach(w => { out[w] = 1; });
-  }));
-  return out;
-})();
 const SMT_SUGGEST_MIN = 0.6;
 const SMT_MAX_SUGGESTIONS = 3;
 
@@ -152,7 +139,6 @@ function portal_getStoreCleanup() {
     }).sort((a, b) => (b.visits - a.visits) || a.name.localeCompare(b.name));
 
     const groups = smt_groups_(ctx, stats, unmatched);
-    const sameName = smt_sameNameAcrossBrands_(ctx, stats);
 
     if (typeof _perfLog === 'function') _perfLog('portal_getStoreCleanup', t0, unmatchedOut.length + ' names, ' + groups.length + ' groups');
     return {
@@ -166,7 +152,6 @@ function portal_getStoreCleanup() {
       stores,
       unmatched: unmatchedOut,
       groups,
-      sameName,
       unmatchedVisits,
     };
   } catch (e) {
@@ -450,85 +435,6 @@ function smt_describeGroup_(ctx, stats, unmatched, ids, type) {
 }
 
 /**
- * Same town, different brands, different spelling — e.g. Figaro
- * "STA. MARIA (F)" next to Angel's Pizza "STA. MARIA". Since v16 two brands
- * may share a name (the Store ID / brand tells them apart), so each such
- * store gets a suggestion to use the one plain spelling. Applied as a
- * rename (a merge with nothing merged), which also rewrites the store's
- * past MASTER_LOG rows, so name-based reports keep its whole history.
- *
- * Target spelling: the name with no brand tag ("(F)", "FIGARO", a lone F);
- * if several, the Angel's Pizza store's name, then the most common, then A–Z.
- * `tagOnly` = the two names differ only by a brand tag or punctuation — those
- * are pre-ticked; anything else (SM SAN PEDRO vs SAN PEDRO) is left unticked.
- * Groups where one brand has two stores are left to section 2 (merge first).
- */
-function smt_sameNameAcrossBrands_(ctx, stats) {
-  const byKey = {};
-  Object.keys(ctx.entities).forEach(id => {
-    const e = ctx.entities[id];
-    if (e.isVoid || !e.brand) return;
-    const key = smt_canonKey_(e.name);
-    if (key) (byKey[key] = byKey[key] || []).push(e);
-  });
-  const out = [];
-  Object.keys(byKey).sort().forEach(key => {
-    const list = byKey[key];
-    const brands = {};
-    list.forEach(e => { brands[e.brand] = (brands[e.brand] || 0) + 1; });
-    if (Object.keys(brands).length < 2 || Object.keys(brands).some(b => brands[b] > 1)) return;
-    const names = {};
-    list.forEach(e => { names[e.name] = true; });
-    if (Object.keys(names).length < 2) return;
-
-    const plain = list.filter(e => smt_stripBrandTag_(e.name) === e.name);
-    const pool = plain.length ? plain : list.slice().sort((a, b) => a.name.length - b.name.length).slice(0, 1);
-    const pick = pool.slice().sort((a, b) =>
-      ((b.brand === "ANGEL'S PIZZA") - (a.brand === "ANGEL'S PIZZA"))
-      || (pool.filter(x => x.name === b.name).length - pool.filter(x => x.name === a.name).length)
-      || a.name.localeCompare(b.name))[0];
-    const target = pick.name;
-
-    list.forEach(e => {
-      if (e.name === target) return;
-      const s = stats[e.id] || { visits: 0 };
-      out.push({
-        storeId: e.id,
-        storeName: e.name,
-        brand: e.brand,
-        status: e.status,
-        visits: s.visits,
-        targetName: target,
-        targetStore: smt_label_(pick),
-        tagOnly: smt_compact_(smt_stripBrandTag_(e.name)) === smt_compact_(target),
-        changedToday: smt_hasVersionOn_(e, ctx.today),
-      });
-    });
-  });
-  return out.sort((a, b) => a.targetName.localeCompare(b.targetName) || a.brand.localeCompare(b.brand));
-}
-
-/** Name without any brand tag: "STA. MARIA (F)", "SAN MIGUEL (F))", "DAGUPAN FIGARO", "F DASMA", "SM NORTH TM". */
-function smt_stripBrandTag_(name) {
-  let n = ' ' + smt_cleanName_(name) + ' ';
-  const tags = [];
-  Object.keys(SMT_BRAND_TAGS).forEach(b => SMT_BRAND_TAGS[b].forEach(t => tags.push(t)));
-  tags.sort((a, b) => b.length - a.length); // longest first: "ANGEL'S PIZZA" before "ANGEL'S"
-  tags.forEach(t => {
-    const e = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    n = n.replace(new RegExp('\\(\\s*' + e + '\\s*\\)+', 'g'), ' ')
-         .replace(new RegExp('^\\s*' + e + '\\s+'), ' ')
-         .replace(new RegExp('\\s+' + e + '\\s*$'), ' ');
-  });
-  return smt_cleanName_(n);
-}
-
-/** Letters and digits only — "STA. MARIA" and "STA MARIA" compare equal. */
-function smt_compact_(name) {
-  return String(name || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-}
-
-/**
  * Suggested single name for a group. Brands may share a name (Figaro STA.
  * MARIA and Angel's Pizza STA. MARIA — the brand column tells them apart), so:
  *   1. a store of another brand that spells it the same way once spelling is
@@ -584,11 +490,6 @@ function smt_defaultCategory_(ctx, suggestions, region) {
 // ═══════════════════════════════════════════════════════════════
 // SECTION 3: PLANNING (pure — reads ctx, writes nothing)
 // ═══════════════════════════════════════════════════════════════
-
-/** Names taken within one batch are per brand: three brands may all become "MAKATI". */
-function smt_nameKey_(name, brand) {
-  return smt_cleanName_(name) + '|' + _normalizeEnum(brand);
-}
 
 function smt_newBatch_() {
   return { names: {}, entities: {}, mergedInto: {}, finalNameFor: {}, unmatchedNames: {} };
@@ -653,7 +554,7 @@ function smt_planCreate_(ctx, d, batch, p) {
   if (storeName) {
     const owner = smt_nameOwner_(ctx, storeName, {}, brand);
     if (owner) p.errors.push('"' + storeName + '" is already a name of ' + smt_label_(ctx.entities[owner]) + ' — use "Same store as" for it, or type a different name.');
-    else if (batch.names[smt_nameKey_(storeName, brand)]) p.errors.push('"' + storeName + '" is also used by another change in this list.');
+    else if (batch.names[storeName]) p.errors.push('"' + storeName + '" is also used by another change in this list.');
   }
 
   const span = smt_span_(rows);
@@ -680,7 +581,7 @@ function smt_planCreate_(ctx, d, batch, p) {
     fields: { storeName, brand, region, category, status: CFG_STATUS.ACTIVE },
     unmappedId: entry ? entry.unmappedId : '',
   });
-  if (storeName) batch.names[smt_nameKey_(storeName, brand)] = true;
+  if (storeName) batch.names[storeName] = true;
   batch.unmatchedNames[name] = true;
 }
 
@@ -775,7 +676,7 @@ function smt_planMerge_(ctx, d, batch, p) {
   if (finalName) {
     const owner = smt_nameOwner_(ctx, finalName, group, keep.brand);
     if (owner) p.errors.push('"' + finalName + '" is already a name of ' + smt_label_(ctx.entities[owner]) + '.');
-    else if (batch.names[smt_nameKey_(finalName, keep.brand)]) p.errors.push('"' + finalName + '" is also used by another change in this list.');
+    else if (batch.names[finalName]) p.errors.push('"' + finalName + '" is also used by another change in this list.');
   }
 
   const renaming = !!finalName && finalName !== keep.name;
@@ -821,7 +722,7 @@ function smt_planMerge_(ctx, d, batch, p) {
   Object.assign(p, { keep, keepId, mergeIds, finalName, renaming, extendFrom, rows: changing, changedRows: changing.length });
   batch.entities[keepId] = true;
   mergeIds.forEach(id => { batch.entities[id] = true; batch.mergedInto[id] = keepId; });
-  if (finalName) { batch.names[smt_nameKey_(finalName, keep.brand)] = true; batch.finalNameFor[keepId] = finalName; }
+  if (finalName) { batch.names[finalName] = true; batch.finalNameFor[keepId] = finalName; }
 }
 
 function smt_planSplit_(ctx, d, batch, p) {
@@ -843,12 +744,12 @@ function smt_planSplit_(ctx, d, batch, p) {
       p.errors.push('"' + newName + '" is already a name of ' + smt_label_(ctx.entities[owner]) + '.');
       return;
     }
-    if (batch.names[smt_nameKey_(newName, b)]) { p.errors.push('"' + newName + '" is also used by another change in this list.'); return; }
+    if (batch.names[newName]) { p.errors.push('"' + newName + '" is also used by another change in this list.'); return; }
     const brandRows = rows.filter(r => r.brand === b);
     moves.push({ brand: b, name: newName, rows: brandRows });
     p.lines.push(brandRows.length + ' visit(s) saved as ' + b + ' → name "' + newName + '"'
       + (owner ? ' — already the name of ' + smt_label_(ctx.entities[owner]) + ', so they count there' : ''));
-    batch.names[smt_nameKey_(newName, b)] = true;
+    batch.names[newName] = true;
   });
   const stay = rows.filter(r => r.brand === keepBrand || !r.brand);
   const unknown = stay.filter(r => !r.brand).length;

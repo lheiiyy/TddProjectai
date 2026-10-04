@@ -240,6 +240,39 @@ console.log('\n── two brands sharing one store name stay separate in every r
   check('Store Health: two separate STA. MARIA rows, one per brand', rSta.length === 2 && rSta.some(r => r.brand === 'FIGARO' && r.totalYTD === 2) && rSta.some(r => r.brand === "ANGEL'S PIZZA" && r.totalYTD === 0), JSON.stringify(rSta.map(r => [r.store, r.brand, r.totalYTD])));
 }
 
+// ── One name, THREE brands ───────────────────────────────────────────
+console.log('\n── one store name used by three brands stays three stores ──');
+{
+  const { sandbox, SDate } = newSandbox((D) => {
+    const now = new D();
+    const day = new D(now.getFullYear(), now.getMonth(), 1);
+    return {
+      masterLogRows: [
+        ['t1', day, 'SM NORTH', 'FIGARO', 'NCR', 'LEO', 'STORE VISIT', ''],
+        ['t2', day, 'SM NORTH', "TIEN MA'S", 'NCR', 'ANN', 'STORE VISIT', ''],
+        ['t3', day, 'SM NORTH', "TIEN MA'S", 'NCR', 'LEO', 'TLTC', ''],
+      ],
+      settingsRows: [
+        ['SM NORTH', 'FIGARO', 'NCR', '', 'NCR'],
+        ['SM NORTH', "ANGEL'S PIZZA", 'NCR', '', 'NCR'],
+        ['SM NORTH', "TIEN MA'S", 'NCR', '', 'NCR'],
+      ],
+    };
+  });
+  check('store list: 3 SM NORTH stores', sandbox.sl_getStoreList().filter(x => x.name === 'SM NORTH').length === 3);
+  const vis = sandbox.sl_getVisitedThisMonth([], 0, undefined).resolved.filter(x => x.name === 'SM NORTH');
+  check('Visited This Month: Figaro 1, Tien Ma\'s 2, Angel\'s Pizza not visited',
+    vis.length === 2 && vis.some(v => v.brand === 'FIGARO' && v.visits === 1) && vis.some(v => v.brand === "TIEN MA'S" && v.visits === 2), JSON.stringify(vis));
+  const gaps = sandbox.sl_getComplianceGaps([]).filter(x => x.store === 'SM NORTH');
+  check('Compliance: only the Angel\'s Pizza SM NORTH is behind', gaps.length === 1 && gaps[0].brand === "ANGEL'S PIZZA", JSON.stringify(gaps));
+  check('Store Insights: each brand sees only its own visits',
+    sandbox.sl_getStoreData('SM NORTH', 'FIGARO').summary.totalVisits === 1
+    && sandbox.sl_getStoreData('SM NORTH', "TIEN MA'S").summary.totalVisits === 2
+    && sandbox.sl_getStoreData('SM NORTH', "ANGEL'S PIZZA").summary.totalVisits === 0);
+  const risk = sandbox._computeStoreRisk({ stores: ['SM NORTH', 'SM NORTH', 'SM NORTH'], dates: [new SDate(), new SDate(), new SDate()], brands: ['FIGARO', "TIEN MA'S", "TIEN MA'S"], regions: ['NCR', 'NCR', 'NCR'], purposes: ['STORE VISIT', 'STORE VISIT', 'TLTC'], rawVisitors: ['LEO', 'ANN', 'LEO'], timestamps: [1, 2, 3], totalRows: 3 }, new SDate());
+  check('Store Health: three SM NORTH rows', risk.filter(r => r.store === 'SM NORTH').length === 3, JSON.stringify(risk.map(r => [r.store, r.brand, r.totalYTD])));
+}
+
 console.log('\n══════════════════════════════════');
 console.log('  PASS ' + pass + '   FAIL ' + fail);
 console.log('══════════════════════════════════');
