@@ -113,7 +113,36 @@ should be made in the tables, not in MASTER_LOG.
 Undo: File → Version history in the spreadsheet restores everything at once;
 MASTER_LOG_FIXES and CONFIG_STORE_MERGES show exactly what changed.
 
-## Not in this phase
+## Phase D — reports read the tables by Store ID
 
-- Reports still read MASTER_LOG (Phase D switches them to these tables, one report at a time).
-- MASTER_LOG is still the source of truth while both run side by side.
+`SVMKPI_VISIT_DATA.gs`. One report at a time; each one keeps its MASTER_LOG version.
+
+| Step | Report | Status |
+|---|---|---|
+| D.1 | Visited This Month | ✅ built (v19) |
+| D.2 | Unvisited / NAC (compliance gaps) | ⏳ |
+| D.3 | Store Insights | ⏳ |
+| D.4 | Store Health + Store Master Insight | ⏳ |
+| D.5 | Executive Summary / KPI | ⏳ |
+
+- **Report Source** (System Tools): *Use visit tables* / *Use MASTER_LOG* — Script Property
+  `SVMI_REPORT_SOURCE`. Default MASTER_LOG, so deploying changes nothing until an admin switches.
+  Missing tables → MASTER_LOG automatically.
+- **Compare Reports** (System Tools, read-only): runs each switched report both ways for every month of the
+  year and lists differences. Visits the old report couldn't place (closed stores, old spellings) are counted
+  as "placed", not as differences.
+- On the tables a visit belongs to its Store ID; name/brand/region come from the store's current
+  CONFIG_STORES version (closed stores included). Only visits with no Store ID are "unmapped".
+- Known difference (old report wrong): a closed store that shares its name with an open store of another
+  brand isn't in SETTINGS, so the MASTER_LOG version counts its visits for the open store
+  (e.g. Figaro URDANETA → Angel's Pizza URDANETA). The tables version counts them correctly.
+- Column I is read as a Store ID only when it looks like one (`STR-…`). Live MASTER_LOG I2:J13 hold Leo's
+  visitor leaderboard (NAME / # OF VISIT: CHARLIE 200, LEO 205, …) — kept as is; before v21 the tables took those
+  names as Store IDs and lost those 12 January visits.
+- A row whose brand differs from the only store with its name is left unmapped (never guessed) — e.g. a Figaro
+  ZAMBOANGA visit when only Angel's Pizza ZAMBOANGA is configured; Store Name Matching then offers to set it up.
+- Found 2026-10-04: the original SETTINGS → CONFIG_STORES migration created ONE store per name, so the second
+  brand of a shared name never became a store (SETTINGS: ZAMBOANGA, ALBAY = Angel's Pizza + Figaro; SOLAIRE = APEX +
+  Figaro). The migration now matches name + brand; re-running *Migrate Legacy SETTINGS Data* creates only the
+  missing ones and lists them in the log.
+- MASTER_LOG stays the source of truth (the tables are rebuilt from it) until Phase E.

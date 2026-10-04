@@ -163,7 +163,7 @@ function svt_recordVisitFromRow_(rowNumber) {
     // The portal resolves Store ID before writing (column I), so the full
     // resolver (one CONFIG_STORES read) is only built for the rare row
     // whose store name has no Store ID yet.
-    const hasId = String(row[SVT_ML.STORE_ID] || '').trim() !== '';
+    const hasId = svt_storeIdCell_(row[SVT_ML.STORE_ID]) !== '';
     const resolve = hasId ? svt_idFromColumnOnly_ : svt_buildStoreResolver_();
 
     const built = svt_buildRows_([row], resolve, rowNumber);
@@ -179,7 +179,17 @@ function svt_recordVisitFromRow_(rowNumber) {
 }
 
 function svt_idFromColumnOnly_(name, colIStoreId) {
-  return String(colIStoreId || '').trim().toUpperCase();
+  return svt_storeIdCell_(colIStoreId);
+}
+
+/**
+ * Column I as a Store ID, or '' when it holds anything else. Old sheets used
+ * column I for a list of names ("NAME" header: CHARLIE, LEO, …) — that text
+ * is not a Store ID and must not hide the row's real store.
+ */
+function svt_storeIdCell_(v) {
+  const s = String(v == null ? '' : v).trim().toUpperCase();
+  return /^STR-/.test(s) ? s : '';
 }
 
 
@@ -420,7 +430,7 @@ function svt_buildStoreResolver_() {
     return cur;
   };
   return function (storeName, columnIStoreId, brand) {
-    const fromColumn = String(columnIStoreId || '').trim().toUpperCase();
+    const fromColumn = svt_storeIdCell_(columnIStoreId);
     if (fromColumn) return follow(fromColumn);
     const name = _normalizeEnum(storeName);
     const owners = {};
@@ -432,6 +442,11 @@ function svt_buildStoreResolver_() {
       const sameBrand = ids.filter(id => brandsById[id] && brandsById[id][wantBrand]);
       if (sameBrand.length === 1) ids = sameBrand;
     }
+    // The row's brand must be one the store has had: a Figaro visit to
+    // "ZAMBOANGA" is not a visit to the only ZAMBOANGA in CONFIG_STORES if
+    // that one is Angel's Pizza. Never guess — leave it unmapped so Store
+    // Name Matching offers to set up the missing store. (Blank brand = no check.)
+    if (ids.length === 1 && wantBrand && brandsById[ids[0]] && !brandsById[ids[0]][wantBrand]) ids = [];
     if (ids.length === 1) return ids[0];
     if (reconciled[name]) return follow(reconciled[name]);
     return '';

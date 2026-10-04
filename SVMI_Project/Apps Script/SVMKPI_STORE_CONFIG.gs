@@ -570,6 +570,11 @@ function store_migrateFromSettings(settingsStores, masterLogRows) {
   const failed = [];
 
   const existingByName = _store_buildCurrentNameIndex_();  // ONE sheet read total
+  // Two brands may share a name (Angel's Pizza + Figaro ZAMBOANGA): a SETTINGS
+  // row is "already migrated" only if a store has its name AND its brand.
+  const existingByNameBrand = _store_buildCurrentNameIndex_(true);
+  const seenKey = {};
+  const createdLabels = [];
   const earliestByName = {}; // normalized store name -> earliest Date in MASTER_LOG
   rows.forEach(row => {
     const name = String(row.store || '').trim().toUpperCase();
@@ -580,11 +585,14 @@ function store_migrateFromSettings(settingsStores, masterLogRows) {
 
   (settingsStores || []).forEach(s => {
     const name = String(s.store || s.name || '').trim().toUpperCase();
-    if (!name || mapping[name]) return;
+    const brand = String(s.brand || '').trim().toUpperCase();
+    const key = name + '|' + brand;
+    if (!name || seenKey[key]) return;
+    seenKey[key] = true;
 
-    const existingId = existingByName[name];
+    const existingId = brand ? existingByNameBrand[key] : existingByName[name];
     if (existingId) {
-      mapping[name] = existingId;
+      if (!mapping[name]) mapping[name] = existingId;
       alreadyMigrated.push(name);
       return;
     }
@@ -603,8 +611,9 @@ function store_migrateFromSettings(settingsStores, masterLogRows) {
       { backdateConfirmed: true, suppressRebuild: true, suppressLegacyMirror: true, deferFlush: true }
     );
     if (result.success) {
-      mapping[name] = result.storeId;
+      if (!mapping[name]) mapping[name] = result.storeId;
       created.push(result.storeId);
+      createdLabels.push(name + (brand ? ' (' + brand + ')' : ''));
     } else {
       failed.push({ name: s.store || s.name, message: result.message || 'Unknown error.' });
     }
@@ -645,6 +654,7 @@ function store_migrateFromSettings(settingsStores, masterLogRows) {
   return {
     success: true,
     createdStoreIds: created,
+    createdLabels,
     mapping,
     unmappedCount: Object.keys(unmappedStats).length,
     alreadyMigrated,
@@ -662,7 +672,7 @@ function store_migrateFromSettings(settingsStores, masterLogRows) {
  * instead of redundantly per candidate name.
  * @returns {{[normalizedStoreName: string]: string}} storeId
  */
-function _store_buildCurrentNameIndex_() {
+function _store_buildCurrentNameIndex_(byNameAndBrand) {
   const today = _store_today();
   const byEntity = {};
   cfg_getConfiguration(CFG_AREA.STORES).forEach(v => {
@@ -673,7 +683,9 @@ function _store_buildCurrentNameIndex_() {
     const resolved = _cfg_resolveAsOf(byEntity[id], today);
     if (!resolved) return;
     const name = String((resolved.fields && resolved.fields.storeName) || '').trim().toUpperCase();
-    if (name) index[name] = id;
+    if (!name) return;
+    if (byNameAndBrand) index[name + '|' + String((resolved.fields && resolved.fields.brand) || '').trim().toUpperCase()] = id;
+    else index[name] = id;
   });
   return index;
 }
