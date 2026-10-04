@@ -44,7 +44,7 @@ function rebuildMasterLogHeaders() {
   const headers = [
     'TIMES STAMP', 'DATE VISITED', 'STORE', 'BRAND',
     'REGION', 'VISITED BY', 'PURPOSE', 'REMARKS',
-    'NAME', '# OF VISIT',
+    'STORE ID', '# OF VISIT',
   ];
 
   const headerRange = sheet.getRange(1, 1, 1, headers.length);

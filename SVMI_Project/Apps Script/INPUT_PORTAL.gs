@@ -353,6 +353,7 @@ function _findRecordedVisitors(master, storeId, storeNorm, visitDate, visitorNam
   for (var i = 0; i < raw.length; i++) {
     var row = raw[i];
     var rowStoreId = String(row[COL_STORE_ID - 1] || '').trim().toUpperCase();
+    if (!/^STR-/.test(rowStoreId)) rowStoreId = ''; // old sheets kept a NAME list in column I
     var rowStoreName = String(row[COL_STORE - 1] || '').trim().toUpperCase();
 
     var sameStore = rowStoreId
@@ -425,6 +426,7 @@ function checkDuplicateVisit(payload) {
     raw.forEach(function (row) {
       var rowStore = String(row[COL_STORE - 1] || '').trim().toUpperCase();
       var rowId    = String(row[COL_STORE_ID - 1] || '').trim().toUpperCase();
+      if (!/^STR-/.test(rowId)) rowId = '';
       if (wantId && rowId) {
         if (rowId !== wantId) return;                       // both have an ID: it decides
       } else {

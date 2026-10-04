@@ -155,6 +155,21 @@ console.log('\n── Compare lists visits whose Store ID points to a deactivate
   check('message counts them', /visit\(s\) the tables can't place in a store/.test(c.message), c.message);
 }
 
+console.log('\n── Old NAME list in column I is not a Store ID ──');
+{
+  const { e, s, ids } = cleaned();
+  // Live MASTER_LOG rows 2–13 carried an old "NAME" list (CHARLIE, LEO, …) in column I.
+  e.master.getRange(7, 9).setValue('CHARLIE');   // row 7 = AP STA. MARIA, Jan 3
+  e.master.getRange(2, 9).setValue('Leo');       // row 2 = Figaro SANTA MARIA (renamed), May
+  s.portal_rebuildVisitTables();
+  s.portal_useVisitTablesForReports();
+  const jan = s.sl_getVisitedThisMonth([], 1, 2026);
+  check('a name in column I is ignored — the row is placed by name + brand', jan.resolved.some(r => r.storeId === ids.APSM && r.visits === 1) && jan.unmapped.length === 0, jan);
+  const c = s.portal_compareReports();
+  check('Compare: nothing unplaced', c.unplaced === 0, c.errors);
+  check('duplicate check still works on such a row', s.checkDuplicateVisit({ store: 'STA. MARIA', storeId: ids.APSM, brand: "ANGEL'S PIZZA", dateVisited: '2026-01-05' }).duplicate === true);
+}
+
 console.log('\n── Admin only ──');
 {
   const { e, s } = cleaned();

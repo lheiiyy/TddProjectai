@@ -136,4 +136,7 @@ MASTER_LOG_FIXES and CONFIG_STORE_MERGES show exactly what changed.
 - Known difference (old report wrong): a closed store that shares its name with an open store of another
   brand isn't in SETTINGS, so the MASTER_LOG version counts its visits for the open store
   (e.g. Figaro URDANETA → Angel's Pizza URDANETA). The tables version counts them correctly.
+- Column I is read as a Store ID only when it looks like one (`STR-…`). Live MASTER_LOG rows 2–13 still held an
+  old "NAME" list (CHARLIE, LEO, …) in column I, which hid those 12 January visits from the tables until v22.
+  Rebuild Data Headers now labels column I "STORE ID".
 - MASTER_LOG stays the source of truth (the tables are rebuilt from it) until Phase E.

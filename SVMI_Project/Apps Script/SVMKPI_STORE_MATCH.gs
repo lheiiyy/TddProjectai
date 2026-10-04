@@ -332,7 +332,7 @@ function smt_loadContext_() {
       rowNum: i + 2,
       name,
       rawName: r[SVT_ML.STORE] == null ? '' : String(r[SVT_ML.STORE]),
-      colI: String(r[SVT_ML.STORE_ID] == null ? '' : r[SVT_ML.STORE_ID]).trim().toUpperCase(),
+      colI: svt_storeIdCell_(r[SVT_ML.STORE_ID]),
       colIRaw: r[SVT_ML.STORE_ID] == null ? '' : r[SVT_ML.STORE_ID],
       id: resolve(r[SVT_ML.STORE], r[SVT_ML.STORE_ID], r[SVT_ML.BRAND]),
       date: _parseDateCell(r[SVT_ML.DATE]),
