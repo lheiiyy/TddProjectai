@@ -595,6 +595,18 @@ function _slBrandAllowed(brand, brandFilter) {
  *   name); `unmapped` sorted by visit count descending, then name.
  */
 function _sl_getVisitedThisMonth_impl(brandFilter, monthNumber, reportingYear) {
+  // Phase D (SVMKPI_VISIT_DATA.gs): by Store ID from the visit tables when an
+  // admin has switched reports to them; MASTER_LOG otherwise, or if the tables
+  // are missing.
+  if (typeof svd_useTables_ === 'function' && svd_useTables_()) {
+    const fromTables = svd_visitedThisMonth_(brandFilter, monthNumber, reportingYear);
+    if (fromTables) return fromTables;
+  }
+  return _sl_visitedThisMonthFromLog_(brandFilter, monthNumber, reportingYear);
+}
+
+/** Visited This Month from MASTER_LOG + SETTINGS, by name (the pre-Phase-D report). */
+function _sl_visitedThisMonthFromLog_(brandFilter, monthNumber, reportingYear) {
   const ss   = SpreadsheetApp.getActiveSpreadsheet();
   const now  = new Date();
   const year = (reportingYear != null && !isNaN(Number(reportingYear)))

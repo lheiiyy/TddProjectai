@@ -1047,6 +1047,35 @@ textarea.fi{padding-right:28px}
         </div>
       </div>
 
+      <div class="srm-hdr" style="grid-column:1/-1;margin-top:4px">📊 Reports by Store ID (Phase D)</div>
+
+      <div class="tool-card" data-admin-only="true">
+        <div class="tool-hdr"><span class="tool-icon">⚖️</span>
+          <div><div class="tool-title">Compare Reports</div>
+          <div class="tool-desc-hdr">Old (MASTER_LOG) vs new (visit tables)</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge safe">✓ Read-only · safe</span>
+          <p>Runs <b>Visited This Month</b> for every month of the year both ways and lists every store whose numbers differ. Visits the old report couldn't place (closed stores, old spellings) are counted separately — those are expected. Run this before switching.</p>
+          <button class="tool-run" onclick="runTool('compareReports','stat-CR')">▶ Compare Reports</button>
+          <div class="tool-stat idle" id="stat-CR">Ready</div>
+          <div class="tool-lock" id="lock-CR" hidden>🔒 Admin access required to run this tool.</div>
+        </div>
+      </div>
+
+      <div class="tool-card" data-admin-only="true">
+        <div class="tool-hdr"><span class="tool-icon">🔀</span>
+          <div><div class="tool-title">Report Source</div>
+          <div class="tool-desc-hdr">Which data the reports read</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge info">🔄 Switch any time — nothing is changed in the sheets</span>
+          <p><b>Visit tables</b>: Visited This Month counts visits by Store ID, so two brands with the same store name stay apart, and closed stores keep their visits. <b>MASTER_LOG</b>: the old way, by name. If the tables are missing the reports use MASTER_LOG anyway.</p>
+          <button class="tool-run" onclick="runTool('useVisitTables','stat-RS')">▶ Use visit tables</button>
+          <button class="tool-run" style="margin-top:6px" onclick="runTool('useMasterLog','stat-RS')">↩ Use MASTER_LOG</button>
+          <div class="tool-stat idle" id="stat-RS">Ready</div>
+          <div class="tool-lock" id="lock-RS" hidden>🔒 Admin access required to run this tool.</div>
+        </div>
+      </div>
+
       <div class="srm-hdr" style="grid-column:1/-1;margin-top:4px">🧹 Store Name Cleanup (Phase C.1)</div>
 
       <div class="tool-card" data-admin-only="true" style="grid-column:1/-1">
@@ -2213,7 +2242,7 @@ function visRenderUnmapped(unmapped) {
   }).join('');
   return '<div class="profile-full" style="margin-top:14px;padding:10px 12px;border:1px solid var(--gold);border-radius:6px;background:rgba(212,175,55,0.06)">'
     +'<div style="font-weight:700;color:var(--gold);font-size:12px;margin-bottom:6px">'
-    +'⚠ '+totalUnmapped+' visit'+(totalUnmapped!==1?'s':'')+' not matched to a current store ('+unmapped.length+' name'+(unmapped.length!==1?'s':'')+') — needs Settings review</div>'
+    +'⚠ '+totalUnmapped+' visit'+(totalUnmapped!==1?'s':'')+' not matched to a store ('+unmapped.length+' name'+(unmapped.length!==1?'s':'')+') — fix in System Tools → Store Name Matching</div>'
     +'<table style="width:100%;font-size:11px"><thead><tr><th>Store text in MASTER_LOG</th><th>Visits</th><th>Last Visit</th></tr></thead>'
     +'<tbody>'+rowsHtml+'</tbody></table></div>';
 }
@@ -2893,7 +2922,10 @@ var toolMap = {
   rebuildStoreMaster:      'portal_rebuildStoreMaster',
   validateMasterLog:       'portal_validateMasterLog',
   rebuildVisitTables:      'portal_rebuildVisitTables',
-  checkVisitTables:        'portal_checkVisitTables'
+  checkVisitTables:        'portal_checkVisitTables',
+  compareReports:          'portal_compareReports',
+  useVisitTables:          'portal_useVisitTablesForReports',
+  useMasterLog:            'portal_useMasterLogForReports'
 };
 
 // Every rebuild overwrites a whole sheet, so it asks first. Validation is
@@ -2914,6 +2946,9 @@ var TOOL_META = {
   rebuildVisitTables: { label: 'Visit Tables', confirm: 'update',
     detail: 'STORE_VISITS and STORE_VISIT_VISITORS are regenerated from MASTER_LOG — they hold derived rows only, and MASTER_LOG is not changed. On a large log this can take a minute; a visit submitted meanwhile is asked to retry.' },
   checkVisitTables: { label: 'Check Visit Tables', confirm: 'none', detail: '' },
+  compareReports: { label: 'Compare Reports', confirm: 'none', detail: '' },
+  useVisitTables: { label: 'Report Source', confirm: 'none', detail: '' },
+  useMasterLog: { label: 'Report Source', confirm: 'none', detail: '' },
   rebuildDataHeaders: { label: 'Data Sheet Headers', confirm: 'warn',
     detail: 'Rewrites row 1 headers, column widths and conditional formatting on MASTER_LOG and SETTINGS, and regenerates the SETTINGS column D helper formula. Data rows are not touched.' }
 };

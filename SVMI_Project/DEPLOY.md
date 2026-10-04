@@ -1942,13 +1942,17 @@ node SVMI_Project/tests/admin-api.test.js
 node SVMI_Project/tests/visit-tables.test.js
 
 # Phase C.1: Store Name Matching — unmatched names, the Figaro Sta. Maria
-# merge, closed stores, aliases, validation, admin gate, lock (161 checks)
+# merge, closed stores, aliases, same name across brands, validation, admin gate, lock (199 checks)
 node SVMI_Project/tests/store-name-matching.test.js
 
 # Phase C.1: the same tool clicked through in a real browser — the REAL
 # SVMI_PORTAL.html (not the demo) answered by the REAL .gs code running in
-# Node, then the in-memory spreadsheet is checked (49 checks)
+# Node, then the in-memory spreadsheet is checked (55 checks)
 node SVMI_Project/tests/store-name-matching-ui.test.js
+
+# Phase D.1: Visited This Month by Store ID from the visit tables, the
+# Report Source switch (default MASTER_LOG) and Compare Reports (20 checks)
+node SVMI_Project/tests/phase-d-reports.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a

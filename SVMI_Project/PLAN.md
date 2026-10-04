@@ -1,6 +1,6 @@
 # SVMI — Fix & Improve Plan
 
-Last updated: 2026-10-04 · Working branch: `svmi/same-name-rename` (PR #18)
+Last updated: 2026-10-04 · Working branch: `svmi/phase-d-reports`
 
 **🚀 LIVE = version 18 (2026-10-04)** — same Web App URL. v18 = same name for 3+ brands in one batch + brand tags;
 v17 = Store Name Matching section 4 (same name as another brand's store); v16 = Store ID portal / same name across
@@ -66,7 +66,7 @@ Design: [`PHASE_C_TABLES.md`](PHASE_C_TABLES.md) (mirrors `database/migrations/0
 | Tests | ✅ `tests/visit-tables.test.js` (48 checks) |
 | Deploy, run Rebuild once, then Check | ✅ v14, 2026-10-03: **In sync — 1,136 visits, 1,248 visitor links**; rebuild took ~18 s |
 | C.1 Data cleanup before Phase D | ✅ 2026-10-04 (v15–v18): every visit has a Store ID; closed stores created; Figaro Sta. Maria merged; 16+ stores given the same name as the other brand's store (Leo: "naka set na tamang store names") |
-| Phase D: reports read the tables instead of MASTER_LOG | ⏳ after C.1 |
+| Phase D: reports read the tables instead of MASTER_LOG | 🟡 D.1 Visited This Month built (v19) — Compare Reports + Report Source switch; next D.2 Unvisited/NAC |
 | Phase E: MASTER_LOG audit-trail only | ⏳ later |
 
 ### C.1 — status 2026-10-04
@@ -158,6 +158,6 @@ Known gaps (not configurable yet):
 
 ## Tests
 
-25 files, 1,347 checks, all passing (`node tests/<file>.test.js`).
+26 files, 1,367 checks, all passing (`node tests/<file>.test.js`).
 `store-name-matching-ui.test.js` clicks through the real `SVMI_PORTAL.html` with the real `.gs` code
 behind it (Playwright); the other portal tests use the demo page.
