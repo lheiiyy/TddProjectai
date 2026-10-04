@@ -270,18 +270,24 @@ function store_getOperationalList(dateStr) {
  * discipline as store_migrateFromSettings() below. Returns null if no
  * current store has this exact name.
  */
-function store_resolveIdByCurrentName(storeName) {
+function store_resolveIdByCurrentName(storeName, brand) {
   const target = String(storeName || '').trim().toUpperCase();
   if (!target) return null;
+  const wantBrand = String(brand || '').trim().toUpperCase();
   const todayStr = _store_dateToStr(_store_today());
   const ids = _store_listEntityIds();
+  const matches = [];
   for (let i = 0; i < ids.length; i++) {
     const resolved = resolveStoreAsOf(ids[i], todayStr);
     if (resolved && String(resolved.fields.storeName || '').trim().toUpperCase() === target) {
-      return ids[i];
+      if (wantBrand && String(resolved.fields.brand || '').trim().toUpperCase() !== wantBrand) continue;
+      matches.push(ids[i]);
     }
   }
-  return null;
+  // Two stores (different brands) can share a name. Without a brand to tell
+  // them apart, never guess: no ID means the caller falls back to legacy
+  // name matching. With a brand — or a single match — the answer is exact.
+  return matches.length === 1 || (matches.length > 1 && wantBrand) ? matches[0] : null;
 }
 
 /**
@@ -315,23 +321,30 @@ function _storeSync_toSettings(storeId, suppressRebuild) {
 
   const id = _store_normalizeId(storeId);
   const history = cfg_getConfiguration(CFG_AREA.STORES, id);
+  // Every (name, brand) pair this store has ever had. SETTINGS rows are
+  // matched on name AND brand, so a same-named store of another brand is
+  // never touched.
   const everyName = {};
   history.forEach(v => {
     const n = String((v.fields && v.fields.storeName) || '').trim().toUpperCase();
-    if (n) everyName[n] = true;
+    const b = String((v.fields && v.fields.brand) || '').trim().toUpperCase();
+    if (n) { (everyName[n] = everyName[n] || {})[b] = true; }
   });
 
   const current = store_getById(id); // resolved as of today, or null
   const currentName = current ? String((current.fields && current.fields.storeName) || '').trim().toUpperCase() : null;
   const isOperational = !!current && String((current.fields && current.fields.status) || CFG_STATUS.ACTIVE).toUpperCase() !== CFG_STATUS.INACTIVE;
 
+  const currentBrand = current ? String((current.fields && current.fields.brand) || '').trim().toUpperCase() : '';
   Object.keys(everyName).forEach(name => {
-    if (isOperational && name === currentName) return; // written below instead of removed
-    portal_removeStore(name, suppressRebuild); // harmless no-op if this name has no SETTINGS row
+    Object.keys(everyName[name]).forEach(brand => {
+      if (isOperational && name === currentName && brand === currentBrand) return; // written below instead of removed
+      portal_removeStore(name, suppressRebuild, brand || undefined); // harmless no-op if no SETTINGS row has this name+brand
+    });
   });
 
   if (isOperational && currentName) {
-    portal_saveStore(currentName, current.fields.brand, current.fields.region, current.fields.category, suppressRebuild);
+    portal_saveStore(currentName, current.fields.brand, current.fields.region, current.fields.category, suppressRebuild, true);
   }
 }
 

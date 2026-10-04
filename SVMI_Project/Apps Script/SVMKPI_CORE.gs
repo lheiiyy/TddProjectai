@@ -196,6 +196,45 @@ function _normalizeEnum(value) {
 }
 
 /**
+ * Store keys — let two stores of DIFFERENT brands share one name
+ * (e.g. Figaro "STA. MARIA" and Angel's Pizza "STA. MARIA").
+ *
+ * Reports and the SETTINGS mirror have always identified a store by its
+ * NAME. A key is the plain name — unchanged — unless that name belongs to
+ * two or more brands in the roster; then it is NAME + '||' + BRAND. So
+ * nothing changes for any store whose name is unique, and a shared name
+ * is told apart by the Brand column that every MASTER_LOG row carries.
+ */
+const SVMI_KEY_SEP = '||';
+
+/** @param {{name:string, brand:string}[]} entries @returns {Object<string,boolean>} names used by 2+ brands */
+function svmiAmbiguousNames_(entries) {
+  const brandsByName = {};
+  const out = {};
+  (entries || []).forEach(function (e) {
+    const n = _normalizeEnum(e.name), b = _normalizeEnum(e.brand);
+    if (!n) return;
+    const set = brandsByName[n] || (brandsByName[n] = {});
+    set[b] = true;
+    if (Object.keys(set).length > 1) out[n] = true;
+  });
+  return out;
+}
+
+/** Key for a store name + brand; plain name unless the name is ambiguous. */
+function svmiStoreKey_(name, brand, ambiguous) {
+  const n = _normalizeEnum(name);
+  return (ambiguous && ambiguous[n]) ? n + SVMI_KEY_SEP + _normalizeEnum(brand) : n;
+}
+
+/** The plain name part of a key (for display). */
+function svmiKeyName_(key) {
+  const s = String(key == null ? '' : key);
+  const i = s.indexOf(SVMI_KEY_SEP);
+  return i === -1 ? s : s.slice(0, i);
+}
+
+/**
  * _normalizeVisitors(rawValue)
  * Single pipe-split entry point for col F (Visited By).
  * Splits on "|", normalizes each token via _normalizeEnum(),

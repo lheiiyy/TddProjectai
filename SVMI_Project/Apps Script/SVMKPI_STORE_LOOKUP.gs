@@ -104,13 +104,15 @@ function _sl_getStoreList_impl() {
   const raw  = settings.getRange(2, 1, lastRow - 1, 3).getValues();
   const seen = new Set();
   const list = [];
+  const amb  = svmiAmbiguousNames_(raw.map(r => ({ name: r[SL_SETTINGS_COL.STORE], brand: r[SL_SETTINGS_COL.BRAND] })));
 
   raw.forEach(row => {
     const name   = String(row[SL_SETTINGS_COL.STORE]  || '').trim().toUpperCase();
     const brand  = String(row[SL_SETTINGS_COL.BRAND]  || '').trim().toUpperCase();
     const region = String(row[SL_SETTINGS_COL.REGION] || '').trim().toUpperCase();
-    if (!name || seen.has(name)) return;
-    seen.add(name);
+    const key = svmiStoreKey_(name, brand, amb);
+    if (!name || seen.has(key)) return;
+    seen.add(key);
     list.push({ name, brand, region });
   });
 
@@ -145,10 +147,12 @@ function _sl_getStoreList_impl() {
  *   insight: string,
  * }
  */
-function _sl_getStoreData_impl(storeName) {
+function _sl_getStoreData_impl(storeName, brand) {
   if (!storeName || !String(storeName).trim()) return null;
 
   const target = String(storeName).trim().toUpperCase();
+  // Optional brand: tells apart two stores of different brands that share a name.
+  const wantBrand = _normalizeEnum(brand);
 
   // ── Step 1: Read MASTER_LOG once ──────────────────────────
   const ss  = SpreadsheetApp.getActiveSpreadsheet();
@@ -156,7 +160,7 @@ function _sl_getStoreData_impl(storeName) {
   if (!log) return null;
 
   const lastRow = log.getLastRow();
-  if (lastRow < 2) return _sl_emptyResult(target, log);
+  if (lastRow < 2) return _sl_emptyResult(target, log, undefined, wantBrand);
 
   // Read cols A–H only (columns 1–8) — skip the auxiliary columns
   const raw = log.getRange(2, 1, lastRow - 1, 8).getValues();
@@ -182,10 +186,10 @@ function _sl_getStoreData_impl(storeName) {
   // ── Step 2: Filter to this store ──────────────────────────
   const rows = raw.filter(row => {
     const store = String(row[SL_COL.STORE] || '').trim().toUpperCase();
-    return store === target;
+    return store === target && (!wantBrand || _normalizeEnum(row[SL_COL.BRAND]) === wantBrand);
   });
 
-  if (rows.length === 0) return _sl_emptyResult(target, log, prebuiltData);
+  if (rows.length === 0) return _sl_emptyResult(target, log, prebuiltData, wantBrand);
 
   // ── Step 3: Sort filtered rows by date desc (newest first) ─
   // _parseDateCell() (SVMKPI_CORE.gs) — the same canonical parser
@@ -200,7 +204,7 @@ function _sl_getStoreData_impl(storeName) {
   });
 
   // ── Step 4: Derive meta from SETTINGS ─────────────────────
-  const meta = _sl_getMeta(target);
+  const meta = _sl_getMeta(target, wantBrand);
 
   // ── Step 5: Summary ───────────────────────────────────────
   const totalVisits  = rows.length;
@@ -260,7 +264,7 @@ function _sl_getStoreData_impl(storeName) {
   });
 
   // ── Step 9: Health score — canonical engine, shared with Store Health ─
-  const health = _sl_computeCanonicalHealth(log, target, prebuiltData);
+  const health = _sl_computeCanonicalHealth(log, target, prebuiltData, wantBrand);
 
   // ── Step 10: AI insight ───────────────────────────────────
   const insight = _sl_generateInsight({
@@ -287,7 +291,7 @@ function _sl_getStoreData_impl(storeName) {
  * @param {string} storeName - Already normalized (uppercase, trimmed)
  * @returns {{ name: string, brand: string, region: string }}
  */
-function _sl_getMeta(storeName) {
+function _sl_getMeta(storeName, brand) {
   const ss       = SpreadsheetApp.getActiveSpreadsheet();
   const settings = ss.getSheetByName(SL_SHEET.SETTINGS);
 
@@ -295,7 +299,8 @@ function _sl_getMeta(storeName) {
     const rows = settings.getRange(2, 1, settings.getLastRow() - 1, 3).getValues();
     for (let i = 0; i < rows.length; i++) {
       const sName = String(rows[i][SL_SETTINGS_COL.STORE] || '').trim().toUpperCase();
-      if (sName === storeName) {
+      const sBrand = String(rows[i][SL_SETTINGS_COL.BRAND] || '').trim().toUpperCase();
+      if (sName === storeName && (!brand || sBrand === brand)) {
         return {
           name:   storeName,
           brand:  String(rows[i][SL_SETTINGS_COL.BRAND]  || '').trim().toUpperCase(),
@@ -321,7 +326,7 @@ function _sl_getMeta(storeName) {
  * @param {string} storeName - Already normalized (uppercase, trimmed)
  * @returns {{ score: number, label: string, components: { daysSince: number } }}
  */
-function _sl_computeCanonicalHealth(log, storeName, prebuiltData) {
+function _sl_computeCanonicalHealth(log, storeName, prebuiltData, brand) {
   const data = prebuiltData || _getData(log);
   // _computeStoreRisk() falls back to getDefaultReportingYear() when no
   // year is given, which re-reads MASTER_LOG a THIRD time in this call
@@ -338,7 +343,8 @@ function _sl_computeCanonicalHealth(log, storeName, prebuiltData) {
   }
   if (evaluationYear === null) evaluationYear = new Date().getFullYear();
   const riskRows = _computeStoreRisk(data, new Date(), evaluationYear);
-  const row = riskRows.find(r => r.store === storeName);
+  const wantBrand = _normalizeEnum(brand);
+  const row = riskRows.find(r => r.store === storeName && (!wantBrand || _normalizeEnum(r.brand) === wantBrand));
   return {
     score: row ? row.riskScore : 0,
     label: row ? row.riskTier : 'LOW',
@@ -356,9 +362,9 @@ function _sl_computeCanonicalHealth(log, storeName, prebuiltData) {
  * @param {Object} [prebuiltData] - see _sl_computeCanonicalHealth().
  * @returns {StoreResult}
  */
-function _sl_emptyResult(storeName, log, prebuiltData) {
-  const meta = _sl_getMeta(storeName);
-  const health = _sl_computeCanonicalHealth(log, storeName, prebuiltData);
+function _sl_emptyResult(storeName, log, prebuiltData, brand) {
+  const meta = _sl_getMeta(storeName, _normalizeEnum(brand));
+  const health = _sl_computeCanonicalHealth(log, storeName, prebuiltData, brand);
   return {
     meta,
     summary:      { totalVisits: 0, lastVisitDate: '—', lastVisitor: '—', lastPurpose: '—' },
@@ -607,18 +613,20 @@ function _sl_getVisitedThisMonth_impl(brandFilter, monthNumber, reportingYear) {
   if (!settings || settings.getLastRow() < 2) return { resolved: [], unmapped: [] };
 
   const settingsRows = settings.getRange(2, 1, settings.getLastRow() - 1, 3).getValues();
-  const allStores     = new Map(); // name → {brand, region} — brandFilter-scoped
-  const rosterNames    = new Set(); // every SETTINGS store name, ANY brand — for unmapped detection
+  const allStores     = new Map(); // store key → {name, brand, region} — brandFilter-scoped
+  const rosterNames    = new Set(); // every SETTINGS store key, ANY brand — for unmapped detection
+  const amb = svmiAmbiguousNames_(settingsRows.map(r => ({ name: r[SL_SETTINGS_COL.STORE], brand: r[SL_SETTINGS_COL.BRAND] })));
 
   settingsRows.forEach(row => {
     const name   = String(row[SL_SETTINGS_COL.STORE]  || '').trim().toUpperCase();
     const brand  = String(row[SL_SETTINGS_COL.BRAND]  || '').trim().toUpperCase();
     const region = String(row[SL_SETTINGS_COL.REGION] || '').trim().toUpperCase();
     if (!name) return;
-    rosterNames.add(name);
-    if (allStores.has(name)) return;
+    const key = svmiStoreKey_(name, brand, amb);
+    rosterNames.add(key);
+    if (allStores.has(key)) return;
     if (!_slBrandAllowed(brand, brandFilter)) return;
-    allStores.set(name, { brand, region });
+    allStores.set(key, { name, brand, region });
   });
 
   // ── Scan MASTER_LOG once, accumulating this month's visits ───
@@ -630,8 +638,10 @@ function _sl_getVisitedThisMonth_impl(brandFilter, monthNumber, reportingYear) {
   const unmappedAcc  = new Map(); // raw store text → {visits, lastDate}
 
   logData.forEach(row => {
-    const store = String(row[SL_COL.STORE] || '').trim().toUpperCase();
-    if (!store) return;
+    const rawName = String(row[SL_COL.STORE] || '').trim().toUpperCase();
+    if (!rawName) return;
+    // A name shared by two brands is told apart by the row's Brand column.
+    const store = svmiStoreKey_(rawName, row[SL_COL.BRAND], amb);
 
     const date = _parseDateCell(row[SL_COL.DATE]);
     if (!date || date < monthStart || date > monthEnd) return;
@@ -639,8 +649,8 @@ function _sl_getVisitedThisMonth_impl(brandFilter, monthNumber, reportingYear) {
     if (!rosterNames.has(store)) {
       // Doesn't resolve to ANY current SETTINGS entry — surface it
       // instead of silently dropping it (see docblock above).
-      let u = unmappedAcc.get(store);
-      if (!u) { u = { visits: 0, lastDate: null }; unmappedAcc.set(store, u); }
+      let u = unmappedAcc.get(rawName);
+      if (!u) { u = { visits: 0, lastDate: null }; unmappedAcc.set(rawName, u); }
       u.visits++;
       if (!u.lastDate || date > u.lastDate) u.lastDate = date;
       return;
@@ -666,8 +676,9 @@ function _sl_getVisitedThisMonth_impl(brandFilter, monthNumber, reportingYear) {
   // "Last Visit" chronologically — the display string ("Aug 31, 2026") would
   // otherwise only sort alphabetically.
   const resolved = [];
-  acc.forEach((a, name) => {
-    const info = allStores.get(name);
+  acc.forEach((a, key) => {
+    const info = allStores.get(key);
+    const name = info.name;
     resolved.push({
       name,
       brand:         info.brand,
@@ -728,15 +739,17 @@ function sl_getUnvisitedThisMonth(brandFilter) {
   if (!settings || settings.getLastRow() < 2) return [];
 
   const settingsRows = settings.getRange(2, 1, settings.getLastRow() - 1, 3).getValues();
-  const allStores    = new Map(); // name → {brand, region}
+  const allStores    = new Map(); // store key → {name, brand, region}
+  const amb = svmiAmbiguousNames_(settingsRows.map(r => ({ name: r[SL_SETTINGS_COL.STORE], brand: r[SL_SETTINGS_COL.BRAND] })));
 
   settingsRows.forEach(row => {
     const name   = String(row[SL_SETTINGS_COL.STORE]  || '').trim().toUpperCase();
     const brand  = String(row[SL_SETTINGS_COL.BRAND]  || '').trim().toUpperCase();
     const region = String(row[SL_SETTINGS_COL.REGION] || '').trim().toUpperCase();
-    if (!name || allStores.has(name)) return;
+    const key = svmiStoreKey_(name, brand, amb);
+    if (!name || allStores.has(key)) return;
     if (!_slBrandAllowed(brand, brandFilter)) return;
-    allStores.set(name, { brand, region });
+    allStores.set(key, { name, brand, region });
   });
 
   // ── Scan MASTER_LOG ──────────────────────────────────────────
@@ -744,8 +757,8 @@ function sl_getUnvisitedThisMonth(brandFilter) {
   if (!log || log.getLastRow() < 2) {
     // No visits at all — every store is unvisited
     return Array.from(allStores.entries())
-      .map(([name, info]) => ({
-        name, brand: info.brand, region: info.region,
+      .map(([key, info]) => ({
+        name: info.name, brand: info.brand, region: info.region,
         lastVisitDate: '—', daysSince: null,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -756,8 +769,9 @@ function sl_getUnvisitedThisMonth(brandFilter) {
   const lastVisitByStore = new Map(); // name → {date, daysSince}
 
   logData.forEach(row => {
-    const store = String(row[SL_COL.STORE] || '').trim().toUpperCase();
-    if (!store) return;
+    const rawName = String(row[SL_COL.STORE] || '').trim().toUpperCase();
+    if (!rawName) return;
+    const store = svmiStoreKey_(rawName, row[SL_COL.BRAND], amb);
 
     const date = _parseDateCell(row[SL_COL.DATE]);
 
@@ -778,9 +792,10 @@ function sl_getUnvisitedThisMonth(brandFilter) {
 
   // ── Build result — stores in SETTINGS with no current-month visit ─
   const result = [];
-  allStores.forEach((info, name) => {
-    if (visitedThisMonth.has(name)) return;
-    const lv = lastVisitByStore.get(name);
+  allStores.forEach((info, key) => {
+    if (visitedThisMonth.has(key)) return;
+    const lv = lastVisitByStore.get(key);
+    const name = info.name;
     result.push({
       name,
       brand:         info.brand,
@@ -900,16 +915,17 @@ function _sl_getComplianceGaps_impl(brandFilter, monthNumber, reportingYear, eva
   if (!settings || settings.getLastRow() < 2) return [];
 
   const settingsRows = settings.getRange(2, 1, settings.getLastRow() - 1, 5).getValues();
-  const allStores    = new Map();
+  const allStores    = new Map(); // store key → {name, brand, region, category}
+  const amb = svmiAmbiguousNames_(settingsRows.map(r => ({ name: r[0], brand: r[1] })));
 
   settingsRows.forEach(row => {
-    const store    = String(row[0] || '').trim().toUpperCase();
+    const name     = String(row[0] || '').trim().toUpperCase();
     const brand    = String(row[1] || '').trim().toUpperCase();
     const region   = String(row[2] || '').trim().toUpperCase();
     const category = String(row[4] || '').trim().toUpperCase();
-    if (!store) return;
+    if (!name) return;
     if (!_slBrandAllowed(brand, brandFilter)) return;
-    allStores.set(store, { brand, region, category });
+    allStores.set(svmiStoreKey_(name, brand, amb), { name, brand, region, category });
   });
 
   // ── Scan MASTER_LOG once — build all needed maps ──────────
@@ -929,8 +945,10 @@ function _sl_getComplianceGaps_impl(brandFilter, monthNumber, reportingYear, eva
     const logData = log.getRange(2, 1, log.getLastRow() - 1, 8).getValues();
 
     logData.forEach(row => {
-      const store = String(row[2] || '').trim().toUpperCase();
-      if (!store || !allStores.has(store)) return;
+      const rawName = String(row[2] || '').trim().toUpperCase();
+      if (!rawName) return;
+      const store = svmiStoreKey_(rawName, row[3], amb);
+      if (!allStores.has(store)) return;
 
       const date = _parseDateCell(row[1]);
       if (!date) return;
@@ -981,8 +999,11 @@ function _sl_getComplianceGaps_impl(brandFilter, monthNumber, reportingYear, eva
     // case of two stores sharing a current name.
     nameToStoreId = {};
     Object.keys(storesAsOfToday).forEach(id => {
-      const nm = String((storesAsOfToday[id].fields || {}).storeName || '').trim().toUpperCase();
-      if (nm && !nameToStoreId[nm]) nameToStoreId[nm] = id;
+      const f  = storesAsOfToday[id].fields || {};
+      const nm = String(f.storeName || '').trim().toUpperCase();
+      // Same key as allStores: plain name, or NAME||BRAND when two brands share it.
+      const k  = svmiStoreKey_(nm, f.brand, amb);
+      if (nm && !nameToStoreId[k]) nameToStoreId[k] = id;
     });
     storesAsOfEval = cfg_resolveAllAsOf(CFG_AREA.STORES, evaluationDate);
     complianceByCategory = cfg_resolveAllAsOf(CFG_AREA.COMPLIANCE, evaluationDate);
@@ -991,7 +1012,7 @@ function _sl_getComplianceGaps_impl(brandFilter, monthNumber, reportingYear, eva
   // ── Check compliance per store ────────────────────────────
   const gaps = [];
 
-  allStores.forEach(({ brand, region, category }, store) => {
+  allStores.forEach(({ name: storeName, brand, region, category }, store) => {
     const last      = lastVisitByStore.get(store) || null;
     const daysSince = last ? Math.floor((evaluationDate - last) / 86400000) : null;
     const ytd       = ytdByStore.get(store) || 0;
@@ -1027,7 +1048,7 @@ function _sl_getComplianceGaps_impl(brandFilter, monthNumber, reportingYear, eva
 
     if (!compliant) {
       gaps.push({
-        store,
+        store: storeName,
         brand,
         region,
         category,

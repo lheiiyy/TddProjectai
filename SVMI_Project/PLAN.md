@@ -1,9 +1,10 @@
 # SVMI — Fix & Improve Plan
 
-Last updated: 2026-10-03 · Working branch: `svmi/phase-c-visit-tables` (PR #13)
+Last updated: 2026-10-04 · Working branch: `svmi/store-name-matching` (PR #14 — merge PR #13 first)
 
 **🚀 LIVE = version 14 (2026-10-03)** — Phase C visit tables, same Web App URL. v13 = 2026-10-03, v12 = 2026-10-02.
 Rollback source for v14: `live-backup-20261003-pre-v14/` (= v13).
+**Next: v15 = Store Name Matching (C.1)** — built and tested, not deployed yet.
 Rule for now: **functionality first.** Security is parked (except admin access).
 Live backups (`live-backup-*`) are the safe fallback — never edited.
 
@@ -62,11 +63,33 @@ Design: [`PHASE_C_TABLES.md`](PHASE_C_TABLES.md) (mirrors `database/migrations/0
 | Input Portal dual-write (never blocks a submission) | ✅ built (one line in `INPUT_PORTAL.gs`) |
 | Tests | ✅ `tests/visit-tables.test.js` (48 checks) |
 | Deploy, run Rebuild once, then Check | ✅ v14, 2026-10-03: **In sync — 1,136 visits, 1,248 visitor links**; rebuild took ~18 s |
-| C.1 Data cleanup before Phase D | ⏳ see below |
+| C.1 Data cleanup before Phase D | 🟡 Store Name Matching tool built (v15) — run it once after deploy, see below |
 | Phase D: reports read the tables instead of MASTER_LOG | ⏳ after C.1 |
 | Phase E: MASTER_LOG audit-trail only | ⏳ later |
 
-### C.1 — data notes from the first Check (2026-10-03)
+### C.1 — status 2026-10-04
+
+- Re-running *Migrate Legacy SETTINGS Data* (2026-10-03) took visits with no Store ID from **230 → 22**
+  and cleared the unknown-visitor note.
+- The 22 visits are 11 names: SHANGRILA (10), VERSAILLES (2), GLORIETTA (2), VICTORY MALL PASAY, VLI CUBAO,
+  VLI PASAY, URDANETA FIGARO, MANULIFE 1, MANULIFE 2, STA. MARIA, and SM SAN PEDRO (Leo reconciled it
+  to SAN PEDRO by hand).
+- Leo: the leftover names are **closed stores** → *New store — closed*. URDANETA FIGARO is its own Figaro
+  store (URDANETA is the Angel's Pizza one).
+- Leo: Figaro **SANTA MARIA** and **STA MARIA** are **one store** → *Merge*, one name plain **STA. MARIA**
+  (no "(F)" — the Brand column filters). Angel's Pizza STA. MARIA stays a separate store with the same name.
+- **Same name across brands (decision 2026-10-04, Leo: option B):** the Input Portal now submits the picked
+  **Store ID**; the duplicate check, MASTER_LOG column I and the resolver use it. Reports/SETTINGS mirror treat a
+  name as the key unless two brands share it, then NAME+BRAND (`svmiStoreKey_`, SVMKPI_CORE.gs). Store Name
+  Matching only refuses a name already used by a store of the SAME brand. Branch `svmi/store-id-identity`
+  (on top of `svmi/store-name-matching`) — deploy as v15 together.
+- Tool: **Admin → Tools → Store Name Matching** (v15, `SVMKPI_STORE_MATCH.gs`, design in
+  [`PHASE_C_TABLES.md`](PHASE_C_TABLES.md#c1--store-name-matching-admin--tools)). Find → check each choice →
+  Preview → Apply. Run it when nobody is submitting visits. Afterwards Check Visit Tables should show 0 visits
+  with no Store ID.
+- Also worth fixing with the tool's section 3: the typo **SAN MIGUEL (F))** → SAN MIGUEL (F).
+
+### C.1 — data notes from the first Check (2026-10-03, kept for history)
 
 - **230 visits with no Store ID.** Names shown are almost all S–W (Shangrila, Tien Mas Makati/Retiro, Timog,
   Trinoma, UN Ave Shell, V Mapa, Valenzuela, Veloce, WM North EDSA). Live has **no `CONFIG_UNMAPPED_STORES` tab**,
@@ -123,4 +146,6 @@ Known gaps (not configurable yet):
 
 ## Tests
 
-22 files, 1,049 checks, all passing (`node tests/<file>.test.js`).
+25 files, 1,311 checks, all passing (`node tests/<file>.test.js`).
+`store-name-matching-ui.test.js` clicks through the real `SVMI_PORTAL.html` with the real `.gs` code
+behind it (Playwright); the other portal tests use the demo page.

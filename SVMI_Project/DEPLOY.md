@@ -1936,6 +1936,19 @@ node SVMI_Project/tests/report-snapshot.test.js
 # regeneration, 2026/2027/2028 isolation, and representative error paths
 # (84 checks)
 node SVMI_Project/tests/admin-api.test.js
+
+# Phase C: STORE_VISITS / STORE_VISIT_VISITORS — rebuild, stable Visit IDs,
+# dual-write from the Input Portal, Check Visit Tables (48 checks)
+node SVMI_Project/tests/visit-tables.test.js
+
+# Phase C.1: Store Name Matching — unmatched names, the Figaro Sta. Maria
+# merge, closed stores, aliases, validation, admin gate, lock (161 checks)
+node SVMI_Project/tests/store-name-matching.test.js
+
+# Phase C.1: the same tool clicked through in a real browser — the REAL
+# SVMI_PORTAL.html (not the demo) answered by the REAL .gs code running in
+# Node, then the in-memory spreadsheet is checked (49 checks)
+node SVMI_Project/tests/store-name-matching-ui.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a

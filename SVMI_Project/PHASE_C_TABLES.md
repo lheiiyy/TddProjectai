@@ -1,6 +1,7 @@
 # Phase C — Visit tables inside the spreadsheet
 
-Status: built on branch `svmi/phase-c-visit-tables`, **not deployed**.
+Status: **live since v14 (2026-10-03)**. C.1 Store Name Matching (below) is on
+branch `svmi/store-name-matching`, ready for v15.
 Decision (2026-10-03, Leo): keep everything in Google Sheets, but give visits
 proper tables. MASTER_LOG stays as the **audit trail**.
 
@@ -57,6 +58,11 @@ No column is added to MASTER_LOG (its columns I/J already have other uses).
 3. A RECONCILED entry in CONFIG_UNMAPPED_STORES.
 4. Otherwise blank — counted as "unmapped" by the check tool. Never guessed.
 
+Whichever step finds it, a Store ID that was merged into another one
+(CONFIG_STORE_MERGES, written by Store Name Matching) is followed to the store
+it was merged into. So step 2 also accepts a name shared only by a store and
+its merged duplicate.
+
 ## How rows get in
 
 | Path | When | Notes |
@@ -66,6 +72,45 @@ No column is added to MASTER_LOG (its columns I/J already have other uses).
 | **Check Visit Tables** (System Tools) | Any time, read-only | Compares MASTER_LOG with the tables: missing, extra, outdated rows, unmapped stores, unknown visitors/purposes, bad dates. |
 
 Both tables are marked "warning on edit" — they are generated; fix data in MASTER_LOG and rebuild.
+
+## C.1 — Store Name Matching (Admin → Tools)
+
+Phase D takes brand/region from CONFIG_STORES by Store ID, so every visit
+needs one first. The tool (`SVMKPI_STORE_MATCH.gs`) lists three kinds of
+problem and fixes only what an admin picks, after a preview:
+
+| Problem | Choices | What it writes |
+|---|---|---|
+| A MASTER_LOG name that matches no store | **New store — closed** (open from the first visit, inactive from a date after the last visit), **New store — still open**, **Same store as…** an existing store, Skip | CONFIG_STORES (+ CONFIG_AUDIT); the name's CONFIG_UNMAPPED_STORES entry → RECONCILED |
+| Two stores of the **same brand** that are one store (e.g. Figaro SANTA MARIA + STA MARIA) | **Merge** into the store marked Keep, with one name for all visits | The duplicate's versions are voided (it resolves on no date, so no report treats it as a store that needed visits); CONFIG_STORE_MERGES row "duplicate → kept"; the kept store gets a new name version from today |
+| One store whose visits carry different spellings | **One name** for all its visits | Optional new name version |
+| An unmatched name saved under two or more brands (may be two stores) | **Split by brand** first: the other brands' visits get "NAME (F)" etc. (column C only), then each name is handled on its own | Nothing in Configuration |
+
+Every choice also writes the store's name (column C) and Store ID (column I)
+on the affected MASTER_LOG rows — only those two cells, only on those rows —
+so today's name-based reports (Unvisited/NAC, Store Insights, Store Health)
+see one store with its whole history. Each changed row is logged in
+**MASTER_LOG_FIXES** (old name, new name, old ID, new ID, who, when), so the
+original spelling is never lost. This is the "separate, deliberate backfill"
+`store_reconcileUnmapped()` was documented as leaving for later.
+
+Names: two stores of **different brands may share a name** (Figaro STA. MARIA + Angel's Pizza STA. MARIA) — the Input Portal sends the Store ID, reports and the SETTINGS mirror add the brand to the key only when a name is shared, and the visit-table resolver places a row with no Store ID by its Brand column. Only a name already used by a store of the same brand is refused.
+
+Rules: never merges across brands (an Angel's Pizza and a Figaro in the same
+town are two stores — `database/dryrun` has the same rule); a new or final
+name can't be one another store already uses; suggestions (★ = same brand,
+same name once spelling is ignored) are only suggestions; every choice is
+re-validated on the server and applied one per call under the submission
+lock; just before MASTER_LOG is written the target rows are re-read and nothing is written if anyone added, deleted or sorted rows meanwhile; MASTER_LOG_FIXES is written before the rows, and a merge is recorded before the duplicate is retired; the portal stops a batch at the first failure; Store Health is refreshed once at the end, then the visit tables are
+rebuilt and checked.
+
+Note: a row whose name is corrected gets a new Visit ID on the next rebuild
+(the ID is derived from the row's content). Nothing references Visit IDs
+yet, so this is harmless today. Once something does (Phase D/E), corrections
+should be made in the tables, not in MASTER_LOG.
+
+Undo: File → Version history in the spreadsheet restores everything at once;
+MASTER_LOG_FIXES and CONFIG_STORE_MERGES show exactly what changed.
 
 ## Not in this phase
 

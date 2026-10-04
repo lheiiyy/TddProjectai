@@ -415,6 +415,44 @@ textarea.fi{padding-right:28px}
 /* ── Wide tables scroll inside their own box, never the page ── */
 .tbl-scroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
 
+/* ── Store Name Matching (Admin → Tools, Phase C.1) ── */
+.smt-sec{margin-top:14px}
+.smt-sec-hdr{font-size:11px;font-weight:700;color:var(--navy);margin-bottom:4px}
+.smt-sec-note{font-size:10px;color:var(--muted);margin-bottom:6px;line-height:1.5}
+.admin-hist-table.smt-tbl{min-width:780px}
+.smt-tbl .fi{font-size:11px;padding:4px 6px}
+.smt-act{min-width:160px}
+.smt-fields{display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:4px;min-width:290px}
+.smt-fields .smt-span{grid-column:1/-1}
+.smt-fields label,.smt-row label,.smt-lbl{font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;
+  display:block;margin-bottom:1px}
+.smt-group{border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:8px;background:var(--card)}
+.smt-group-hdr{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:11px;font-weight:700;margin-bottom:4px}
+.smt-names{font-size:10px;color:var(--muted);margin:4px 0 6px}
+.smt-row{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
+.smt-row > div{flex:1;min-width:180px}
+.smt-foot{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.smt-foot .tool-run{width:auto;flex:1;min-width:200px}
+.smt-plan{border-left:3px solid var(--green);background:var(--bg);padding:5px 8px;margin:5px 0;
+  font-size:10.5px;line-height:1.5;word-break:break-word}
+.smt-plan.bad{border-left-color:var(--red)}
+.smt-plan .t{font-weight:700}
+.smt-plan .w{color:var(--orange)}
+.smt-plan .e{color:var(--red);font-weight:700}
+.smt-hidden{display:none!important}
+/* Phones: one card per name instead of a wide table. */
+@media (max-width:820px){
+  .admin-hist-table.smt-tbl{min-width:0}
+  .smt-tbl thead{display:none}
+  .smt-tbl tr{display:block;border-bottom:2px solid var(--border);padding:6px 0}
+  .smt-tbl td{display:block;border:none;padding:3px 4px}
+  .smt-tbl td[data-label]::before{content:attr(data-label) ': ';font-size:9px;font-weight:700;
+    color:var(--muted);text-transform:uppercase}
+  .smt-tbl td[data-label] br{display:none}
+  .smt-fields{min-width:0}
+  .smt-act{width:100%}
+}
+
 /* ══ PHONE / SMALL SCREEN ══════════════════════════════════════
    Desktop keeps its fixed-height 2-pane layout; below 820px the
    whole thing becomes one scrolling column with touch-sized targets. */
@@ -610,6 +648,7 @@ textarea.fi{padding-right:28px}
           <div class="ss-drop" id="storeDrop"></div>
         </div>
         <input type="hidden" id="storeVal">
+        <input type="hidden" id="storeIdVal">
         <div class="store-info" id="storeInfo">
           Brand: <span id="iBrand">—</span> &nbsp;|&nbsp;
           Region: <span id="iRegion">—</span> &nbsp;|&nbsp;
@@ -720,6 +759,7 @@ textarea.fi{padding-right:28px}
         <div class="ss-drop" id="siDrop"></div>
       </div>
       <input type="hidden" id="siStore">
+      <input type="hidden" id="siBrand">
       <button class="btn-gold" id="siBtn" onclick="runLookup()" disabled>🔍 View Profile</button>
       <hr style="border-color:var(--border-d);margin:10px 0">
       <span class="si-label">Monthly Coverage</span>
@@ -1004,6 +1044,22 @@ textarea.fi{padding-right:28px}
           <button class="tool-run" onclick="runTool('checkVisitTables','stat-VTC')">▶ Check Visit Tables</button>
           <div class="tool-stat idle" id="stat-VTC">Ready</div>
           <div class="tool-lock" id="lock-VTC" hidden>🔒 Admin access required to run this tool.</div>
+        </div>
+      </div>
+
+      <div class="srm-hdr" style="grid-column:1/-1;margin-top:4px">🧹 Store Name Cleanup (Phase C.1)</div>
+
+      <div class="tool-card" data-admin-only="true" style="grid-column:1/-1">
+        <div class="tool-hdr"><span class="tool-icon">🧹</span>
+          <div><div class="tool-title">Store Name Matching</div>
+          <div class="tool-desc-hdr">Names with no store · one store saved twice · different spellings</div></div></div>
+        <div class="tool-body">
+          <span class="risk-badge warn">⚠ Changes Configuration and the store name / Store ID on matching MASTER_LOG rows — every change is logged</span>
+          <p>Finds MASTER_LOG store names that belong to no store, stores of the same brand that look like one store saved twice, and stores whose visits were saved under different spellings. Pick what to do with each, press <b>Preview</b>, then <b>Apply</b> — nothing changes before that. Old names are kept in the <b>MASTER_LOG_FIXES</b> sheet and merges are listed in <b>CONFIG_STORE_MERGES</b>. Afterwards Store Health is refreshed and the visit tables are rebuilt and checked automatically.</p>
+          <button class="tool-run" id="smtFindBtn" onclick="smtLoad()">🔍 Find store name problems</button>
+          <div class="tool-stat idle" id="stat-SMT">Ready</div>
+          <div class="tool-lock" id="lock-SMT" hidden>🔒 Admin access required to run this tool.</div>
+          <div id="smtPanel"></div>
         </div>
       </div>
 
@@ -1457,7 +1513,8 @@ function loadPortalData() {
       allStores = data.stores || [];
       storeData = {};
       allStores.forEach(function(s) {
-        storeData[s.store] = { brand: s.brand, region: s.region, category: s.category||'' };
+        // Keyed by Store ID, so two stores of different brands can share a name.
+        storeData[s.storeId || s.store] = { brand: s.brand, region: s.region, category: s.category||'' };
       });
       allVisitors = (data.visitors||[]).map(function(n, i) {
         return { name: n, color: VCOLS[i % VCOLS.length] };
@@ -1496,7 +1553,7 @@ function filterStores() {
     return;
   }
   drop.innerHTML = list.map(function(s) {
-    return '<div class="ss-opt" data-v="'+esc(s.store)+'" data-m="'+esc(s.store+' '+(s.brand||''))+'" onmousedown="pickStore(this)">'
+    return '<div class="ss-opt" data-v="'+esc(s.store)+'" data-id="'+esc(s.storeId||'')+'" data-m="'+esc(s.store+' '+(s.brand||''))+'" onmousedown="pickStore(this)">'
       +'<span class="opt-name">'+esc(s.store)+'</span>'
       +(s.brand ? '<span class="opt-brand">'+esc(s.brand)+'</span>' : '')
       +'</div>';
@@ -1509,8 +1566,10 @@ function pickStore(el) {
   var name = el.dataset.v;
   document.getElementById('storeSearch').value = name;
   document.getElementById('storeVal').value = name;
+  var sid = el.dataset.id || '';
+  document.getElementById('storeIdVal').value = sid;
   document.getElementById('storeDrop').classList.remove('open');
-  var info = storeData[name];
+  var info = storeData[sid || name];
   if (info) {
     document.getElementById('iBrand').textContent  = info.brand    || '—';
     document.getElementById('iRegion').textContent = info.region   || '—';
@@ -1621,6 +1680,7 @@ var COMBOS = {
     refresh: filterStores, pick: pickStore, input: 'storeSearch', value: 'storeVal',
     clear: function() {
       document.getElementById('storeVal').value = '';
+      document.getElementById('storeIdVal').value = '';
       document.getElementById('storeInfo').classList.remove('visible');
       syncFieldClears();
     }
@@ -1635,6 +1695,7 @@ var COMBOS = {
     enterClosed: runLookup,
     clear: function() {
       document.getElementById('siStore').value = '';
+      document.getElementById('siBrand').value = '';
       document.getElementById('siBtn').disabled = true;
       syncSIClear();
     }
@@ -1835,6 +1896,7 @@ function clearField(which) {
   if (which === 'store') {
     document.getElementById('storeSearch').value = '';
     document.getElementById('storeVal').value = '';
+    document.getElementById('storeIdVal').value = '';
     document.getElementById('storeInfo').classList.remove('visible');
     document.getElementById('storeSearch').focus();
   } else if (which === 'purpose') {
@@ -1876,6 +1938,7 @@ function syncFieldClears() {
 function submitForm() {
   clearStatus();
   var store   = document.getElementById('storeVal').value.trim();
+  var storeId = document.getElementById('storeIdVal').value.trim();
   var date    = document.getElementById('dateVisited').value.trim();
   var dateTxt = document.getElementById('dateVisitedText').value.trim();
   var purpose = document.getElementById('purpVal').value.trim();
@@ -1888,10 +1951,12 @@ function submitForm() {
   if (dateTxt && _dateToText(date) !== dateTxt) return showStatus('That date doesn\'t look right — check MM/DD/YYYY, or use the 📅 button.','error');
   if (!selVisitors.length) return showStatus('Please add at least one Visitor.','error');
   if (!purpose)           return showStatus('Please select a Purpose.','error');
+  var sInfo = storeData[storeId || store] || {};
   pending = {
     store: store,
-    brand:  (storeData[store] && storeData[store].brand)  || '',
-    region: (storeData[store] && storeData[store].region) || '',
+    storeId: storeId,
+    brand:  sInfo.brand  || '',
+    region: sInfo.region || '',
     dateVisited: date,
     visitedBy:   selVisitors.slice(),
     purpose:     purpose,
@@ -1902,7 +1967,7 @@ function submitForm() {
   google.script.run
     .withSuccessHandler(onDupCheck)
     .withFailureHandler(function(){ setBtnLoading(false); clearStatus(); execSubmit(pending); })
-    .checkDuplicateVisit({ store: store, dateVisited: date });
+    .checkDuplicateVisit({ store: store, storeId: storeId, brand: sInfo.brand || '', dateVisited: date });
 }
 
 function onDupCheck(r) {
@@ -1967,6 +2032,7 @@ function clearQueue() {
 function clearForm(keepDate) {
   document.getElementById('storeSearch').value = '';
   document.getElementById('storeVal').value = '';
+  document.getElementById('storeIdVal').value = '';
   document.getElementById('purpSearch').value = '';
   document.getElementById('purpVal').value = '';
   document.getElementById('remarks').value = '';
@@ -2015,7 +2081,7 @@ function filterSIStores() {
   }).slice(0, 60);
   if (!list.length) { drop.classList.remove('open'); return; }
   drop.innerHTML = list.map(function(s) {
-    return '<div class="ss-opt" data-v="'+esc(s.name)+'" data-m="'+esc(s.name+' '+(s.brand||''))+'" onmousedown="pickSIStore(this)">'
+    return '<div class="ss-opt" data-v="'+esc(s.name)+'" data-b="'+esc(s.brand||'')+'" data-m="'+esc(s.name+' '+(s.brand||''))+'" onmousedown="pickSIStore(this)">'
       +'<span class="opt-name">'+esc(s.name)+'</span>'
       +(s.brand ? '<span class="opt-brand">'+esc(s.brand)+'</span>' : '')
       +'</div>';
@@ -2028,6 +2094,7 @@ function pickSIStore(el) {
   var name = el.dataset.v;
   document.getElementById('siSearch').value = name;
   document.getElementById('siStore').value  = name;
+  document.getElementById('siBrand').value  = el.dataset.b || '';
   document.getElementById('siDrop').classList.remove('open');
   document.getElementById('siBtn').disabled = false;
   syncSIClear();
@@ -2037,6 +2104,7 @@ function pickSIStore(el) {
 function clearSIStore() {
   document.getElementById('siSearch').value = '';
   document.getElementById('siStore').value  = '';
+  document.getElementById('siBrand').value  = '';
   document.getElementById('siBtn').disabled = true;
   syncSIClear();
   document.getElementById('siSearch').focus();
@@ -2062,13 +2130,14 @@ function runLookup() {
       document.getElementById('siBtn').disabled = false;
       document.getElementById('siMain').innerHTML = stateMsg('⚠️','Error',esc(err.message||String(err)));
     })
-    .sl_getStoreData(name);
+    .sl_getStoreData(name, document.getElementById('siBrand').value || '');
 }
 
-function jumpToStore(name) {
+function jumpToStore(name, brand) {
   switchTab('Insights');
   document.getElementById('siSearch').value = name;
   document.getElementById('siStore').value  = name;
+  document.getElementById('siBrand').value  = brand || '';
   document.getElementById('siBtn').disabled = false;
   syncSIClear();
   runLookup();
@@ -2107,7 +2176,7 @@ var VIS_COLS = [
 function visRenderRow(r, i) {
   return '<tr>'
     +'<td class="crn">'+(i+1)+'</td>'
-    +'<td><span class="store-link" data-store="'+esc(r.name)+'" onclick="jumpToStore(this.dataset.store)">'+esc(r.name)+'</span></td>'
+    +'<td><span class="store-link" data-store="'+esc(r.name)+'" data-brand="'+esc(r.brand||'')+'" onclick="jumpToStore(this.dataset.store, this.dataset.brand)">'+esc(r.name)+'</span></td>'
     +'<td>'+esc(r.brand)+'</td>'
     +'<td>'+esc(r.region)+'</td>'
     +'<td class="c" style="font-weight:700;color:var(--navy)">'+(r.visits||0)+'</td>'
@@ -2506,7 +2575,7 @@ function renderCompliance(rows) {
 function compRenderRow(r, i) {
   return '<tr class="cr" data-w="'+esc(r.windowLabel)+'">'
     +'<td class="crn">'+(i+1)+'</td>'
-    +'<td><span class="store-link" data-store="'+esc(r.store)+'" onclick="jumpToStore(this.dataset.store)">'+esc(r.store)+'</span></td>'
+    +'<td><span class="store-link" data-store="'+esc(r.store)+'" data-brand="'+esc(r.brand||'')+'" onclick="jumpToStore(this.dataset.store, this.dataset.brand)">'+esc(r.store)+'</span></td>'
     +'<td>'+esc(r.brand)+'</td>'
     +'<td>'+esc(r.region)+'</td>'
     +'<td class="c" style="font-weight:700;color:var(--navy)">'+(r.ytdVisits||0)+'</td>'
@@ -3019,6 +3088,370 @@ function runSettingsMigration() {
       runPurposes();
     })
     .settingsMigration_runVisitors();
+}
+
+// ═══════════════════════════════════════
+// SYSTEM TOOLS — STORE NAME MATCHING (Phase C.1, SVMKPI_STORE_MATCH.gs)
+// portal_getStoreCleanup (read-only) → portal_previewStoreCleanup (read-only)
+// → portal_applyStoreCleanupDecision once per choice, in the order the
+// preview returned → portal_finishStoreCleanup → portal_rebuildVisitTables
+// → portal_checkVisitTables. One choice per call keeps each call short and
+// lets the status line show progress; the server re-checks admin access and
+// re-validates every choice itself.
+// ═══════════════════════════════════════
+var smtData = null;       // last portal_getStoreCleanup() result
+var smtStoreById = {};
+var smtPending = null;    // after a clean preview: {order, byKey, plans, rows}
+var smtBusy = false;
+
+var SMT_ACTIONS = [
+  { v: 'closed', t: 'New store — closed' },
+  { v: 'open',   t: 'New store — still open' },
+  { v: 'map',    t: 'Same store as…' },
+  { v: 'skip',   t: 'Skip for now' }
+];
+
+function smtLoad() {
+  if (smtBusy) return;
+  var stat = document.getElementById('stat-SMT');
+  smtPending = null;
+  stat.className = 'tool-stat running';
+  stat.textContent = '⏳ Reading MASTER_LOG and Configuration…';
+  document.getElementById('smtPanel').innerHTML = '';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (!r || !r.success) {
+        stat.className = 'tool-stat error';
+        stat.textContent = '❌ ' + ((r && r.message) || 'Could not load.');
+        return;
+      }
+      smtData = r;
+      smtStoreById = {};
+      r.stores.forEach(function(s) { smtStoreById[s.storeId] = s; });
+      var n = r.unmatched.length + r.groups.length;
+      var summary = n
+        ? r.unmatched.length + ' name(s) with no store (' + r.unmatchedVisits + ' visit' + (r.unmatchedVisits === 1 ? '' : 's') + ') · ' + r.groups.length + ' store(s) to review'
+        : 'Every visit already has a store — nothing to fix.';
+      stat.className = n ? 'tool-stat running' : 'tool-stat success';
+      stat.textContent = (n ? '🔎 ' : '✅ ') + summary;
+      addLog('info', 'Store Name Matching: ' + summary);
+      if (n) smtRender();
+    })
+    .withFailureHandler(function(err) {
+      stat.className = 'tool-stat error';
+      stat.textContent = '❌ ' + (err.message || String(err));
+    })
+    .portal_getStoreCleanup();
+}
+
+function smtStoreLabel(s) {
+  return s.storeName + ' · ' + s.brand + (s.status === 'INACTIVE' ? ' · closed' : '');
+}
+
+function smtOpts(list, selected, blankLabel) {
+  var h = '<option value="">' + esc(blankLabel) + '</option>';
+  list.forEach(function(v) { h += '<option value="' + esc(v) + '"' + (v === selected ? ' selected' : '') + '>' + esc(v) + '</option>'; });
+  return h;
+}
+
+// Suggested stores first (★ = same brand, same name once spelling is
+// ignored), then every store.
+function smtStoreOpts(selected, suggestions, blankLabel) {
+  var h = '<option value="">' + esc(blankLabel) + '</option>';
+  var seen = {};
+  var opt = function(s, star) {
+    return '<option value="' + esc(s.storeId) + '"' + (s.storeId === selected ? ' selected' : '') + '>' + (star ? '★ ' : '') + esc(smtStoreLabel(s)) + '</option>';
+  };
+  var sug = (suggestions || []).filter(function(x) { return smtStoreById[x.storeId]; });
+  if (sug.length) {
+    h += '<optgroup label="Suggested">';
+    sug.forEach(function(x) { seen[x.storeId] = true; h += opt(smtStoreById[x.storeId], x.strong); });
+    h += '</optgroup><optgroup label="All stores">';
+  }
+  smtData.stores.forEach(function(s) { if (!seen[s.storeId]) h += opt(s, false); });
+  if (sug.length) h += '</optgroup>';
+  return h;
+}
+
+function smtRender() {
+  var d = smtData, o = d.options, h = '';
+
+  // 1 — names with no store
+  h += '<div class="smt-sec"><div class="smt-sec-hdr">1 · Names in MASTER_LOG with no store (' + d.unmatched.length + ')</div>';
+  if (!d.unmatched.length) {
+    h += '<div class="no-data">None — every name belongs to a store.</div>';
+  } else {
+    h += '<div class="smt-sec-note">A closed store that was never set up: <b>New store — closed</b> (it keeps its old visits but stays out of the Input Portal). '
+      + 'A different spelling of a store that exists: <b>Same store as…</b> — its visits get that store\'s name and Store ID.</div>'
+      + '<div class="tbl-scroll"><table class="admin-hist-table smt-tbl"><thead><tr><th>Name in MASTER_LOG</th><th>Visits</th><th>Seen</th><th>Do this</th><th>Details</th></tr></thead><tbody>';
+    d.unmatched.forEach(function(u, i) {
+      var strong = u.suggestions.length && u.suggestions[0].strong;
+      var acts = u.mixed ? [{ v: 'split', t: 'Split by brand' }, { v: 'skip', t: 'Skip for now' }] : SMT_ACTIONS;
+      var act = u.mixed ? 'split' : (strong ? 'map' : 'closed');
+      var brandHint = u.mixed
+        ? '⚠ ' + u.brands.map(function(b) { return b.brand + ' ×' + b.visits; }).join(' · ') + ' — maybe ' + u.brands.length + ' different stores'
+        : [u.brand, u.region].filter(Boolean).join(' · ') || 'no brand recorded';
+      if (u.noBrand && u.brands.length) brandHint += ' · ' + u.noBrand + ' with no brand';
+      h += '<tr>'
+        + '<td><b>' + esc(u.name) + '</b><div class="hint"' + (u.mixed ? ' style="color:var(--orange)"' : '') + '>' + esc(brandHint) + '</div></td>'
+        + '<td class="c" data-label="Visits">' + u.visits + '</td>'
+        + '<td style="white-space:nowrap" data-label="Seen">' + esc(u.firstSeen || '—') + (u.lastSeen && u.lastSeen !== u.firstSeen ? '<br> → ' + esc(u.lastSeen) : '') + '</td>'
+        + '<td><select class="fi smt-act" id="smtUAct-' + i + '" onchange="smtSyncU(' + i + ')">'
+        + acts.map(function(a) { return '<option value="' + a.v + '"' + (a.v === act ? ' selected' : '') + '>' + a.t + '</option>'; }).join('')
+        + '</select></td><td>';
+      if (u.mixed) {
+        h += '<div id="smtUSplit-' + i + '"><label class="smt-lbl">Keeps the name "' + esc(u.name) + '"</label>'
+          + '<select class="fi" id="smtUKeepBrand-' + i + '">'
+          + u.brands.map(function(b) { return '<option value="' + esc(b.brand) + '"' + (b.brand === u.splitKeepBrand ? ' selected' : '') + '>' + esc(b.brand) + '</option>'; }).join('')
+          + '</select><div class="hint">The other brand\'s visits get their own name, e.g. "' + esc(u.name) + ' (F)" for Figaro. Then press Find again and set each name up on its own.</div></div>';
+      } else {
+        h += '<div class="smt-fields" id="smtUNew-' + i + '">'
+          +   '<div class="smt-span"><label>Store name</label><input class="fi" id="smtUName-' + i + '" value="' + esc(u.name) + '"></div>'
+          +   '<div><label>Brand</label><select class="fi" id="smtUBrand-' + i + '">' + smtOpts(o.brands, u.brand, '— brand —') + '</select></div>'
+          +   '<div><label>Region</label><select class="fi" id="smtURegion-' + i + '">' + smtOpts(o.regions, u.region, '— region —') + '</select></div>'
+          +   '<div><label>Category</label><select class="fi" id="smtUCat-' + i + '">' + smtOpts(o.categories, u.defaultCategory, '— category —') + '</select></div>'
+          +   '<div id="smtUClosedWrap-' + i + '"><label>Closed from</label><input type="date" class="fi" id="smtUClosed-' + i + '" value="' + esc(u.defaultClosedFrom) + '"></div>'
+          + '</div>'
+          + '<div id="smtUMap-' + i + '"><select class="fi" id="smtUStore-' + i + '">' + smtStoreOpts(strong ? u.suggestions[0].storeId : '', u.suggestions, '— pick the store —') + '</select></div>';
+      }
+      h += '</td></tr>';
+    });
+    h += '</tbody></table></div>';
+  }
+  h += '</div>';
+
+  // 2 — one store saved twice / different spellings
+  h += '<div class="smt-sec"><div class="smt-sec-hdr">2 · Same store saved twice, or saved under different spellings (' + d.groups.length + ')</div>';
+  if (!d.groups.length) {
+    h += '<div class="no-data">None found.</div>';
+  } else {
+    h += '<div class="smt-sec-note"><b>Merge</b> keeps the store marked Keep (its Store ID stays), retires the other one, moves all its visits over and gives every visit the one name below. '
+      + 'Stores of different brands are never merged — an Angel\'s Pizza and a Figaro in the same town stay two stores.</div>';
+    d.groups.forEach(function(g, j) {
+      var dup = g.type === 'duplicate';
+      h += '<div class="smt-group">'
+        + '<div class="smt-group-hdr"><span class="admin-badge ' + (dup ? 'warn' : 'draft') + '">' + (dup ? 'Possible duplicate' : 'Different spellings') + '</span>' + esc(g.brand) + '</div>'
+        + '<div class="tbl-scroll"><table class="admin-hist-table" style="min-width:520px"><thead><tr>' + (dup ? '<th>Keep</th>' : '')
+        + '<th>Store</th><th>Since</th><th>Visits</th><th>Seen</th></tr></thead><tbody>';
+      g.stores.forEach(function(s) {
+        h += '<tr>' + (dup ? '<td><input type="radio" name="smtGKeep-' + j + '" value="' + esc(s.storeId) + '"' + (s.storeId === g.suggestedKeep ? ' checked' : '') + '></td>' : '')
+          + '<td><b>' + esc(s.storeName) + '</b>' + (s.status === 'INACTIVE' ? ' <span class="admin-badge no">closed</span>' : '') + '</td>'
+          + '<td>' + esc(s.since || '—') + '</td><td class="c">' + s.visits + '</td>'
+          + '<td style="white-space:nowrap">' + esc(s.firstSeen || '—') + (s.lastSeen && s.lastSeen !== s.firstSeen ? ' → ' + esc(s.lastSeen) : '') + '</td></tr>';
+      });
+      h += '</tbody></table></div>'
+        + '<div class="smt-names">Names on its visits: ' + g.names.map(function(n) { return esc(n.name) + ' (' + n.visits + ')'; }).join(' · ') + '</div>'
+        + '<div class="smt-row">'
+        +   '<div><label>Do this</label><select class="fi" id="smtGAct-' + j + '">'
+        +     '<option value="skip">Skip for now</option>'
+        +     '<option value="merge">' + (dup ? 'Merge into the store marked Keep' : 'Use one name for all its visits') + '</option>'
+        +   '</select></div>'
+        +   '<div><label>One name for all its visits</label><input class="fi" id="smtGName-' + j + '" value="' + esc(g.suggestedName) + '"></div>'
+        + '</div></div>';
+    });
+  }
+  h += '</div>';
+
+  // 3 — anything else, by hand
+  h += '<div class="smt-sec"><div class="smt-sec-hdr">3 · Rename or merge another store (optional)</div>'
+    + '<div class="smt-sec-note">For a typo in a store\'s name (its past visits get the new name too), or two same-brand stores not listed above.</div>'
+    + '<div class="smt-row">'
+    +   '<div><label>Store to keep</label><select class="fi" id="smtMKeep">' + smtStoreOpts('', [], '— none —') + '</select></div>'
+    +   '<div><label>Merge into it (optional)</label><select class="fi" id="smtMMerge">' + smtStoreOpts('', [], '— none —') + '</select></div>'
+    +   '<div><label>New name (optional)</label><input class="fi" id="smtMName" placeholder="Blank = keep its name"></div>'
+    + '</div></div>';
+
+  h += '<div class="smt-foot"><button class="tool-run" id="smtPreviewBtn" onclick="smtPreview()">👀 Preview changes</button></div>'
+    + '<div id="smtResult"></div>';
+
+  var panel = document.getElementById('smtPanel');
+  panel.innerHTML = h;
+  d.unmatched.forEach(function(u, i) { smtSyncU(i); });
+  // Any edit after a preview means the preview no longer describes what Apply would do.
+  panel.oninput = panel.onchange = smtInvalidate;
+}
+
+function smtSyncU(i) {
+  var act = document.getElementById('smtUAct-' + i).value;
+  var show = function(id, on) { var el = document.getElementById(id); if (el) el.classList.toggle('smt-hidden', !on); };
+  show('smtUNew-' + i, act === 'closed' || act === 'open');
+  show('smtUClosedWrap-' + i, act === 'closed');
+  show('smtUMap-' + i, act === 'map');
+  show('smtUSplit-' + i, act === 'split');
+}
+
+function smtInvalidate() {
+  if (smtBusy || !smtPending) return;
+  smtPending = null;
+  var box = document.getElementById('smtResult');
+  if (box) box.innerHTML = '<div class="no-data">Changed since the preview — press Preview again.</div>';
+}
+
+function smtCollect() {
+  var d = smtData, out = [];
+  var val = function(id) { var el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; };
+  d.groups.forEach(function(g, j) {
+    if (val('smtGAct-' + j) !== 'merge') return;
+    var keepEl = document.querySelector('input[name="smtGKeep-' + j + '"]:checked');
+    var keep = keepEl ? keepEl.value : g.stores[0].storeId;
+    out.push({
+      key: 'G' + j, type: 'merge', keepId: keep, finalName: val('smtGName-' + j),
+      mergeIds: g.type === 'duplicate' ? g.stores.map(function(s) { return s.storeId; }).filter(function(id) { return id !== keep; }) : []
+    });
+  });
+  if (val('smtMKeep')) {
+    out.push({ key: 'M', type: 'merge', keepId: val('smtMKeep'), mergeIds: val('smtMMerge') ? [val('smtMMerge')] : [], finalName: val('smtMName') });
+  }
+  d.unmatched.forEach(function(u, i) {
+    var act = val('smtUAct-' + i);
+    if (act === 'skip') return;
+    if (act === 'split') { out.push({ key: 'U' + i, type: 'split', name: u.name, keepBrand: val('smtUKeepBrand-' + i) }); return; }
+    if (act === 'map') { out.push({ key: 'U' + i, type: 'map', name: u.name, storeId: val('smtUStore-' + i) }); return; }
+    out.push({
+      key: 'U' + i, type: 'create', name: u.name, storeName: val('smtUName-' + i),
+      brand: val('smtUBrand-' + i), region: val('smtURegion-' + i), category: val('smtUCat-' + i),
+      active: act === 'open', closedFrom: act === 'closed' ? val('smtUClosed-' + i) : ''
+    });
+  });
+  return out;
+}
+
+function smtPlanHtml(p) {
+  var type = { merge: 'Merge / one name', create: 'New store', map: 'Same store as', split: 'Split by brand' }[p.type] || p.type;
+  return '<div class="smt-plan' + (p.ok ? '' : ' bad') + '"><div class="t">' + (p.ok ? '✅ ' : '❌ ') + esc(type) + ': ' + esc(p.label) + '</div>'
+    + (p.lines || []).map(function(l) { return '<div>• ' + esc(l) + '</div>'; }).join('')
+    + (p.warnings || []).map(function(w) { return '<div class="w">⚠ ' + esc(w) + '</div>'; }).join('')
+    + (p.errors || []).map(function(e) { return '<div class="e">✗ ' + esc(e) + '</div>'; }).join('')
+    + '</div>';
+}
+
+function smtPreview() {
+  if (smtBusy) return;
+  var decisions = smtCollect();
+  var box = document.getElementById('smtResult');
+  smtPending = null;
+  if (!decisions.length) { box.innerHTML = '<div class="no-data">Everything is set to Skip — nothing to preview.</div>'; return; }
+  var sent = JSON.stringify(decisions);
+  withButtonLoading(document.getElementById('smtPreviewBtn'), '⏳ Checking…', function(restore) {
+    google.script.run
+      .withSuccessHandler(function(r) {
+        restore();
+        if (!r || !r.success) { box.innerHTML = '<div class="tool-stat error">❌ ' + esc((r && r.message) || 'Preview failed.') + '</div>'; return; }
+        // A choice edited while the preview was running is not what was checked.
+        if (JSON.stringify(smtCollect()) !== sent) { box.innerHTML = '<div class="no-data">Changed while checking — press Preview again.</div>'; return; }
+        var byKey = {};
+        decisions.forEach(function(x) { byKey[x.key] = x; });
+        var bad = r.plans.filter(function(p) { return !p.ok; }).length;
+        var rows = r.plans.reduce(function(n, p) { return n + (p.rows || 0); }, 0);
+        var h = '<div class="smt-sec-hdr" style="margin-top:12px">Preview — in the order it will run</div>' + r.plans.map(smtPlanHtml).join('');
+        if (bad) {
+          h += '<div class="tool-stat error">Fix the ❌ item' + (bad > 1 ? 's' : '') + ' above (or set ' + (bad > 1 ? 'them' : 'it') + ' to Skip), then preview again.</div>';
+        } else {
+          smtPending = { order: r.order, byKey: byKey, plans: r.plans, rows: rows };
+          h += '<div class="smt-foot"><button class="tool-run" id="smtApplyBtn" onclick="smtConfirmApply()">✅ Apply '
+            + r.plans.length + ' change' + (r.plans.length > 1 ? 's' : '') + ' (' + rows + ' MASTER_LOG row' + (rows === 1 ? '' : 's') + ')</button></div>';
+        }
+        box.innerHTML = h;
+      })
+      .withFailureHandler(function(err) { restore(); box.innerHTML = '<div class="tool-stat error">❌ ' + esc(err.message || String(err)) + '</div>'; })
+      .portal_previewStoreCleanup(decisions);
+  });
+}
+
+function smtConfirmApply() {
+  if (!smtPending || smtBusy) return;
+  var n = smtPending.order.length;
+  showAdminConfirm({
+    icon: '🧹',
+    title: 'Apply ' + n + ' store change' + (n > 1 ? 's' : '') + '?',
+    body: 'Configuration and ' + smtPending.rows + ' MASTER_LOG row(s) are updated now. The old names are kept in MASTER_LOG_FIXES.',
+    detail: 'To undo everything at once: File → Version history in the spreadsheet. A visit submitted while a change runs is asked to retry.',
+    confirmLabel: 'Apply'
+  }, smtApply);
+}
+
+function smtApply() {
+  if (!smtPending || smtBusy) return;
+  var job = smtPending;
+  smtPending = null;
+  smtBusy = true;
+  var stat = document.getElementById('stat-SMT');
+  document.querySelectorAll('#smtPanel input, #smtPanel select, #smtPanel button, #smtFindBtn').forEach(function(el) { el.disabled = true; });
+  var queue = job.order.map(function(k) { return job.byKey[k]; });
+  var labels = {};
+  job.plans.forEach(function(p) { labels[p.key] = p.label; });
+  var results = [];
+  var skipped = [];
+  var i = 0;
+  stat.className = 'tool-stat running';
+
+  function record(d, r) {
+    results.push({ d: d, r: r });
+    addLog(r.success ? (r.warning ? 'warn' : 'ok') : 'err',
+      (r.success ? (r.warning ? '⚠ ' : '✅ ') : '❌ ') + 'Store Name Matching: ' + (labels[d.key] || d.key) + ' — ' + r.message + (r.warning ? ' (' + r.warning + ')' : ''));
+  }
+  // Later choices can depend on earlier ones (e.g. "same store as" a store
+  // that was just merged), so the batch stops at the first failure.
+  function next() {
+    var failed = results.some(function(x) { return !x.r.success; });
+    if (failed || i >= queue.length) {
+      queue.slice(i).forEach(function(d) { skipped.push(d); });
+      if (results.some(function(x) { return x.r.success; })) refreshHealth(); else done({ message: 'not rebuilt — nothing was applied.' });
+      return;
+    }
+    var d = queue[i++];
+    stat.textContent = '⏳ Applying ' + i + ' of ' + queue.length + ': ' + (labels[d.key] || '') + '…';
+    google.script.run
+      .withSuccessHandler(function(r) { record(d, r || { success: false, message: 'No response.' }); next(); })
+      .withFailureHandler(function(err) { record(d, { success: false, message: err.message || String(err) }); next(); })
+      .portal_applyStoreCleanupDecision(d);
+  }
+  function refreshHealth() {
+    stat.textContent = '⏳ Refreshing Store Health…';
+    google.script.run
+      .withSuccessHandler(function(f) { addLog(f && f.success ? 'ok' : 'warn', 'Store Health: ' + ((f && f.message) || '—')); rebuild(); })
+      .withFailureHandler(function(err) { addLog('warn', 'Store Health refresh failed (' + (err.message || err) + ') — run Rebuild Store Health.'); rebuild(); })
+      .portal_finishStoreCleanup();
+  }
+  function rebuild() {
+    stat.textContent = '⏳ Rebuilding visit tables…';
+    google.script.run
+      .withSuccessHandler(function(rb) { addLog(rb && rb.success ? 'ok' : 'err', 'Rebuild Visit Tables: ' + ((rb && rb.message) || '—')); check(); })
+      .withFailureHandler(function(err) { addLog('err', 'Rebuild Visit Tables failed: ' + (err.message || err)); check(); })
+      .portal_rebuildVisitTables();
+  }
+  function check() {
+    stat.textContent = '⏳ Checking visit tables…';
+    google.script.run
+      .withSuccessHandler(function(c) { done(c || {}); })
+      .withFailureHandler(function(err) { done({ success: false, message: err.message || String(err) }); })
+      .portal_checkVisitTables();
+  }
+  function done(c) {
+    smtBusy = false;
+    document.getElementById('smtFindBtn').disabled = false;
+    var failed = results.filter(function(x) { return !x.r.success; }).length;
+    var warned = results.filter(function(x) { return x.r.success && x.r.warning; }).length;
+    var rows = results.reduce(function(n, x) { return n + (x.r.rowsUpdated || 0); }, 0);
+    var total = results.length + skipped.length;
+    stat.className = (failed || !c.success) ? 'tool-stat error' : 'tool-stat success';
+    stat.textContent = (failed ? '⚠ ' : '✅ ') + (results.length - failed) + ' of ' + total + ' change(s) applied · '
+      + rows + ' MASTER_LOG row(s) updated' + (failed ? ' · ' + failed + ' failed' : '') + (skipped.length ? ' · ' + skipped.length + ' not run' : '')
+      + (warned ? ' · ' + warned + ' with a warning' : '') + ' · Visit tables: ' + (c.message || '—');
+    (c.errors || []).slice(0, 5).forEach(function(e) { addLog(c.success ? 'info' : 'err', '  ' + (e.row || '—') + ': ' + e.message); });
+    if (skipped.length) addLog('warn', '⚠ Store Name Matching stopped after a failure — ' + skipped.length + ' change(s) not run. Press Find again.');
+    document.getElementById('smtPanel').innerHTML = '<div class="smt-sec-hdr" style="margin-top:12px">Result</div>'
+      + results.map(function(x) {
+        return '<div class="smt-plan' + (x.r.success ? '' : ' bad') + '"><div class="t">' + (x.r.success ? (x.r.warning ? '⚠ ' : '✅ ') : '❌ ')
+          + esc(labels[x.d.key] || x.d.key) + '</div><div>' + esc(x.r.message || '') + '</div>'
+          + (x.r.warning ? '<div class="w">⚠ ' + esc(x.r.warning) + '</div>' : '') + '</div>';
+      }).join('')
+      + skipped.map(function(d) {
+        return '<div class="smt-plan bad"><div class="t">⏸ ' + esc(labels[d.key] || d.key) + '</div><div>Not run — an earlier change failed. Press Find again.</div></div>';
+      }).join('')
+      + '<div class="smt-foot"><button class="tool-run" onclick="smtLoad()">🔍 Find again</button></div>';
+  }
+  next();
 }
 
 // ═══════════════════════════════════════

@@ -88,6 +88,7 @@ function _getSidebarData_impl() {
     var stores = (typeof store_getOperationalList === 'function')
       ? store_getOperationalList().map(function (s) {
           return {
+            storeId: String(s.storeId || ''),
             store: String(s.storeName || '').trim().toUpperCase(),
             brand: String(s.brand || '').trim().toUpperCase(),
             region: String(s.region || '').trim().toUpperCase(),
@@ -255,7 +256,10 @@ function processSubmissionAsync(payload) {
         return { success: false, message: 'Server is busy processing another submission — please try again in a moment.' };
       }
 
-      var storeId = store_resolveIdByCurrentName(payload.store); // null if not yet migrated/created — falls back to name matching below
+      // The Input Portal sends the Store ID of the store that was picked, so two
+      // stores of different brands can share a name. A Store ID that is not a
+      // known store is ignored and the name (plus brand) is resolved instead.
+      var storeId = _resolveSubmittedStoreId_(payload, brand);
 
       var alreadyRecorded = _findRecordedVisitors(master, storeId, storeNorm, visitedDate, visitorNames);
       var newVisitors = visitorNames.filter(function (v) { return alreadyRecorded.indexOf(v) === -1; });
@@ -381,6 +385,16 @@ function _findRecordedVisitors(master, storeId, storeNorm, visitDate, visitorNam
 //       or { duplicate: true, rows: [{ lastVisitDate, visitor, purpose, daysSince }] }
 //  rows is sorted most-recent first.
 // ============================================================
+// Store ID for a submission: the one the portal picked if it is a real store,
+// else the store with this name (and brand). null = unknown (legacy name matching).
+function _resolveSubmittedStoreId_(payload, brand) {
+  var sid = String((payload && payload.storeId) || '').trim().toUpperCase();
+  if (sid && typeof store_getById === 'function') {
+    try { if (store_getById(sid)) return sid; } catch (e) { /* fall through to name */ }
+  }
+  return store_resolveIdByCurrentName(payload.store, brand);
+}
+
 function checkDuplicateVisit(payload) {
   try {
     var ss     = SpreadsheetApp.getActiveSpreadsheet();
@@ -388,6 +402,8 @@ function checkDuplicateVisit(payload) {
     if (!master || master.getLastRow() < 2) return { duplicate: false };
 
     var store = String(payload.store || '').trim().toUpperCase();
+    var wantId = String(payload.storeId || '').trim().toUpperCase();
+    var wantBrand = String(payload.brand || '').trim().toUpperCase();
 
     // Parse submitted visit date (YYYY-MM-DD) to midnight local time —
     // _parseDateCell() (SVMKPI_CORE.gs) is the one shared implementation
@@ -401,14 +417,21 @@ function checkDuplicateVisit(payload) {
 
     var lastRow  = master.getLastRow();
     var dataRows = lastRow - 1;
-    var raw      = master.getRange(2, 1, dataRows, 8).getValues();
+    var raw      = master.getRange(2, 1, dataRows, 9).getValues();
 
     var tz      = Session.getScriptTimeZone();
     var matches = [];
 
     raw.forEach(function (row) {
       var rowStore = String(row[COL_STORE - 1] || '').trim().toUpperCase();
-      if (rowStore !== store) return;
+      var rowId    = String(row[COL_STORE_ID - 1] || '').trim().toUpperCase();
+      if (wantId && rowId) {
+        if (rowId !== wantId) return;                       // both have an ID: it decides
+      } else {
+        if (rowStore !== store) return;                     // legacy row: name,
+        var rowBrand = String(row[COL_BRAND - 1] || '').trim().toUpperCase();
+        if (wantBrand && rowBrand && rowBrand !== wantBrand) return; // and brand when known
+      }
 
       var rowDate = _parseDateCell(row[COL_DATE - 1]);
       if (!rowDate) return;
@@ -640,7 +663,7 @@ function managePurpose(action, purposeName) {
 //  Returns { success: true, message: string, isNew: boolean }
 //       or { success: false, message: string }
 // ============================================================
-function portal_saveStore(store, brand, region, category, suppressRebuild) {
+function portal_saveStore(store, brand, region, category, suppressRebuild, strictBrand) {
   try {
     if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
 
@@ -660,9 +683,15 @@ function portal_saveStore(store, brand, region, category, suppressRebuild) {
     var lastRow   = settings.getLastRow();
     var targetRow = -1;
     if (lastRow >= 2) {
-      var colA = settings.getRange(2, COL_S_STORE, lastRow - 1, 1).getValues();
-      for (var i = 0; i < colA.length; i++) {
-        if (String(colA[i][0] || '').trim().toUpperCase() === name) { targetRow = i + 2; break; }
+      // strictBrand (used by the CONFIG_STORES -> SETTINGS mirror): a row is
+      // the same store only if NAME and BRAND both match, so two brands can
+      // share a name without overwriting each other. Without it (older
+      // callers) the first row with this name is updated, as before.
+      var colAB = settings.getRange(2, COL_S_STORE, lastRow - 1, COL_S_BRAND - COL_S_STORE + 1).getValues();
+      for (var i = 0; i < colAB.length; i++) {
+        if (String(colAB[i][0] || '').trim().toUpperCase() !== name) continue;
+        if (strictBrand && String(colAB[i][COL_S_BRAND - COL_S_STORE] || '').trim().toUpperCase() !== brand) continue;
+        targetRow = i + 2; break;
       }
     }
 
@@ -739,7 +768,7 @@ function portal_saveStore(store, brand, region, category, suppressRebuild) {
 //  Returns { success: true, message: string }
 //       or { success: false, message: string }
 // ============================================================
-function portal_removeStore(storeName, suppressRebuild) {
+function portal_removeStore(storeName, suppressRebuild, brandOnly) {
   try {
     if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
 
@@ -753,9 +782,14 @@ function portal_removeStore(storeName, suppressRebuild) {
     var lastRow   = settings.getLastRow();
     var targetRow = -1;
     if (lastRow >= 2) {
-      var colA = settings.getRange(2, COL_S_STORE, lastRow - 1, 1).getValues();
-      for (var i = 0; i < colA.length; i++) {
-        if (String(colA[i][0] || '').trim().toUpperCase() === name) { targetRow = i + 2; break; }
+      // brandOnly (optional): remove only the row of that brand, so a shared
+      // name never removes another brand's store.
+      var wantBrand = String(brandOnly || '').trim().toUpperCase();
+      var colAB2 = settings.getRange(2, COL_S_STORE, lastRow - 1, COL_S_BRAND - COL_S_STORE + 1).getValues();
+      for (var j = 0; j < colAB2.length; j++) {
+        if (String(colAB2[j][0] || '').trim().toUpperCase() !== name) continue;
+        if (wantBrand && String(colAB2[j][COL_S_BRAND - COL_S_STORE] || '').trim().toUpperCase() !== wantBrand) continue;
+        targetRow = j + 2; break;
       }
     }
 

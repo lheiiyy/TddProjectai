@@ -28,9 +28,10 @@
 // Reads MASTER_LOG A:I only. Never writes to MASTER_LOG.
 // Uses: _parseDateCell, _normalizeEnum, _normalizeVisitors, APPROVED_PURPOSES
 // (SVMKPI_CORE.gs); cfg_getConfiguration, CFG_AREA (SVMKPI_CONFIG.gs);
-// store_getUnmappedStores (SVMKPI_STORE_CONFIG.gs); sl_isAdmin
-// (SVMKPI_ACCESS.gs); logError (INPUT_PORTAL.gs) — all typeof-guarded where
-// a unit-test sandbox might not load them.
+// store_getUnmappedStores (SVMKPI_STORE_CONFIG.gs); smt_readMerges_
+// (SVMKPI_STORE_MATCH.gs); sl_isAdmin (SVMKPI_ACCESS.gs); logError
+// (INPUT_PORTAL.gs) — all typeof-guarded where a unit-test sandbox might not
+// load them.
 // ============================================================
 
 const SVT_SHEET = {
@@ -48,7 +49,7 @@ const SVT_VV_HEADERS = ['Visit ID', 'Visitor ID'];
 const SVT_V = { ID: 0, DATE: 1, STORE_ID: 2, PURPOSE: 3, REMARKS: 4, RECORDED_AT: 5, STORE_NAME: 6, SOURCE_ROW: 7 };
 
 // MASTER_LOG A:I, 0-based (A Timestamp … H Remarks, I Store ID)
-const SVT_ML = { TS: 0, DATE: 1, STORE: 2, VISITORS: 5, PURPOSE: 6, REMARKS: 7, STORE_ID: 8 };
+const SVT_ML = { TS: 0, DATE: 1, STORE: 2, BRAND: 3, VISITORS: 5, PURPOSE: 6, REMARKS: 7, STORE_ID: 8 };
 const SVT_ML_WIDTH = 9;
 
 const SVT_CHUNK = 5000; // rows per setValues call on rebuild
@@ -309,7 +310,7 @@ function svt_knownIds_(area) {
 /**
  * svt_buildRows_(raw, resolveStoreId, firstRowNumber)
  * @param {Array[]} raw MASTER_LOG rows, columns A:I
- * @param {function(string, string): string} resolveStoreId (storeName, columnIStoreId) -> Store ID or ''
+ * @param {function(string, string): string} resolveStoreId (storeName, columnIStoreId, brand) -> Store ID or ''
  * @param {number} firstRowNumber MASTER_LOG row number of raw[0]
  * @returns {{visits: Array[], links: Array[]}}
  */
@@ -333,7 +334,7 @@ function svt_buildRows_(raw, resolveStoreId, firstRowNumber) {
     visits.push([
       id,
       date || '',
-      resolveStoreId(storeName, r[SVT_ML.STORE_ID]),
+      resolveStoreId(storeName, r[SVT_ML.STORE_ID], r[SVT_ML.BRAND]),
       _normalizeEnum(r[SVT_ML.PURPOSE]),
       r[SVT_ML.REMARKS] == null ? '' : String(r[SVT_ML.REMARKS]),
       r[SVT_ML.TS] == null ? '' : r[SVT_ML.TS],
@@ -383,17 +384,25 @@ function svt_visitIdFromFingerprint_(fp) {
 
 /**
  * Store ID resolver, built once per run (one CONFIG_STORES read, one
- * CONFIG_UNMAPPED_STORES read). Order: MASTER_LOG column I → a name that
- * belongs to exactly one Store ID in any CONFIG_STORES version → a
- * RECONCILED unmapped entry → '' (never guessed).
+ * CONFIG_UNMAPPED_STORES read, one CONFIG_STORE_MERGES read). Order:
+ * MASTER_LOG column I → a name that belongs to exactly one Store ID in any
+ * CONFIG_STORES version → a RECONCILED unmapped entry → '' (never guessed).
+ * Whatever it finds, a Store ID that was merged into another one (Store Name
+ * Matching, SVMKPI_STORE_MATCH.gs) is followed to the store it was merged
+ * into — so a name shared only by a store and its merged duplicate is not
+ * ambiguous.
  */
 function svt_buildStoreResolver_() {
   const idsByName = {};
+  const brandsById = {};
   if (typeof cfg_getConfiguration === 'function' && typeof CFG_AREA !== 'undefined') {
     cfg_getConfiguration(CFG_AREA.STORES).forEach(v => {
       const name = _normalizeEnum(v.fields && v.fields.storeName);
       if (!name || !v.entityId) return;
-      (idsByName[name] = idsByName[name] || {})[String(v.entityId).trim().toUpperCase()] = true;
+      const eid = String(v.entityId).trim().toUpperCase();
+      (idsByName[name] = idsByName[name] || {})[eid] = true;
+      const b = _normalizeEnum(v.fields && v.fields.brand);
+      if (b) (brandsById[eid] = brandsById[eid] || {})[b] = true;
     });
   }
   const reconciled = {};
@@ -404,13 +413,27 @@ function svt_buildStoreResolver_() {
       if (name && id) reconciled[name] = id;
     });
   }
-  return function (storeName, columnIStoreId) {
+  const mergedInto = typeof smt_readMerges_ === 'function' ? smt_readMerges_() : {};
+  const follow = id => {
+    let cur = id, hops = 0;
+    while (cur && mergedInto[cur] && hops < 20) { cur = mergedInto[cur]; hops++; }
+    return cur;
+  };
+  return function (storeName, columnIStoreId, brand) {
     const fromColumn = String(columnIStoreId || '').trim().toUpperCase();
-    if (fromColumn) return fromColumn;
+    if (fromColumn) return follow(fromColumn);
     const name = _normalizeEnum(storeName);
-    const ids = idsByName[name] ? Object.keys(idsByName[name]) : [];
+    const owners = {};
+    (idsByName[name] ? Object.keys(idsByName[name]) : []).forEach(id => { owners[follow(id)] = true; });
+    let ids = Object.keys(owners);
+    // Two stores of different brands may share a name: the row's Brand column decides.
+    const wantBrand = _normalizeEnum(brand);
+    if (ids.length > 1 && wantBrand) {
+      const sameBrand = ids.filter(id => brandsById[id] && brandsById[id][wantBrand]);
+      if (sameBrand.length === 1) ids = sameBrand;
+    }
     if (ids.length === 1) return ids[0];
-    if (reconciled[name]) return reconciled[name];
+    if (reconciled[name]) return follow(reconciled[name]);
     return '';
   };
 }

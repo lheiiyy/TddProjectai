@@ -193,6 +193,53 @@ console.log('\n── sl_getComplianceGaps(): string dates count toward YTD/comp
   check('STORE_D\'s YTD count is 0 (blank date never counted)', byStore.STORE_D.ytdVisits === 0, byStore.STORE_D.ytdVisits);
 }
 
+// ── Same name, different brands ───────────────────────────────────────
+console.log('\n── two brands sharing one store name stay separate in every report ──');
+{
+  const { sandbox, SDate } = newSandbox((D) => {
+    const now = new D();
+    const thisMonth = (day) => new D(now.getFullYear(), now.getMonth(), day);
+    return {
+      masterLogRows: [
+        // Figaro STA. MARIA visited this month (2 visits); Angel's Pizza STA. MARIA never visited
+        ['t1', thisMonth(1), 'STA. MARIA', 'FIGARO', 'NCR', 'LEO', 'STORE VISIT', ''],
+        ['t2', thisMonth(1), 'STA. MARIA', 'FIGARO', 'NCR', 'ANN', 'TLTC', ''],
+        ['t3', thisMonth(1), 'ALPHA', "ANGEL'S PIZZA", 'NCR', 'LEO', 'STORE VISIT', ''],
+      ],
+      settingsRows: [
+        ['STA. MARIA', 'FIGARO', 'NCR', '', 'NCR'],
+        ['STA. MARIA', "ANGEL'S PIZZA", 'NCR', '', 'NCR'],
+        ['ALPHA', "ANGEL'S PIZZA", 'NCR', '', 'NCR'],
+      ],
+    };
+  });
+
+  const list = sandbox.sl_getStoreList();
+  check('store list keeps both STA. MARIA stores', list.filter(x => x.name === 'STA. MARIA').length === 2, JSON.stringify(list));
+
+  const vis = sandbox.sl_getVisitedThisMonth([], 0, undefined);
+  const visSta = vis.resolved.filter(x => x.name === 'STA. MARIA');
+  check('Visited This Month: only the Figaro STA. MARIA, with its own 2 visits', visSta.length === 1 && visSta[0].brand === 'FIGARO' && visSta[0].visits === 2, JSON.stringify(visSta));
+  check('nothing is reported as unmapped', vis.unmapped.length === 0, JSON.stringify(vis.unmapped));
+
+  const un = sandbox.sl_getUnvisitedThisMonth([]);
+  const unSta = un.filter(x => x.name === 'STA. MARIA');
+  check('Unvisited: the Angel\'s Pizza STA. MARIA (no visit) is listed, the Figaro one is not', unSta.length === 1 && unSta[0].brand === "ANGEL'S PIZZA", JSON.stringify(unSta));
+
+  const gaps = sandbox.sl_getComplianceGaps([]);
+  const gSta = gaps.filter(x => x.store === 'STA. MARIA');
+  check('Compliance gaps: only the Angel\'s Pizza STA. MARIA is behind', gSta.length === 1 && gSta[0].brand === "ANGEL'S PIZZA" && gSta[0].actualCount === 0, JSON.stringify(gSta));
+
+  const fig = sandbox.sl_getStoreData('STA. MARIA', 'FIGARO');
+  const ap  = sandbox.sl_getStoreData('STA. MARIA', "ANGEL'S PIZZA");
+  check('Store Insights (Figaro): 2 visits, brand FIGARO', fig.summary.totalVisits === 2 && fig.meta.brand === 'FIGARO', JSON.stringify(fig.meta) + fig.summary.totalVisits);
+  check('Store Insights (Angel\'s Pizza): 0 visits, brand ANGEL\'S PIZZA', ap.summary.totalVisits === 0 && ap.meta.brand === "ANGEL'S PIZZA", JSON.stringify(ap.meta) + ap.summary.totalVisits);
+
+  const risk = sandbox._computeStoreRisk(sandbox._getData ? { stores: ['STA. MARIA', 'STA. MARIA', 'ALPHA'], dates: [new SDate(), new SDate(), new SDate()], brands: ['FIGARO', 'FIGARO', "ANGEL'S PIZZA"], regions: ['NCR', 'NCR', 'NCR'], purposes: ['STORE VISIT', 'TLTC', 'STORE VISIT'], rawVisitors: ['LEO', 'ANN', 'LEO'], timestamps: [1, 2, 3], totalRows: 3 } : null, new SDate());
+  const rSta = risk.filter(r => r.store === 'STA. MARIA');
+  check('Store Health: two separate STA. MARIA rows, one per brand', rSta.length === 2 && rSta.some(r => r.brand === 'FIGARO' && r.totalYTD === 2) && rSta.some(r => r.brand === "ANGEL'S PIZZA" && r.totalYTD === 0), JSON.stringify(rSta.map(r => [r.store, r.brand, r.totalYTD])));
+}
+
 console.log('\n══════════════════════════════════');
 console.log('  PASS ' + pass + '   FAIL ' + fail);
 console.log('══════════════════════════════════');
