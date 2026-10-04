@@ -319,7 +319,7 @@ function smt_loadContext_() {
       rawName: r[SVT_ML.STORE] == null ? '' : String(r[SVT_ML.STORE]),
       colI: String(r[SVT_ML.STORE_ID] == null ? '' : r[SVT_ML.STORE_ID]).trim().toUpperCase(),
       colIRaw: r[SVT_ML.STORE_ID] == null ? '' : r[SVT_ML.STORE_ID],
-      id: resolve(r[SVT_ML.STORE], r[SVT_ML.STORE_ID]),
+      id: resolve(r[SVT_ML.STORE], r[SVT_ML.STORE_ID], r[SVT_ML.BRAND]),
       date: _parseDateCell(r[SVT_ML.DATE]),
       brand: _normalizeEnum(r[3]),
       region: _normalizeEnum(r[4]),
@@ -435,38 +435,20 @@ function smt_describeGroup_(ctx, stats, unmatched, ids, type) {
 }
 
 /**
- * Suggested single name for a group, following the town-sharing convention
- * (STA. MARIA = Angel's Pizza, STA. MARIA (F) = Figaro):
- *   1. a name already recorded for this store — or an unmatched name of the
- *      same brand that compares equal — that ends with this brand's tag;
- *   2. else, when a store of another brand has the same comparison key:
- *      that store's name + this brand's tag;
- *   3. else the kept store's current name.
- * Brands with no tag (everything except Figaro today) always get 3.
+ * Suggested single name for a group. Brands may share a name (Figaro STA.
+ * MARIA and Angel's Pizza STA. MARIA — the brand column tells them apart), so:
+ *   1. a store of another brand that spells it the same way once spelling is
+ *      ignored (STA MARIA / SANTA MARIA ~ STA. MARIA): use ITS spelling, so
+ *      the town is written one way across brands;
+ *   2. else the kept store's current name.
  */
 function smt_suggestName_(ctx, keep, groupNames, unmatched) {
-  const tag = SMT_BRAND_TAG[keep.brand];
-  if (!tag) return keep.name;
-  const suffix = ' (' + tag + ')';
   const key = smt_canonKey_(keep.name);
-
-  const candidates = {};
-  groupNames.concat([keep.name]).forEach(n => { candidates[n] = true; });
-  Object.keys(unmatched || {}).forEach(n => {
-    const u = unmatched[n];
-    const brands = Object.keys(u.brands || {});
-    const brand = brands.length === 1 ? brands[0] : (brands.length ? '' : smt_inferBrand_(n));
-    if (smt_canonKey_(n) === key && brand === keep.brand) candidates[n] = true;
-  });
-  const tagged = Object.keys(candidates).filter(n => n.slice(-suffix.length) === suffix).sort();
-  if (tagged.length) return tagged[0];
-
   const neighbours = Object.keys(ctx.entities)
     .map(id => ctx.entities[id])
     .filter(e => !e.isVoid && e.brand && e.brand !== keep.brand && smt_canonKey_(e.name) === key)
     .sort((a, b) => a.name.localeCompare(b.name));
-  if (neighbours.length) return smt_cleanName_(neighbours[0].name + suffix);
-  return keep.name;
+  return neighbours.length ? neighbours[0].name : keep.name;
 }
 
 function smt_suggest_(ctx, name, brand) {
@@ -570,7 +552,7 @@ function smt_planCreate_(ctx, d, batch, p) {
   if (APPROVED_REGIONS.indexOf(region) === -1) p.errors.push('Pick a region.');
   if (APPROVED_CATEGORIES.indexOf(category) === -1) p.errors.push('Pick a category.');
   if (storeName) {
-    const owner = smt_nameOwner_(ctx, storeName, {});
+    const owner = smt_nameOwner_(ctx, storeName, {}, brand);
     if (owner) p.errors.push('"' + storeName + '" is already a name of ' + smt_label_(ctx.entities[owner]) + ' — use "Same store as" for it, or type a different name.');
     else if (batch.names[storeName]) p.errors.push('"' + storeName + '" is also used by another change in this list.');
   }
@@ -692,7 +674,7 @@ function smt_planMerge_(ctx, d, batch, p) {
   const group = {};
   [keepId].concat(mergeIds).forEach(id => { group[id] = true; });
   if (finalName) {
-    const owner = smt_nameOwner_(ctx, finalName, group);
+    const owner = smt_nameOwner_(ctx, finalName, group, keep.brand);
     if (owner) p.errors.push('"' + finalName + '" is already a name of ' + smt_label_(ctx.entities[owner]) + '.');
     else if (batch.names[finalName]) p.errors.push('"' + finalName + '" is also used by another change in this list.');
   }
@@ -757,7 +739,7 @@ function smt_planSplit_(ctx, d, batch, p) {
   const moves = [];
   brands.filter(b => b !== keepBrand).forEach(b => {
     const newName = smt_cleanName_(name + ' (' + (SMT_BRAND_TAG[b] || b) + ')');
-    const owner = smt_nameOwner_(ctx, newName, {});
+    const owner = smt_nameOwner_(ctx, newName, {}, b);
     if (owner && ctx.entities[owner] && ctx.entities[owner].brand !== b) {
       p.errors.push('"' + newName + '" is already a name of ' + smt_label_(ctx.entities[owner]) + '.');
       return;
@@ -1110,11 +1092,15 @@ function smt_entityNames_(e) {
  * or as a reconciled alias — ignoring stores in `allowed` and anything
  * merged into them; '' if the name is free.
  */
-function smt_nameOwner_(ctx, name, allowed) {
+function smt_nameOwner_(ctx, name, allowed, brand) {
   const owners = ctx.nameOwners[name] ? Object.keys(ctx.nameOwners[name]) : [];
   for (let i = 0; i < owners.length; i++) {
     const id = owners[i];
     if (allowed[id] || allowed[smt_follow_(ctx.merges, id)]) continue;
+    // Two stores of DIFFERENT brands may share a name (reports and the Input
+    // Portal tell them apart by Store ID / brand). Only the same brand blocks.
+    const e = ctx.entities[id];
+    if (brand && e && e.brand && e.brand !== brand) continue;
     return id;
   }
   return '';

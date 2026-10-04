@@ -88,6 +88,7 @@ function _getSidebarData_impl() {
     var stores = (typeof store_getOperationalList === 'function')
       ? store_getOperationalList().map(function (s) {
           return {
+            storeId: String(s.storeId || ''),
             store: String(s.storeName || '').trim().toUpperCase(),
             brand: String(s.brand || '').trim().toUpperCase(),
             region: String(s.region || '').trim().toUpperCase(),
@@ -255,7 +256,10 @@ function processSubmissionAsync(payload) {
         return { success: false, message: 'Server is busy processing another submission — please try again in a moment.' };
       }
 
-      var storeId = store_resolveIdByCurrentName(payload.store); // null if not yet migrated/created — falls back to name matching below
+      // The Input Portal sends the Store ID of the store that was picked, so two
+      // stores of different brands can share a name. A Store ID that is not a
+      // known store is ignored and the name (plus brand) is resolved instead.
+      var storeId = _resolveSubmittedStoreId_(payload, brand);
 
       var alreadyRecorded = _findRecordedVisitors(master, storeId, storeNorm, visitedDate, visitorNames);
       var newVisitors = visitorNames.filter(function (v) { return alreadyRecorded.indexOf(v) === -1; });
@@ -381,6 +385,16 @@ function _findRecordedVisitors(master, storeId, storeNorm, visitDate, visitorNam
 //       or { duplicate: true, rows: [{ lastVisitDate, visitor, purpose, daysSince }] }
 //  rows is sorted most-recent first.
 // ============================================================
+// Store ID for a submission: the one the portal picked if it is a real store,
+// else the store with this name (and brand). null = unknown (legacy name matching).
+function _resolveSubmittedStoreId_(payload, brand) {
+  var sid = String((payload && payload.storeId) || '').trim().toUpperCase();
+  if (sid && typeof store_getById === 'function') {
+    try { if (store_getById(sid)) return sid; } catch (e) { /* fall through to name */ }
+  }
+  return store_resolveIdByCurrentName(payload.store, brand);
+}
+
 function checkDuplicateVisit(payload) {
   try {
     var ss     = SpreadsheetApp.getActiveSpreadsheet();
@@ -388,6 +402,8 @@ function checkDuplicateVisit(payload) {
     if (!master || master.getLastRow() < 2) return { duplicate: false };
 
     var store = String(payload.store || '').trim().toUpperCase();
+    var wantId = String(payload.storeId || '').trim().toUpperCase();
+    var wantBrand = String(payload.brand || '').trim().toUpperCase();
 
     // Parse submitted visit date (YYYY-MM-DD) to midnight local time —
     // _parseDateCell() (SVMKPI_CORE.gs) is the one shared implementation
@@ -401,14 +417,21 @@ function checkDuplicateVisit(payload) {
 
     var lastRow  = master.getLastRow();
     var dataRows = lastRow - 1;
-    var raw      = master.getRange(2, 1, dataRows, 8).getValues();
+    var raw      = master.getRange(2, 1, dataRows, 9).getValues();
 
     var tz      = Session.getScriptTimeZone();
     var matches = [];
 
     raw.forEach(function (row) {
       var rowStore = String(row[COL_STORE - 1] || '').trim().toUpperCase();
-      if (rowStore !== store) return;
+      var rowId    = String(row[COL_STORE_ID - 1] || '').trim().toUpperCase();
+      if (wantId && rowId) {
+        if (rowId !== wantId) return;                       // both have an ID: it decides
+      } else {
+        if (rowStore !== store) return;                     // legacy row: name,
+        var rowBrand = String(row[COL_BRAND - 1] || '').trim().toUpperCase();
+        if (wantBrand && rowBrand && rowBrand !== wantBrand) return; // and brand when known
+      }
 
       var rowDate = _parseDateCell(row[COL_DATE - 1]);
       if (!rowDate) return;

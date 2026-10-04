@@ -72,12 +72,17 @@ Design: [`PHASE_C_TABLES.md`](PHASE_C_TABLES.md) (mirrors `database/migrations/0
 - Re-running *Migrate Legacy SETTINGS Data* (2026-10-03) took visits with no Store ID from **230 → 22**
   and cleared the unknown-visitor note.
 - The 22 visits are 11 names: SHANGRILA (10), VERSAILLES (2), GLORIETTA (2), VICTORY MALL PASAY, VLI CUBAO,
-  VLI PASAY, URDANETA FIGARO, MANULIFE 1, MANULIFE 2, STA. MARIA (F), and SM SAN PEDRO (Leo reconciled it
+  VLI PASAY, URDANETA FIGARO, MANULIFE 1, MANULIFE 2, STA. MARIA, and SM SAN PEDRO (Leo reconciled it
   to SAN PEDRO by hand).
 - Leo: the leftover names are **closed stores** → *New store — closed*. URDANETA FIGARO is its own Figaro
   store (URDANETA is the Angel's Pizza one).
-- Leo: Figaro **SANTA MARIA** and **STA MARIA** are **one store** → *Merge*, one name **STA. MARIA (F)**
-  (Angel's Pizza STA. MARIA stays a separate store; "(F)" as in SAN FERNANDO (F)).
+- Leo: Figaro **SANTA MARIA** and **STA MARIA** are **one store** → *Merge*, one name plain **STA. MARIA**
+  (no "(F)" — the Brand column filters). Angel's Pizza STA. MARIA stays a separate store with the same name.
+- **Same name across brands (decision 2026-10-04, Leo: option B):** the Input Portal now submits the picked
+  **Store ID**; the duplicate check, MASTER_LOG column I and the resolver use it. Reports/SETTINGS mirror treat a
+  name as the key unless two brands share it, then NAME+BRAND (`svmiStoreKey_`, SVMKPI_CORE.gs). Store Name
+  Matching only refuses a name already used by a store of the SAME brand. Branch `svmi/store-id-identity`
+  (on top of `svmi/store-name-matching`) — deploy as v15 together.
 - Tool: **Admin → Tools → Store Name Matching** (v15, `SVMKPI_STORE_MATCH.gs`, design in
   [`PHASE_C_TABLES.md`](PHASE_C_TABLES.md#c1--store-name-matching-admin--tools)). Find → check each choice →
   Preview → Apply. Run it when nobody is submitting visits. Afterwards Check Visit Tables should show 0 visits
@@ -141,6 +146,6 @@ Known gaps (not configurable yet):
 
 ## Tests
 
-25 files, 1,283 checks, all passing (`node tests/<file>.test.js`).
+25 files, 1,311 checks, all passing (`node tests/<file>.test.js`).
 `store-name-matching-ui.test.js` clicks through the real `SVMI_PORTAL.html` with the real `.gs` code
 behind it (Playwright); the other portal tests use the demo page.

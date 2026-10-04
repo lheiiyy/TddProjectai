@@ -18,7 +18,12 @@ const path = require('path');
 const vm = require('vm');
 
 const inputSrc = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'INPUT_PORTAL.gs'), 'utf8');
-const riskSrc  = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'SVMKPI_RISK.gs'), 'utf8');
+const riskSrc0 = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'SVMKPI_RISK.gs'), 'utf8');
+// Store-key helpers (SVMKPI_CORE.gs) — the sandbox loads only part of the project.
+const _coreForKeys = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'SVMKPI_CORE.gs'), 'utf8');
+const _keyHelpers = _coreForKeys.slice(_coreForKeys.indexOf('function _normalizeEnum'), _coreForKeys.indexOf('function _normalizeEnum') + _coreForKeys.slice(_coreForKeys.indexOf('function _normalizeEnum')).indexOf('\n}\n') + 3)
+  + _coreForKeys.slice(_coreForKeys.indexOf('const SVMI_KEY_SEP'), _coreForKeys.indexOf('function svmiKeyName_') + _coreForKeys.slice(_coreForKeys.indexOf('function svmiKeyName_')).indexOf('\n}\n') + 3);
+const riskSrc = _keyHelpers + '\n' + riskSrc0;
 
 let pass = 0, fail = 0;
 function check(name, cond, extra) {

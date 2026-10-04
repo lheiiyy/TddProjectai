@@ -108,7 +108,7 @@ async function openTools(page) {
     check('closed-from hidden when "still open" is picked', await (async () => { await page.selectOption('#smtUAct-0', 'open'); const hidden = !(await page.isVisible('#smtUClosed-0')); await page.selectOption('#smtUAct-0', 'closed'); return hidden; })());
     const groupText = await page.textContent('.smt-group');
     check('duplicate group lists both Figaro stores', /SANTA MARIA/.test(groupText) && /STA MARIA/.test(groupText) && /Possible duplicate/.test(groupText), groupText.slice(0, 200));
-    check('group name pre-filled STA. MARIA (F)', await page.inputValue('#smtGName-0') === 'STA. MARIA (F)');
+    check('group name pre-filled STA. MARIA', await page.inputValue('#smtGName-0') === 'STA. MARIA');
     check('groups default to Skip (nothing merges unless chosen)', await page.inputValue('#smtGAct-0') === 'skip' && await page.inputValue('#smtGAct-1') === 'skip');
     check('Keep radio pre-selected on SANTA MARIA', await page.$eval('input[name="smtGKeep-0"]:checked', el => el.value) === ids.K);
 
@@ -127,7 +127,7 @@ async function openTools(page) {
     check('preview wrote nothing', applyCalls === 0 && lib.cell(env, 2, 3) === 'SANTA MARIA');
 
     // Editing after a preview hides Apply until previewed again
-    await page.fill('#smtGName-0', 'STA. MARIA (F) ');
+    await page.fill('#smtGName-0', 'STA. MARIA ');
     check('editing after preview drops the Apply button', !(await page.$('#smtApplyBtn')));
     await page.click('#smtPreviewBtn');
     await page.waitForSelector('#smtApplyBtn', { timeout: 5000 });
@@ -145,9 +145,9 @@ async function openTools(page) {
     await page.screenshot({ path: path.join(OUT, 'smt-desktop-result.png'), fullPage: false });
 
     const s = env.sandbox;
-    check('spreadsheet: Figaro store renamed STA. MARIA (F)', s.store_getById(ids.K).fields.storeName === 'STA. MARIA (F)');
+    check('spreadsheet: Figaro store renamed STA. MARIA', s.store_getById(ids.K).fields.storeName === 'STA. MARIA');
     check('spreadsheet: duplicate retired', !s.store_getById(ids.M));
-    check('spreadsheet: all 5 Sta. Maria rows on the kept Store ID', [2, 3, 4, 5, 6].every(r => lib.cell(env, r, 9) === ids.K && lib.cell(env, r, 3) === 'STA. MARIA (F)'));
+    check('spreadsheet: all 5 Sta. Maria rows on the kept Store ID', [2, 3, 4, 5, 6].every(r => lib.cell(env, r, 9) === ids.K && lib.cell(env, r, 3) === 'STA. MARIA'));
     check('spreadsheet: SHANGRILA rows have a Store ID', /^STR-/.test(lib.cell(env, 8, 9)) && lib.cell(env, 8, 9) === lib.cell(env, 9, 9));
     check('spreadsheet: SM SAN PEDRO row now SAN PEDRO', lib.cell(env, 10, 3) === 'SAN PEDRO' && lib.cell(env, 10, 9) === ids.SP);
     const logText = await page.textContent('#actLog');

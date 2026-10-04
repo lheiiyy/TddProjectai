@@ -270,18 +270,24 @@ function store_getOperationalList(dateStr) {
  * discipline as store_migrateFromSettings() below. Returns null if no
  * current store has this exact name.
  */
-function store_resolveIdByCurrentName(storeName) {
+function store_resolveIdByCurrentName(storeName, brand) {
   const target = String(storeName || '').trim().toUpperCase();
   if (!target) return null;
+  const wantBrand = String(brand || '').trim().toUpperCase();
   const todayStr = _store_dateToStr(_store_today());
   const ids = _store_listEntityIds();
+  const matches = [];
   for (let i = 0; i < ids.length; i++) {
     const resolved = resolveStoreAsOf(ids[i], todayStr);
     if (resolved && String(resolved.fields.storeName || '').trim().toUpperCase() === target) {
-      return ids[i];
+      if (wantBrand && String(resolved.fields.brand || '').trim().toUpperCase() !== wantBrand) continue;
+      matches.push(ids[i]);
     }
   }
-  return null;
+  // Two stores (different brands) can share a name. Without a brand to tell
+  // them apart, never guess: no ID means the caller falls back to legacy
+  // name matching. With a brand — or a single match — the answer is exact.
+  return matches.length === 1 || (matches.length > 1 && wantBrand) ? matches[0] : null;
 }
 
 /**

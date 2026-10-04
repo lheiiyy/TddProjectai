@@ -251,6 +251,31 @@ console.log('\n── Concurrency: overlapping multi-visitor submissions never c
   check('Mary appears in the log exactly once across both rows, never duplicated', maryCount === 1, allVisitors.join(','));
 }
 
+console.log('\n── Two brands, one store name: the picked Store ID decides ──');
+{
+  const { sandbox, master } = newSandbox();
+  const fig = sandbox.store_create({ storeName: 'STA. MARIA', brand: 'FIGARO', region: 'NCR', category: 'NCR' }, '2020-01-01', 'setup', { backdateConfirmed: true }).storeId;
+  const ap  = sandbox.store_create({ storeName: 'STA. MARIA', brand: "ANGEL'S PIZZA", region: 'NCR', category: 'NCR' }, '2020-01-01', 'setup', { backdateConfirmed: true }).storeId;
+
+  const r1 = sandbox.processSubmissionAsync(makePayload({ store: 'STA. MARIA', storeId: ap, brand: "ANGEL'S PIZZA", visitedBy: 'John' }));
+  const r2 = sandbox.processSubmissionAsync(makePayload({ store: 'STA. MARIA', storeId: fig, brand: 'FIGARO', visitedBy: 'John' }));
+  check('John at Angel\'s Pizza STA. MARIA, then Figaro STA. MARIA, same day: both recorded', r1.success && r2.success && !r2.warning && !r2.allDuplicates, JSON.stringify([r1, r2]));
+  check('each row carries its own Store ID', master.getRange(2, 9).getValue() === ap && master.getRange(3, 9).getValue() === fig, [master.getRange(2, 9).getValue(), master.getRange(3, 9).getValue()]);
+
+  const again = sandbox.processSubmissionAsync(makePayload({ store: 'STA. MARIA', storeId: fig, brand: 'FIGARO', visitedBy: 'John' }));
+  check('the same visit at the SAME Store ID is still a duplicate', again.allDuplicates === true, JSON.stringify(again));
+
+  const byName = sandbox.processSubmissionAsync(makePayload({ store: 'STA. MARIA', brand: 'FIGARO', dateVisited: '2026-09-20', visitedBy: 'Mary' }));
+  check('an old client sending only name + brand still resolves the right store', byName.success && master.getRange(4, 9).getValue() === fig, master.getRange(4, 9).getValue());
+  const bogus = sandbox.processSubmissionAsync(makePayload({ store: 'STA. MARIA', storeId: 'STR-DOES-NOT-EXIST', brand: "ANGEL'S PIZZA", dateVisited: '2026-09-21', visitedBy: 'Mary' }));
+  check('an unknown Store ID is ignored, name + brand decide', bogus.success && master.getRange(5, 9).getValue() === ap, master.getRange(5, 9).getValue());
+
+  const dupFig = sandbox.checkDuplicateVisit({ store: 'STA. MARIA', storeId: fig, brand: 'FIGARO', dateVisited: '2026-09-19' });
+  check('the 7-day warning sees only Figaro\'s own visits', dupFig.duplicate === true && dupFig.rows.length === 1, JSON.stringify(dupFig));
+  const dupNone = sandbox.checkDuplicateVisit({ store: 'STA. MARIA', storeId: 'STR-OTHER', brand: 'KOOBIDEH', dateVisited: '2026-09-19' });
+  check('a different store with that name sees none of them', dupNone.duplicate === false, JSON.stringify(dupNone));
+}
+
 console.log('\n══════════════════════════════════');
 console.log('  PASS ' + pass + '   FAIL ' + fail);
 console.log('══════════════════════════════════');

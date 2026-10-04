@@ -49,7 +49,7 @@ const SVT_VV_HEADERS = ['Visit ID', 'Visitor ID'];
 const SVT_V = { ID: 0, DATE: 1, STORE_ID: 2, PURPOSE: 3, REMARKS: 4, RECORDED_AT: 5, STORE_NAME: 6, SOURCE_ROW: 7 };
 
 // MASTER_LOG A:I, 0-based (A Timestamp … H Remarks, I Store ID)
-const SVT_ML = { TS: 0, DATE: 1, STORE: 2, VISITORS: 5, PURPOSE: 6, REMARKS: 7, STORE_ID: 8 };
+const SVT_ML = { TS: 0, DATE: 1, STORE: 2, BRAND: 3, VISITORS: 5, PURPOSE: 6, REMARKS: 7, STORE_ID: 8 };
 const SVT_ML_WIDTH = 9;
 
 const SVT_CHUNK = 5000; // rows per setValues call on rebuild
@@ -310,7 +310,7 @@ function svt_knownIds_(area) {
 /**
  * svt_buildRows_(raw, resolveStoreId, firstRowNumber)
  * @param {Array[]} raw MASTER_LOG rows, columns A:I
- * @param {function(string, string): string} resolveStoreId (storeName, columnIStoreId) -> Store ID or ''
+ * @param {function(string, string): string} resolveStoreId (storeName, columnIStoreId, brand) -> Store ID or ''
  * @param {number} firstRowNumber MASTER_LOG row number of raw[0]
  * @returns {{visits: Array[], links: Array[]}}
  */
@@ -334,7 +334,7 @@ function svt_buildRows_(raw, resolveStoreId, firstRowNumber) {
     visits.push([
       id,
       date || '',
-      resolveStoreId(storeName, r[SVT_ML.STORE_ID]),
+      resolveStoreId(storeName, r[SVT_ML.STORE_ID], r[SVT_ML.BRAND]),
       _normalizeEnum(r[SVT_ML.PURPOSE]),
       r[SVT_ML.REMARKS] == null ? '' : String(r[SVT_ML.REMARKS]),
       r[SVT_ML.TS] == null ? '' : r[SVT_ML.TS],
@@ -394,11 +394,15 @@ function svt_visitIdFromFingerprint_(fp) {
  */
 function svt_buildStoreResolver_() {
   const idsByName = {};
+  const brandsById = {};
   if (typeof cfg_getConfiguration === 'function' && typeof CFG_AREA !== 'undefined') {
     cfg_getConfiguration(CFG_AREA.STORES).forEach(v => {
       const name = _normalizeEnum(v.fields && v.fields.storeName);
       if (!name || !v.entityId) return;
-      (idsByName[name] = idsByName[name] || {})[String(v.entityId).trim().toUpperCase()] = true;
+      const eid = String(v.entityId).trim().toUpperCase();
+      (idsByName[name] = idsByName[name] || {})[eid] = true;
+      const b = _normalizeEnum(v.fields && v.fields.brand);
+      if (b) (brandsById[eid] = brandsById[eid] || {})[b] = true;
     });
   }
   const reconciled = {};
@@ -415,13 +419,19 @@ function svt_buildStoreResolver_() {
     while (cur && mergedInto[cur] && hops < 20) { cur = mergedInto[cur]; hops++; }
     return cur;
   };
-  return function (storeName, columnIStoreId) {
+  return function (storeName, columnIStoreId, brand) {
     const fromColumn = String(columnIStoreId || '').trim().toUpperCase();
     if (fromColumn) return follow(fromColumn);
     const name = _normalizeEnum(storeName);
     const owners = {};
     (idsByName[name] ? Object.keys(idsByName[name]) : []).forEach(id => { owners[follow(id)] = true; });
-    const ids = Object.keys(owners);
+    let ids = Object.keys(owners);
+    // Two stores of different brands may share a name: the row's Brand column decides.
+    const wantBrand = _normalizeEnum(brand);
+    if (ids.length > 1 && wantBrand) {
+      const sameBrand = ids.filter(id => brandsById[id] && brandsById[id][wantBrand]);
+      if (sameBrand.length === 1) ids = sameBrand;
+    }
     if (ids.length === 1) return ids[0];
     if (reconciled[name]) return follow(reconciled[name]);
     return '';

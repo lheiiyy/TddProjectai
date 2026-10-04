@@ -187,7 +187,7 @@ console.log('\n── Find: unmatched names, duplicates, spellings ──');
   check('one possible-duplicate group', dup.length === 1, r.groups);
   check('it is the two Figaro Sta. Maria stores', dup[0] && dup[0].brand === 'FIGARO' && dup[0].stores.map(s => s.storeId).sort().join() === [ids.K, ids.M].sort().join(), dup[0]);
   check('keep suggestion = the store that existed first (SANTA MARIA)', dup[0] && dup[0].suggestedKeep === ids.K, dup[0] && dup[0].suggestedKeep);
-  check('name suggestion = STA. MARIA (F)', dup[0] && dup[0].suggestedName === 'STA. MARIA (F)', dup[0] && dup[0].suggestedName);
+  check('name suggestion = STA. MARIA (plain — the brand column tells it apart from Angel\'s Pizza)', dup[0] && dup[0].suggestedName === 'STA. MARIA', dup[0] && dup[0].suggestedName);
   check('Angel\'s Pizza STA. MARIA is in no group (brands never merge)', !r.groups.some(g => g.stores.some(s => s.storeId === ids.APSM)));
   const spell = r.groups.filter(g => g.type === 'spelling');
   check('SAN PEDRO listed as recorded under two spellings', spell.length === 1 && spell[0].stores[0].storeId === ids.SP && spell[0].names.map(n => n.name).sort().join() === 'SAN PEDRO,SM SAN PEDRO', spell);
@@ -203,11 +203,11 @@ console.log('\n── Defaults hold up when old rows carry no brand ──');
   const sta = r.unmatched.filter(u => u.name === 'STA. MARIA (F)')[0];
   check('brand guessed from the "(F)" tag', sta.brand === 'FIGARO', sta.brand);
   check('still a strong match to the Figaro store', sta.suggestions[0].storeId === ids.K && sta.suggestions[0].strong, sta.suggestions);
-  check('suggested group name still STA. MARIA (F)', r.groups.filter(g => g.type === 'duplicate')[0].suggestedName === 'STA. MARIA (F)');
+  check('suggested group name still STA. MARIA', r.groups.filter(g => g.type === 'duplicate')[0].suggestedName === 'STA. MARIA');
 
   env.master.getRange(5, 1, 1, 9).clearContent(); // no "(F)" spelling anywhere in MASTER_LOG
   r = env.sandbox.portal_getStoreCleanup();
-  check('without it, the name comes from the same-town Angel\'s Pizza store + (F)', r.groups.filter(g => g.type === 'duplicate')[0].suggestedName === 'STA. MARIA (F)', r.groups);
+  check('without it, the name is the same-town Angel\'s Pizza spelling, no tag', r.groups.filter(g => g.type === 'duplicate')[0].suggestedName === 'STA. MARIA', r.groups);
   check('a brand with no tag keeps its own name', env.sandbox.smt_suggestName_(env.sandbox.smt_loadContext_(), { name: 'SAN PEDRO', brand: "ANGEL'S PIZZA" }, ['SAN PEDRO'], {}) === 'SAN PEDRO');
 }
 
@@ -348,8 +348,12 @@ console.log('\n── Validation: refused before anything is written ──');
   check('"same store as" another brand is allowed but warned', p.ok && /saved under brand FIGARO/.test(p.warnings.join(' ')), p);
   p = plan({ type: 'merge', keepId: ids.K, mergeIds: [ids.APSM], finalName: 'STA. MARIA (F)' });
   check('merging across brands is refused', !p.ok && /different brands/.test(p.errors.join(' ')), p.errors);
+  p = plan({ type: 'merge', keepId: ids.APSM, mergeIds: [], finalName: 'SAN PEDRO' });
+  check('final name cannot be another store\'s name of the SAME brand', !p.ok && /already a name of SAN PEDRO/.test(p.errors.join(' ')), p.errors);
   p = plan({ type: 'merge', keepId: ids.K, mergeIds: [ids.M], finalName: 'SAN PEDRO' });
-  check('final name cannot be another store\'s name', !p.ok && /already a name of SAN PEDRO/.test(p.errors.join(' ')), p.errors);
+  check('...but a store of ANOTHER brand may share the name', p.ok, p.errors);
+  p = plan({ type: 'merge', keepId: ids.K, mergeIds: [ids.M], finalName: 'STA. MARIA' });
+  check('Figaro may be named exactly STA. MARIA like Angel\'s Pizza\'s store', p.ok, p.errors);
   p = plan({ type: 'merge', keepId: ids.APSM, mergeIds: [], finalName: '' });
   check('nothing to change is refused', !p.ok && /Nothing to change/.test(p.errors.join(' ')), p.errors);
   p = plan({ type: 'merge', keepId: ids.K, mergeIds: [ids.M], finalName: 'STA MARIA' });
@@ -607,6 +611,37 @@ console.log('\n── Suggestion helpers ──');
   check('numbers kept: MANULIFE 1 ≠ MANULIFE 2', s.smt_canonKey_('MANULIFE 1') !== s.smt_canonKey_('MANULIFE 2'));
   check('SHANGRI-LA ~ SHANGRILA scores high', s.smt_similarity_(s.smt_canonKey_('SHANGRI-LA'), s.smt_canonKey_('SHANGRILA')) >= 0.9);
   check('unrelated names score low', s.smt_similarity_('GLORIETTA', 'TRINOMA') < 0.6);
+}
+
+console.log('\n── Same name, different brands (Figaro STA. MARIA + Angel\'s Pizza STA. MARIA) ──');
+{
+  const env = newSandbox(); const ids = seed(env);
+  const s = env.sandbox;
+  const r = s.portal_applyStoreCleanupDecision({ type: 'merge', keepId: ids.K, mergeIds: [ids.M], finalName: 'STA. MARIA' });
+  check('merge into the plain name STA. MARIA is applied', r.success, r);
+  check('Figaro store is named STA. MARIA, Angel\'s Pizza keeps STA. MARIA', s.store_getById(ids.K).fields.storeName === 'STA. MARIA' && s.store_getById(ids.APSM).fields.storeName === 'STA. MARIA');
+
+  const settings = [];
+  const sh = env.sheets.SETTINGS;
+  for (let i = 2; i <= sh.getLastRow(); i++) settings.push(String(sh.getRange(i, 1).getValue()) + '|' + String(sh.getRange(i, 2).getValue()));
+  check('SETTINGS mirror keeps BOTH rows (one per brand)', settings.filter(x => x === 'STA. MARIA|FIGARO').length === 1 && settings.filter(x => x === "STA. MARIA|ANGEL'S PIZZA").length === 1, settings);
+  check('old Figaro spellings are gone from SETTINGS', !settings.some(x => /^(SANTA MARIA|STA MARIA)\|/.test(x)), settings);
+
+  check('portal submission with a brand picks the right store', s.store_resolveIdByCurrentName('STA. MARIA', 'FIGARO') === ids.K && s.store_resolveIdByCurrentName('STA. MARIA', "ANGEL'S PIZZA") === ids.APSM);
+  check('a name shared by two brands is never guessed without a brand', s.store_resolveIdByCurrentName('STA. MARIA') === null);
+  const rs = s.svt_buildStoreResolver_();
+  check('visit tables: a row with a shared name and NO Store ID is placed by its Brand column', rs('STA. MARIA', '', 'FIGARO') === ids.K && rs('STA. MARIA', '', "ANGEL'S PIZZA") === ids.APSM, [rs('STA. MARIA', '', 'FIGARO'), rs('STA. MARIA', '', "ANGEL'S PIZZA")]);
+  check('visit tables: ...and left unmapped (never guessed) when the brand is missing', rs('STA. MARIA', '', '') === '');
+  check('a unique name still resolves without a brand', s.store_resolveIdByCurrentName('SAN PEDRO') === ids.SP);
+
+  const amb = s.svmiAmbiguousNames_([{ name: 'STA. MARIA', brand: 'FIGARO' }, { name: 'STA. MARIA', brand: "ANGEL'S PIZZA" }, { name: 'SAN PEDRO', brand: "ANGEL'S PIZZA" }]);
+  check('store keys: plain name unless two brands share it', s.svmiStoreKey_('SAN PEDRO', "ANGEL'S PIZZA", amb) === 'SAN PEDRO' && s.svmiStoreKey_('STA. MARIA', 'FIGARO', amb) === 'STA. MARIA||FIGARO' && s.svmiKeyName_('STA. MARIA||FIGARO') === 'STA. MARIA');
+
+  // Renaming one brand's store must not touch the other brand's SETTINGS row
+  s.store_update(ids.APSM, { storeName: 'STA. MARIA', region: 'PROVINCIAL', category: 'NEAR PROVINCIAL', brand: "ANGEL'S PIZZA" }, '2026-10-05', 'touch', OPTS);
+  const after = [];
+  for (let i = 2; i <= sh.getLastRow(); i++) after.push(String(sh.getRange(i, 1).getValue()) + '|' + String(sh.getRange(i, 2).getValue()));
+  check('updating the AP store leaves the Figaro SETTINGS row alone', after.filter(x => x === 'STA. MARIA|FIGARO').length === 1, after);
 }
 
 console.log('\n══════════════════════════════════');

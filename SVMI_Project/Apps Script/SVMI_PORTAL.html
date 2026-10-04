@@ -648,6 +648,7 @@ textarea.fi{padding-right:28px}
           <div class="ss-drop" id="storeDrop"></div>
         </div>
         <input type="hidden" id="storeVal">
+        <input type="hidden" id="storeIdVal">
         <div class="store-info" id="storeInfo">
           Brand: <span id="iBrand">—</span> &nbsp;|&nbsp;
           Region: <span id="iRegion">—</span> &nbsp;|&nbsp;
@@ -758,6 +759,7 @@ textarea.fi{padding-right:28px}
         <div class="ss-drop" id="siDrop"></div>
       </div>
       <input type="hidden" id="siStore">
+      <input type="hidden" id="siBrand">
       <button class="btn-gold" id="siBtn" onclick="runLookup()" disabled>🔍 View Profile</button>
       <hr style="border-color:var(--border-d);margin:10px 0">
       <span class="si-label">Monthly Coverage</span>
@@ -1511,7 +1513,8 @@ function loadPortalData() {
       allStores = data.stores || [];
       storeData = {};
       allStores.forEach(function(s) {
-        storeData[s.store] = { brand: s.brand, region: s.region, category: s.category||'' };
+        // Keyed by Store ID, so two stores of different brands can share a name.
+        storeData[s.storeId || s.store] = { brand: s.brand, region: s.region, category: s.category||'' };
       });
       allVisitors = (data.visitors||[]).map(function(n, i) {
         return { name: n, color: VCOLS[i % VCOLS.length] };
@@ -1550,7 +1553,7 @@ function filterStores() {
     return;
   }
   drop.innerHTML = list.map(function(s) {
-    return '<div class="ss-opt" data-v="'+esc(s.store)+'" data-m="'+esc(s.store+' '+(s.brand||''))+'" onmousedown="pickStore(this)">'
+    return '<div class="ss-opt" data-v="'+esc(s.store)+'" data-id="'+esc(s.storeId||'')+'" data-m="'+esc(s.store+' '+(s.brand||''))+'" onmousedown="pickStore(this)">'
       +'<span class="opt-name">'+esc(s.store)+'</span>'
       +(s.brand ? '<span class="opt-brand">'+esc(s.brand)+'</span>' : '')
       +'</div>';
@@ -1563,8 +1566,10 @@ function pickStore(el) {
   var name = el.dataset.v;
   document.getElementById('storeSearch').value = name;
   document.getElementById('storeVal').value = name;
+  var sid = el.dataset.id || '';
+  document.getElementById('storeIdVal').value = sid;
   document.getElementById('storeDrop').classList.remove('open');
-  var info = storeData[name];
+  var info = storeData[sid || name];
   if (info) {
     document.getElementById('iBrand').textContent  = info.brand    || '—';
     document.getElementById('iRegion').textContent = info.region   || '—';
@@ -1675,6 +1680,7 @@ var COMBOS = {
     refresh: filterStores, pick: pickStore, input: 'storeSearch', value: 'storeVal',
     clear: function() {
       document.getElementById('storeVal').value = '';
+      document.getElementById('storeIdVal').value = '';
       document.getElementById('storeInfo').classList.remove('visible');
       syncFieldClears();
     }
@@ -1689,6 +1695,7 @@ var COMBOS = {
     enterClosed: runLookup,
     clear: function() {
       document.getElementById('siStore').value = '';
+      document.getElementById('siBrand').value = '';
       document.getElementById('siBtn').disabled = true;
       syncSIClear();
     }
@@ -1889,6 +1896,7 @@ function clearField(which) {
   if (which === 'store') {
     document.getElementById('storeSearch').value = '';
     document.getElementById('storeVal').value = '';
+    document.getElementById('storeIdVal').value = '';
     document.getElementById('storeInfo').classList.remove('visible');
     document.getElementById('storeSearch').focus();
   } else if (which === 'purpose') {
@@ -1930,6 +1938,7 @@ function syncFieldClears() {
 function submitForm() {
   clearStatus();
   var store   = document.getElementById('storeVal').value.trim();
+  var storeId = document.getElementById('storeIdVal').value.trim();
   var date    = document.getElementById('dateVisited').value.trim();
   var dateTxt = document.getElementById('dateVisitedText').value.trim();
   var purpose = document.getElementById('purpVal').value.trim();
@@ -1942,10 +1951,12 @@ function submitForm() {
   if (dateTxt && _dateToText(date) !== dateTxt) return showStatus('That date doesn\'t look right — check MM/DD/YYYY, or use the 📅 button.','error');
   if (!selVisitors.length) return showStatus('Please add at least one Visitor.','error');
   if (!purpose)           return showStatus('Please select a Purpose.','error');
+  var sInfo = storeData[storeId || store] || {};
   pending = {
     store: store,
-    brand:  (storeData[store] && storeData[store].brand)  || '',
-    region: (storeData[store] && storeData[store].region) || '',
+    storeId: storeId,
+    brand:  sInfo.brand  || '',
+    region: sInfo.region || '',
     dateVisited: date,
     visitedBy:   selVisitors.slice(),
     purpose:     purpose,
@@ -1956,7 +1967,7 @@ function submitForm() {
   google.script.run
     .withSuccessHandler(onDupCheck)
     .withFailureHandler(function(){ setBtnLoading(false); clearStatus(); execSubmit(pending); })
-    .checkDuplicateVisit({ store: store, dateVisited: date });
+    .checkDuplicateVisit({ store: store, storeId: storeId, brand: sInfo.brand || '', dateVisited: date });
 }
 
 function onDupCheck(r) {
@@ -2021,6 +2032,7 @@ function clearQueue() {
 function clearForm(keepDate) {
   document.getElementById('storeSearch').value = '';
   document.getElementById('storeVal').value = '';
+  document.getElementById('storeIdVal').value = '';
   document.getElementById('purpSearch').value = '';
   document.getElementById('purpVal').value = '';
   document.getElementById('remarks').value = '';
@@ -2069,7 +2081,7 @@ function filterSIStores() {
   }).slice(0, 60);
   if (!list.length) { drop.classList.remove('open'); return; }
   drop.innerHTML = list.map(function(s) {
-    return '<div class="ss-opt" data-v="'+esc(s.name)+'" data-m="'+esc(s.name+' '+(s.brand||''))+'" onmousedown="pickSIStore(this)">'
+    return '<div class="ss-opt" data-v="'+esc(s.name)+'" data-b="'+esc(s.brand||'')+'" data-m="'+esc(s.name+' '+(s.brand||''))+'" onmousedown="pickSIStore(this)">'
       +'<span class="opt-name">'+esc(s.name)+'</span>'
       +(s.brand ? '<span class="opt-brand">'+esc(s.brand)+'</span>' : '')
       +'</div>';
@@ -2082,6 +2094,7 @@ function pickSIStore(el) {
   var name = el.dataset.v;
   document.getElementById('siSearch').value = name;
   document.getElementById('siStore').value  = name;
+  document.getElementById('siBrand').value  = el.dataset.b || '';
   document.getElementById('siDrop').classList.remove('open');
   document.getElementById('siBtn').disabled = false;
   syncSIClear();
@@ -2091,6 +2104,7 @@ function pickSIStore(el) {
 function clearSIStore() {
   document.getElementById('siSearch').value = '';
   document.getElementById('siStore').value  = '';
+  document.getElementById('siBrand').value  = '';
   document.getElementById('siBtn').disabled = true;
   syncSIClear();
   document.getElementById('siSearch').focus();
@@ -2116,13 +2130,14 @@ function runLookup() {
       document.getElementById('siBtn').disabled = false;
       document.getElementById('siMain').innerHTML = stateMsg('⚠️','Error',esc(err.message||String(err)));
     })
-    .sl_getStoreData(name);
+    .sl_getStoreData(name, document.getElementById('siBrand').value || '');
 }
 
-function jumpToStore(name) {
+function jumpToStore(name, brand) {
   switchTab('Insights');
   document.getElementById('siSearch').value = name;
   document.getElementById('siStore').value  = name;
+  document.getElementById('siBrand').value  = brand || '';
   document.getElementById('siBtn').disabled = false;
   syncSIClear();
   runLookup();
@@ -2161,7 +2176,7 @@ var VIS_COLS = [
 function visRenderRow(r, i) {
   return '<tr>'
     +'<td class="crn">'+(i+1)+'</td>'
-    +'<td><span class="store-link" data-store="'+esc(r.name)+'" onclick="jumpToStore(this.dataset.store)">'+esc(r.name)+'</span></td>'
+    +'<td><span class="store-link" data-store="'+esc(r.name)+'" data-brand="'+esc(r.brand||'')+'" onclick="jumpToStore(this.dataset.store, this.dataset.brand)">'+esc(r.name)+'</span></td>'
     +'<td>'+esc(r.brand)+'</td>'
     +'<td>'+esc(r.region)+'</td>'
     +'<td class="c" style="font-weight:700;color:var(--navy)">'+(r.visits||0)+'</td>'
@@ -2560,7 +2575,7 @@ function renderCompliance(rows) {
 function compRenderRow(r, i) {
   return '<tr class="cr" data-w="'+esc(r.windowLabel)+'">'
     +'<td class="crn">'+(i+1)+'</td>'
-    +'<td><span class="store-link" data-store="'+esc(r.store)+'" onclick="jumpToStore(this.dataset.store)">'+esc(r.store)+'</span></td>'
+    +'<td><span class="store-link" data-store="'+esc(r.store)+'" data-brand="'+esc(r.brand||'')+'" onclick="jumpToStore(this.dataset.store, this.dataset.brand)">'+esc(r.store)+'</span></td>'
     +'<td>'+esc(r.brand)+'</td>'
     +'<td>'+esc(r.region)+'</td>'
     +'<td class="c" style="font-weight:700;color:var(--navy)">'+(r.ytdVisits||0)+'</td>'

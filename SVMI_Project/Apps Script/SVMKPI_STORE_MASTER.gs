@@ -75,11 +75,14 @@ function rebuildStoreMasterInsight() {
   if (sLast < 2) throw new Error('SETTINGS has no store data.');
   const settingsData = settings.getRange(2, 1, sLast - 1, 5).getValues();
 
+  // Keyed by store key: the plain name, or NAME||BRAND when two brands share it.
+  const amb = svmiAmbiguousNames_(settingsData.map(r => ({ name: r[0], brand: r[1] })));
   const storeMap = new Map();
   settingsData.forEach(r => {
     const name = String(r[0]||'').trim().toUpperCase();
     if (!name) return;
-    storeMap.set(name, {
+    storeMap.set(svmiStoreKey_(name, r[1], amb), {
+      name,
       brand:    String(r[1]||'').trim().toUpperCase(),
       region:   String(r[2]||'').trim().toUpperCase(),
       category: String(r[4]||'').trim().toUpperCase(),
@@ -100,7 +103,7 @@ function rebuildStoreMasterInsight() {
   }));
 
   logData.forEach(r => {
-    const store   = String(r[2]||'').trim().toUpperCase();
+    const store   = svmiStoreKey_(String(r[2]||'').trim().toUpperCase(), r[3], amb);
     const dateRaw = r[1];
     const purpose = String(r[6]||'').trim().toUpperCase();
     if (!acc.has(store)) return;
@@ -120,7 +123,7 @@ function rebuildStoreMasterInsight() {
   if (healthSheet && healthSheet.getLastRow() >= 17) {
     const hd = healthSheet.getRange(17, 1, healthSheet.getLastRow() - 16, 14).getValues();
     hd.forEach(r => {
-      const n = String(r[0]||'').trim().toUpperCase();
+      const n = svmiStoreKey_(String(r[0]||'').trim().toUpperCase(), r[1], amb);
       const t = String(r[11]||'').trim().toUpperCase();
       if (n && t) tierMap.set(n, t);
     });
@@ -140,10 +143,11 @@ function rebuildStoreMasterInsight() {
   const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
 
   // ── Build data rows ───────────────────────────────────────────
-  const dataRows = storeList.map((name, idx) => {
-    const info = storeMap.get(name);
-    const s    = acc.get(name);
-    const tier = tierMap.get(name) || '—';
+  const dataRows = storeList.map((key, idx) => {
+    const info = storeMap.get(key);
+    const name = info.name;
+    const s    = acc.get(key);
+    const tier = tierMap.get(key) || '—';
 
     const daysSince   = s.lastDate ? Math.floor((now - s.lastDate) / 86400000) : null;
     const lastDateFmt = s.lastDate ? Utilities.formatDate(s.lastDate, tz, 'yyyy-MM-dd') : '—';

@@ -94,6 +94,8 @@ see one store with its whole history. Each changed row is logged in
 original spelling is never lost. This is the "separate, deliberate backfill"
 `store_reconcileUnmapped()` was documented as leaving for later.
 
+Names: two stores of **different brands may share a name** (Figaro STA. MARIA + Angel's Pizza STA. MARIA) — the Input Portal sends the Store ID, reports and the SETTINGS mirror add the brand to the key only when a name is shared, and the visit-table resolver places a row with no Store ID by its Brand column. Only a name already used by a store of the same brand is refused.
+
 Rules: never merges across brands (an Angel's Pizza and a Figaro in the same
 town are two stores — `database/dryrun` has the same rule); a new or final
 name can't be one another store already uses; suggestions (★ = same brand,

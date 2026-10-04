@@ -198,10 +198,12 @@ function _sl_getStoreMetaLookup() {
   if (!settings || settings.getLastRow() < 2) return lookup;
 
   const rows = settings.getRange(2, 1, settings.getLastRow() - 1, 5).getValues();
+  // Keyed by store key: the plain name, or NAME||BRAND when two brands share it.
+  const amb = svmiAmbiguousNames_(rows.map(r => ({ name: r[0], brand: r[1] })));
   rows.forEach(row => {
     const store = _sl_normalizeText(row[0]);
     if (!store) return;
-    lookup[store] = {
+    lookup[svmiStoreKey_(store, row[1], amb)] = {
       store,
       brand: _sl_normalizeText(row[1]) || '—',
       region: _sl_normalizeText(row[2]) || '—',
@@ -449,8 +451,10 @@ function _computeStoreRisk(data, today, year) {
   // here, silently missing from Store Health entirely — exactly the
   // store this model should flag first. sl_getComplianceGaps() and
   // rebuildStoreMasterInsight() already seed from SETTINGS the same way.
-  Object.keys(metaLookup).forEach(name => {
-    if (!byStore[name]) byStore[name] = freshStore(name, metaLookup[name]);
+  const ambNames = {};
+  Object.keys(metaLookup).forEach(k => { if (k.indexOf(SVMI_KEY_SEP) !== -1) ambNames[svmiKeyName_(k)] = true; });
+  Object.keys(metaLookup).forEach(key => {
+    if (!byStore[key]) byStore[key] = freshStore(metaLookup[key].store, metaLookup[key]);
   });
 
   for (let i = 0; i < data.stores.length; i++) {
@@ -461,10 +465,11 @@ function _computeStoreRisk(data, today, year) {
     const purpose = _sl_normalizeText(data.purposes[i]);
     const brand = _sl_normalizeText(data.brands[i]) || '—';
     const region = _sl_normalizeText(data.regions[i]) || '—';
-    const meta = metaLookup[store];
+    const key = svmiStoreKey_(store, brand, ambNames);
+    const meta = metaLookup[key];
 
-    if (!byStore[store]) byStore[store] = freshStore(store, meta);
-    const s = byStore[store];
+    if (!byStore[key]) byStore[key] = freshStore(store, meta);
+    const s = byStore[key];
     if (meta) {
       s.brand = meta.brand !== '—' ? meta.brand : (brand || s.brand);
       s.region = meta.region !== '—' ? meta.region : (region || s.region);
