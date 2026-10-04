@@ -442,6 +442,11 @@ function svt_buildStoreResolver_() {
       const sameBrand = ids.filter(id => brandsById[id] && brandsById[id][wantBrand]);
       if (sameBrand.length === 1) ids = sameBrand;
     }
+    // The row's brand must be one the store has had: a Figaro visit to
+    // "ZAMBOANGA" is not a visit to the only ZAMBOANGA in CONFIG_STORES if
+    // that one is Angel's Pizza. Never guess — leave it unmapped so Store
+    // Name Matching offers to set up the missing store. (Blank brand = no check.)
+    if (ids.length === 1 && wantBrand && brandsById[ids[0]] && !brandsById[ids[0]][wantBrand]) ids = [];
     if (ids.length === 1) return ids[0];
     if (reconciled[name]) return follow(reconciled[name]);
     return '';

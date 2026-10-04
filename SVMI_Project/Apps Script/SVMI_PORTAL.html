@@ -3066,6 +3066,7 @@ function runSettingsMigration() {
     stat.textContent = (hasIssue ? '⚠ Done with errors — ' : '✅ Done — ') + summary;
     stat.className = hasIssue ? 'tool-stat error' : 'tool-stat success';
     addLog(hasIssue ? 'warn' : 'ok', (hasIssue ? '⚠' : '✅') + ' Migrate Legacy Data: ' + summary);
+    if ((s.createdLabels || []).length) addLog('ok', '  New stores: ' + s.createdLabels.join(', '));
     if (s.unmappedCount) addLog('warn', '⚠ ' + s.unmappedCount + ' MASTER_LOG store name(s) could not be confidently matched — see CONFIG_UNMAPPED_STORES.');
     // A SETTINGS row this migration could not create (most commonly:
     // a blank required field — Brand/Region/Category for a Store,

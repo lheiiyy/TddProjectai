@@ -296,6 +296,25 @@ console.log('\n── Migration: unambiguous exact-name match maps to a Store ID
   check('the earliest MASTER_LOG date becomes the initial effective-from date, not an invented one', effFromStr === '2026-01-15', JSON.stringify(resolved));
 }
 
+console.log('\n── Migration: two brands with one name are two stores (ZAMBOANGA AP + FIGARO) ──');
+{
+  const { sandbox } = newSandbox();
+  // First run created only the Angel's Pizza one (the old name-only check).
+  sandbox.store_create({ storeName: 'ZAMBOANGA', brand: "ANGEL'S PIZZA", region: 'PROVINCIAL', category: 'A' }, '2026-01-01', 'setup', { backdateConfirmed: true });
+  const settingsStores = [
+    { store: 'ZAMBOANGA', brand: "ANGEL'S PIZZA", region: 'PROVINCIAL', category: 'A' },
+    { store: 'ZAMBOANGA', brand: 'FIGARO', region: 'FRANCHISE', category: 'A' },
+    { store: 'ZAMBOANGA', brand: 'FIGARO', region: 'FRANCHISE', category: 'A' }, // same row twice
+  ];
+  const result = sandbox.store_migrateFromSettings(settingsStores, [{ store: 'ZAMBOANGA', date: '2026-02-02' }]);
+  check('re-run creates the missing Figaro ZAMBOANGA only', result.createdStoreIds.length === 1 && JSON.stringify(result.createdLabels) === JSON.stringify(['ZAMBOANGA (FIGARO)']), JSON.stringify(result));
+  check('the Angel\'s Pizza one counts as already migrated', result.alreadyMigrated.indexOf('ZAMBOANGA') !== -1);
+  const fig = sandbox.resolveStoreAsOf(result.createdStoreIds[0], '2026-02-02');
+  check('new store is FIGARO, from the earliest visit date', fig && fig.fields.brand === 'FIGARO' && _ymd(fig.effectiveFrom) === '2026-02-02', JSON.stringify(fig));
+  const again = sandbox.store_migrateFromSettings(settingsStores, []);
+  check('running it again creates nothing', again.createdStoreIds.length === 0, JSON.stringify(again));
+}
+
 console.log('\n── Migration: a name with no exact SETTINGS match is never guessed — it is UNMAPPED ──');
 {
   const { sandbox } = newSandbox();

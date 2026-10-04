@@ -432,12 +432,18 @@ console.log('\n── A name saved under two brands is split first, never lumped
   check('splitting again is refused (one brand left)', !again.ok && /one brand only/.test(again.errors.join(' ')), again.errors);
 }
 
-console.log('\n── Merge points out visits saved under another brand ──');
+console.log('\n── A visit saved under another brand is not given to the only store with that name ──');
 {
   const env = newSandbox(); const ids = seed(env);
-  env.master.getRange(4, 4).setValue("ANGEL'S PIZZA"); // a STA MARIA visit typed as Angel's Pizza
+  env.master.getRange(4, 4).setValue("ANGEL'S PIZZA"); // a STA MARIA visit (no Store ID) typed as Angel's Pizza
+  const r = env.sandbox.portal_getStoreCleanup();
+  const u = r.unmatched.filter(x => x.name === 'STA MARIA')[0];
+  check('it is listed as a name with no store, brand ANGEL\'S PIZZA (not counted for Figaro STA MARIA)', u && u.brand === "ANGEL'S PIZZA" && u.visits === 1, r.unmatched);
+  check('...with Angel\'s Pizza STA. MARIA as the strong suggestion', u && u.suggestions[0].storeId === ids.APSM && u.suggestions[0].strong, u && u.suggestions);
+  // A row WITH a Store ID of the other brand still shows the merge warning
+  env.master.getRange(6, 4).setValue("ANGEL'S PIZZA"); // row 6: col I = Figaro STA MARIA
   const p = env.sandbox.portal_previewStoreCleanup([{ key: 'g', type: 'merge', keepId: ids.K, mergeIds: [ids.M], finalName: 'STA. MARIA (F)' }]).plans[0];
-  check('warning names the brand and the row', p.ok && /another brand \(ANGEL'S PIZZA ×1\) — MASTER_LOG row 4/.test(p.warnings.join(' ')), p.warnings);
+  check('merge still warns about a row whose Store ID is this store but brand is another', p.ok && /another brand \(ANGEL'S PIZZA ×1\) — MASTER_LOG row 6/.test(p.warnings.join(' ')), p.warnings);
 }
 
 console.log('\n── MASTER_LOG changed by hand during a run: no row is touched ──');
@@ -715,6 +721,7 @@ console.log('\n── Same name, different brands (Figaro STA. MARIA + Angel\'s 
   check('a name shared by two brands is never guessed without a brand', s.store_resolveIdByCurrentName('STA. MARIA') === null);
   const rs = s.svt_buildStoreResolver_();
   check('visit tables: a row with a shared name and NO Store ID is placed by its Brand column', rs('STA. MARIA', '', 'FIGARO') === ids.K && rs('STA. MARIA', '', "ANGEL'S PIZZA") === ids.APSM, [rs('STA. MARIA', '', 'FIGARO'), rs('STA. MARIA', '', "ANGEL'S PIZZA")]);
+  check('visit tables: a unique name of ANOTHER brand is not this row\'s store (Figaro ZAMBOANGA vs the only ZAMBOANGA = Angel\'s Pizza)', rs('SAN PEDRO', '', 'FIGARO') === '' && rs('SAN PEDRO', '', "ANGEL'S PIZZA") === ids.SP && rs('SAN PEDRO', '', '') === ids.SP);
   check('visit tables: ...and left unmapped (never guessed) when the brand is missing', rs('STA. MARIA', '', '') === '');
   check('a unique name still resolves without a brand', s.store_resolveIdByCurrentName('SAN PEDRO') === ids.SP);
 

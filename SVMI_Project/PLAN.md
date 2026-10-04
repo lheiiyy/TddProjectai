@@ -158,6 +158,6 @@ Known gaps (not configurable yet):
 
 ## Tests
 
-26 files, 1,376 checks, all passing (`node tests/<file>.test.js`).
+26 files, 1,383 checks, all passing (`node tests/<file>.test.js`).
 `store-name-matching-ui.test.js` clicks through the real `SVMI_PORTAL.html` with the real `.gs` code
 behind it (Playwright); the other portal tests use the demo page.
