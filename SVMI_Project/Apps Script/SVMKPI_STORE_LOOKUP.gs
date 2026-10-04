@@ -94,6 +94,15 @@ const SL_TOP_VISITOR_LIMIT = 10;
  * @returns {{ name: string, brand: string, region: string }[]}
  */
 function _sl_getStoreList_impl() {
+  if (typeof svd_useTables_ === 'function' && svd_useTables_()) {
+    const fromConfig = svd_storeList_();
+    if (fromConfig) return fromConfig;
+  }
+  return _sl_storeListFromSettings_();
+}
+
+/** Store Insights picker list from SETTINGS (the pre-Phase-D list: open stores only). */
+function _sl_storeListFromSettings_() {
   const ss       = SpreadsheetApp.getActiveSpreadsheet();
   const settings = ss.getSheetByName(SL_SHEET.SETTINGS);
   if (!settings) return [];
@@ -147,7 +156,18 @@ function _sl_getStoreList_impl() {
  *   insight: string,
  * }
  */
-function _sl_getStoreData_impl(storeName, brand) {
+function _sl_getStoreData_impl(storeName, brand, storeId) {
+  // Phase D.3 (SVMKPI_VISIT_DATA.gs): by Store ID from the visit tables when
+  // reports are switched to them; MASTER_LOG (by name + brand) otherwise.
+  if (typeof svd_useTables_ === 'function' && svd_useTables_()) {
+    const fromTables = svd_storeData_(storeId, storeName, brand);
+    if (fromTables) return fromTables;
+  }
+  return _sl_storeDataFromLog_(storeName, brand);
+}
+
+/** Store Insights from MASTER_LOG + SETTINGS, by name (+ brand) — the pre-Phase-D report. */
+function _sl_storeDataFromLog_(storeName, brand) {
   if (!storeName || !String(storeName).trim()) return null;
 
   const target = String(storeName).trim().toUpperCase();

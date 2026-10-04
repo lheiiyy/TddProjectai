@@ -16,7 +16,7 @@
 //   * System Tools → "Compare Reports" runs the old and the new version
 //     side by side and lists every difference, read-only.
 //
-// Reports on the tables so far: Visited This Month (D.1), Unvisited / NAC (D.2).
+// Reports on the tables so far: Visited This Month (D.1), Unvisited / NAC (D.2), Store Insights (D.3).
 //
 // Every function except the portal_ entry points ends in "_" (private).
 // ============================================================
@@ -33,7 +33,7 @@ function portal_useVisitTablesForReports() {
   if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
   if (!svd_tablesExist_()) return { success: false, message: 'STORE_VISITS / STORE_VISIT_VISITORS not found — run Rebuild Visit Tables first.' };
   svd_setSource_(SVD_SOURCE.TABLES);
-  return { success: true, message: 'Reports now read the visit tables (by Store ID): Visited This Month, Unvisited / NAC.' };
+  return { success: true, message: 'Reports now read the visit tables (by Store ID): Visited This Month, Unvisited / NAC, Store Insights.' };
 }
 
 function portal_useMasterLogForReports() {
@@ -89,6 +89,8 @@ function portal_compareReports() {
         const info = v.storeId ? storeNow(v.storeId) : null;
         return 'row ' + v.sourceRow + ' → ' + (info ? info.name + ' (' + info.brand + ')' : (v.storeId ? v.storeId + ' (no active store)' : 'no Store ID'));
       });
+    // D.3 — Store Insights totals per store.
+    const ins = svd_compareInsights_(data);
     const errors = diffs.slice(0, 60).map(d => {
       const rows = where(d.month, d.store);
       return {
@@ -97,6 +99,10 @@ function portal_compareReports() {
           + (rows.length ? ' · ' + rows.slice(0, 6).join('; ') : ''),
       };
     });
+    ins.diffs.slice(0, 60).forEach(d => errors.push({
+      row: 'Insights',
+      message: d.store + ' (' + (d.brand || '—') + '): MASTER_LOG ' + d.oldVisits + ' visit(s) by name, tables ' + d.newVisits + ' by Store ID' + (d.storeId ? '' : ' (no store with this name + brand in CONFIG_STORES)'),
+    }));
     gDiffs.slice(0, 60).forEach(d => errors.push({
       row: monthName(d.month) + ' NAC',
       message: d.store + ' (' + (d.brand || '—') + '): MASTER_LOG ' + d.old + ', tables ' + d.now,
@@ -120,10 +126,12 @@ function portal_compareReports() {
       + ' || Unvisited/NAC: ' + gSame + ' store-month(s) identical'
       + (gClosedLater ? ' · ' + gClosedLater + ' store-month(s) of stores closed since then (open at the time, now counted)' : '')
       + (gDiffs.length ? ' · ⚠ ' + gDiffs.length + ' difference(s) (rows marked NAC)' : ' · no other differences ✔')
+      + ' || Store Insights: ' + ins.same + ' store(s) identical'
+      + (ins.diffs.length ? ' · ⚠ ' + ins.diffs.length + ' with a different total (rows marked Insights)' : ' · no differences ✔')
       + (unplaced.length ? ' · ' + unplaced.length + ' visit(s) the tables can\'t place in a store — listed below by MASTER_LOG row' : '')
       + (mismatches.length ? ' · ' + mismatches.length + ' MASTER_LOG row(s) whose Brand (D) is not the brand of their Store ID (I) — listed below by row' : '')
       + ' · reports now read: ' + (svd_useTables_() ? 'visit tables' : 'MASTER_LOG');
-    return { success: diffs.length === 0 && gDiffs.length === 0, message: msg, errors, diffs: diffs.length, gapDiffs: gDiffs.length, mismatches: mismatches.length, unplaced: unplaced.length };
+    return { success: diffs.length === 0 && gDiffs.length === 0 && ins.diffs.length === 0, message: msg, errors, diffs: diffs.length, gapDiffs: gDiffs.length, insightDiffs: ins.diffs.length, mismatches: mismatches.length, unplaced: unplaced.length };
   } catch (e) {
     if (typeof logError === 'function') logError('portal_compareReports', e);
     return { success: false, message: e.message, errors: [] };
@@ -519,5 +527,161 @@ function svd_compareGaps_(oldGaps, newGaps) {
     });
   });
   return { same, closedLater, diffs };
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 6: STORE INSIGHTS (D.3)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Picker list from CONFIG_STORES: every store, open and closed (a closed
+ * store's history is still worth looking at), each with its Store ID.
+ * @returns {null|{storeId, name, brand, region, closed}[]} null = no tables
+ */
+function svd_storeList_() {
+  if (!svd_tablesExist_()) return null;
+  const today = cfg_resolveAllAsOf(CFG_AREA.STORES, null);
+  return Object.keys(today).map(id => {
+    const f = today[id].fields || {};
+    return {
+      storeId: id,
+      name: _normalizeEnum(f.storeName),
+      brand: _normalizeEnum(f.brand),
+      region: _normalizeEnum(f.region),
+      closed: String(f.status || CFG_STATUS.ACTIVE).toUpperCase() === CFG_STATUS.INACTIVE,
+    };
+  }).filter(x => x.name).sort((a, b) => a.name.localeCompare(b.name) || a.brand.localeCompare(b.brand));
+}
+
+/**
+ * Same result shape as _sl_storeDataFromLog_() (SVMKPI_STORE_LOOKUP.gs),
+ * plus meta.storeId / meta.closed, from the visits recorded under the
+ * store's Store ID. Without a Store ID (old page, typed name) the store is
+ * found by name + brand; a shared name with no brand is never guessed.
+ * Health still comes from the shared Store Health engine (D.4 moves it).
+ * @returns {null|object} null = no tables, or no such store (caller falls back)
+ */
+function svd_storeData_(storeId, storeName, brand, preloaded) {
+  let id = String(storeId || '').trim().toUpperCase();
+  if (!id && storeName && typeof store_resolveIdByCurrentName === 'function') {
+    id = store_resolveIdByCurrentName(storeName, brand) || '';
+  }
+  if (!id) return null;
+  const info = svd_storeLookup_(null)(id);
+  if (!info) return null;
+  const visits = preloaded || svd_loadVisits_();
+  if (!visits) return null;
+
+  const meta = { name: info.name, brand: info.brand, region: info.region, storeId: id, closed: info.status === CFG_STATUS.INACTIVE };
+  const rows = visits.filter(v => v.storeId === id)
+    .sort((a, b) => (b.date ? b.date.getTime() : 0) - (a.date ? a.date.getTime() : 0));
+
+  const log = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SL_SHEET.MASTER_LOG);
+  const health = log
+    ? _sl_computeCanonicalHealth(log, info.name, undefined, info.brand)
+    : { score: 0, label: 'LOW', components: { daysSince: 999 } };
+
+  if (!rows.length) {
+    return {
+      meta,
+      summary:      { totalVisits: 0, lastVisitDate: '—', lastVisitor: '—', lastPurpose: '—' },
+      purposes:     APPROVED_PURPOSES.map(label => ({ label, count: 0, pct: '0.0' })),
+      topVisitors:  [],
+      recentVisits: [],
+      health,
+      insight:      'No visit records found for ' + info.name + '. Schedule an initial store visit.',
+    };
+  }
+
+  const who = v => v.visitors.length ? v.visitors.join(' | ') : '—';
+  const totalVisits = rows.length;
+  const last = rows[0];
+  const lastVisitStr = last.date ? _sl_formatDate(last.date) : '—';
+  const lastPurpose = last.purpose || '—';
+
+  const purposeCounts = {};
+  APPROVED_PURPOSES.forEach(p => { purposeCounts[p] = 0; });
+  rows.forEach(v => { if (v.purpose) purposeCounts[v.purpose] = (purposeCounts[v.purpose] || 0) + 1; });
+  const purposes = Object.keys(purposeCounts).map(label => ({
+    label,
+    count: purposeCounts[label],
+    pct: ((purposeCounts[label] / totalVisits) * 100).toFixed(1),
+  }));
+
+  const visitorMap = {};
+  rows.forEach(v => v.visitors.forEach(n => { visitorMap[n] = (visitorMap[n] || 0) + 1; }));
+  const topVisitors = Object.keys(visitorMap)
+    .map(name => ({ name, count: visitorMap[name] }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+    .slice(0, SL_TOP_VISITOR_LIMIT);
+
+  const recentVisits = rows.slice(0, SL_RECENT_LIMIT).map(v => ({
+    date:    v.date ? _sl_formatDate(v.date) : '—',
+    visitor: who(v),
+    purpose: v.purpose || '—',
+    remarks: String(v.remarks || '').trim() || '—',
+  }));
+
+  const insight = _sl_generateInsight({
+    meta, totalVisits, lastVisitStr, lastPurpose,
+    purposes, topVisitors, health,
+    failedCount: purposeCounts['FAILED QA/MS'],
+  });
+
+  return {
+    meta,
+    summary: { totalVisits, lastVisitDate: lastVisitStr, lastVisitor: who(last), lastPurpose },
+    purposes,
+    topVisitors,
+    recentVisits,
+    health,
+    insight,
+  };
+}
+
+/**
+ * Store Insights, old vs new, for every store in SETTINGS (the old picker
+ * list): total visits by name + brand from MASTER_LOG vs by Store ID from
+ * the tables. Cheap — one pass over each, no per-store report run.
+ */
+function svd_compareInsights_(visits) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const settings = ss.getSheetByName(SL_SHEET.SETTINGS);
+  const master = ss.getSheetByName(SL_SHEET.MASTER_LOG);
+  if (!settings || !master || settings.getLastRow() < 2) return { same: 0, diffs: [] };
+  const oldCount = {};
+  if (master.getLastRow() >= 2) {
+    master.getRange(2, 1, master.getLastRow() - 1, 4).getValues().forEach(r => {
+      const k = _normalizeEnum(r[SL_COL.STORE]) + '|' + _normalizeEnum(r[SL_COL.BRAND]);
+      oldCount[k] = (oldCount[k] || 0) + 1;
+    });
+  }
+  const newCount = {};
+  visits.forEach(v => { if (v.storeId) newCount[v.storeId] = (newCount[v.storeId] || 0) + 1; });
+
+  // name|brand → Store ID, from ONE CONFIG_STORES read (not one per store).
+  const idByKey = {};
+  const today = cfg_resolveAllAsOf(CFG_AREA.STORES, null);
+  Object.keys(today).forEach(sid => {
+    const f = today[sid].fields || {};
+    const k = _normalizeEnum(f.storeName) + '|' + _normalizeEnum(f.brand);
+    if (!idByKey[k]) idByKey[k] = sid;
+  });
+
+  let same = 0;
+  const diffs = [];
+  const seen = {};
+  settings.getRange(2, 1, settings.getLastRow() - 1, 2).getValues().forEach(r => {
+    const name = _normalizeEnum(r[0]), brand = _normalizeEnum(r[1]);
+    if (!name || seen[name + '|' + brand]) return;
+    seen[name + '|' + brand] = true;
+    const id = idByKey[name + '|' + brand] || null;
+    const o = oldCount[name + '|' + brand] || 0;
+    const n = id ? (newCount[id] || 0) : 0;
+    if (o === n) same++;
+    else diffs.push({ store: name, brand, oldVisits: o, newVisits: n, storeId: id || '' });
+  });
+  return { same, diffs };
 }
 
