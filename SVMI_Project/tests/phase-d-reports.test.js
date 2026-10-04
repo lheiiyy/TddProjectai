@@ -129,6 +129,20 @@ console.log('\n── Compare Reports ──');
   check('compare: equal → same, unmapped→placed, other change → difference', cmp.same === 1 && cmp.placed === 3 && cmp.diffs.length === 1 && cmp.diffs[0].store === 'B', cmp);
 }
 
+console.log('\n── Compare explains differences by MASTER_LOG row ──');
+{
+  const { e, s, ids } = cleaned();
+  // Row 7 is Angel's Pizza STA. MARIA's January visit (Store ID APSM). Say the
+  // visitor picked FIGARO as brand: the old report (trusts column D for a shared
+  // name) gives it to Figaro STA. MARIA; the tables (trust Store ID) keep it at AP.
+  e.master.getRange(7, 4).setValue('FIGARO');
+  s.portal_rebuildVisitTables();
+  const c = s.portal_compareReports();
+  check('January STA. MARIA shows as a difference', c.diffs >= 2 && c.errors.some(x => x.row === 'Jan' && /STA\. MARIA \(ANGEL'S PIZZA\): MASTER_LOG 0 visit\(s\), tables 1/.test(x.message)), c.errors);
+  check('...and the cause is listed with its MASTER_LOG row number', c.mismatches === 1 && c.errors.some(x => x.row === 7 && /MASTER_LOG brand FIGARO, but its Store ID is STA\. MARIA \(ANGEL'S PIZZA\)/.test(x.message)), c.errors);
+  check('message counts the rows', /1 MASTER_LOG row\(s\) whose Brand \(D\) is not the brand of their Store ID \(I\)/.test(c.message), c.message);
+}
+
 console.log('\n── Admin only ──');
 {
   const { e, s } = cleaned();

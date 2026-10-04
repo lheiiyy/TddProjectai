@@ -71,16 +71,24 @@ function portal_compareReports() {
       c.diffs.forEach(d => diffs.push(Object.assign({ month: m }, d)));
     }
     const monthName = m => ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1];
-    const errors = diffs.slice(0, 30).map(d => ({
+    const errors = diffs.slice(0, 60).map(d => ({
       row: monthName(d.month),
       message: d.store + ' (' + (d.brand || '—') + '): MASTER_LOG ' + d.oldVisits + ' visit(s), tables ' + d.newVisits,
+    }));
+    // Why they differ: the old report trusts the Brand column (D) when two
+    // brands share a name, the tables trust the Store ID (column I).
+    const mismatches = svd_brandMismatches_(data, year);
+    mismatches.slice(0, 60).forEach(x => errors.push({
+      row: x.row,
+      message: '"' + x.name + '" on ' + x.date + ' — MASTER_LOG brand ' + (x.rowBrand || '(blank)') + ', but its Store ID is ' + x.storeName + ' (' + x.storeBrand + ')',
     }));
     const msg = 'Visited This Month, ' + year + ' (' + lastMonth + ' month' + (lastMonth === 1 ? '' : 's') + '): '
       + same + ' store-month(s) identical'
       + (placed ? ' · ' + placed + ' visit(s) the old report could not place are now in their store' : '')
-      + (diffs.length ? ' · ⚠ ' + diffs.length + ' difference(s) — listed below' : ' · no other differences ✔')
+      + (diffs.length ? ' · ⚠ ' + diffs.length + ' difference(s)' : ' · no other differences ✔')
+      + (mismatches.length ? ' · ' + mismatches.length + ' MASTER_LOG row(s) whose Brand (D) is not the brand of their Store ID (I) — listed below by row' : '')
       + ' · reports now read: ' + (svd_useTables_() ? 'visit tables' : 'MASTER_LOG');
-    return { success: diffs.length === 0, message: msg, errors, diffs: diffs.length };
+    return { success: diffs.length === 0, message: msg, errors, diffs: diffs.length, mismatches: mismatches.length };
   } catch (e) {
     if (typeof logError === 'function') logError('portal_compareReports', e);
     return { success: false, message: e.message, errors: [] };
@@ -144,6 +152,7 @@ function svd_loadVisits_() {
       purpose: _normalizeEnum(r[SVT_V.PURPOSE]),
       remarks: String(r[SVT_V.REMARKS] == null ? '' : r[SVT_V.REMARKS]),
       recordedName: _normalizeEnum(r[SVT_V.STORE_NAME]),
+      sourceRow: Number(r[SVT_V.SOURCE_ROW]) || 0,
       visitors: visitorsById[id] || [],
     });
   });
@@ -246,6 +255,29 @@ function svd_visitedThisMonth_(brandFilter, monthNumber, reportingYear, preloade
   unmapped.sort((a, b) => (b.visits - a.visits) || a.name.localeCompare(b.name));
 
   return { resolved, unmapped };
+}
+
+/**
+ * Visits (in the reporting year) whose MASTER_LOG Brand column differs from
+ * the brand of the store their Store ID points to. Either the visitor picked
+ * the wrong brand, or the row got the wrong Store ID — a person decides.
+ * @returns {{row:number, date:string, name:string, rowBrand:string, storeName:string, storeBrand:string}[]}
+ */
+function svd_brandMismatches_(visits, year) {
+  const master = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SL_SHEET.MASTER_LOG);
+  if (!master || master.getLastRow() < 2) return [];
+  const brands = master.getRange(2, SL_COL.BRAND + 1, master.getLastRow() - 1, 1).getValues();
+  const storeOf = svd_storeLookup_(null);
+  const out = [];
+  visits.forEach(v => {
+    if (!v.storeId || !v.sourceRow || !v.date || v.date.getFullYear() !== year) return;
+    const info = storeOf(v.storeId);
+    const cell = brands[v.sourceRow - 2];
+    const rowBrand = cell ? _normalizeEnum(cell[0]) : '';
+    if (!info || !rowBrand || rowBrand === info.brand) return;
+    out.push({ row: v.sourceRow, date: _sl_formatDate(v.date), name: v.recordedName, rowBrand, storeName: info.name, storeBrand: info.brand });
+  });
+  return out.sort((a, b) => a.row - b.row);
 }
 
 /**

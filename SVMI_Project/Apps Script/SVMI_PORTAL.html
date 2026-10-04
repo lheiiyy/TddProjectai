@@ -3005,7 +3005,8 @@ function execTool(key, statId) {
         addLog('err','❌ '+key+': '+r.message);
       }
       if (r.errors && r.errors.length) {
-        r.errors.slice(0,5).forEach(function(e){ addLog('err','  Row '+(e.row||'?')+': '+(e.message||JSON.stringify(e))); });
+        // Compare Reports lists every difference; other tools show the first few.
+        r.errors.slice(0, key === 'compareReports' ? 120 : 5).forEach(function(e){ addLog('err','  Row '+(e.row||'?')+': '+(e.message||JSON.stringify(e))); });
       }
     })
     .withFailureHandler(function(err) {
