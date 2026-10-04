@@ -361,9 +361,14 @@ console.log('\n── Validation: refused before anything is written ──');
 
   const two = s.portal_previewStoreCleanup([
     Object.assign({ key: 'a' }, base),
+    { key: 'b', type: 'create', name: 'URDANETA FIGARO', storeName: 'SHANGRILA', brand: "ANGEL'S PIZZA", region: 'NCR', category: 'NCR', active: false },
+  ]).plans;
+  check('two new stores of the SAME brand with one name in one list: second refused', two[0].ok && !two[1].ok && /another change in this list/.test(two[1].errors.join(' ')), two);
+  const twoBrands = s.portal_previewStoreCleanup([
+    Object.assign({ key: 'a' }, base),
     { key: 'b', type: 'create', name: 'URDANETA FIGARO', storeName: 'SHANGRILA', brand: 'FIGARO', region: 'FRANCHISE', category: 'FAR PROVINCIAL', active: false },
   ]).plans;
-  check('two new stores with the same name in one list: second refused', two[0].ok && !two[1].ok && /another change in this list/.test(two[1].errors.join(' ')), two);
+  check('...of DIFFERENT brands: both allowed', twoBrands[0].ok && twoBrands[1].ok, JSON.stringify(twoBrands.map(p => p.errors)));
   const both = s.portal_previewStoreCleanup([
     { key: 'a', type: 'merge', keepId: ids.K, mergeIds: [ids.M], finalName: 'STA. MARIA (F)' },
     { key: 'b', type: 'merge', keepId: ids.M, mergeIds: [], finalName: 'STA MARIA 2' },
@@ -669,6 +674,17 @@ console.log('\n── One name, three brands ──');
   const tm = mk('SM NORTH TM', "TIEN MA'S", 'NCR');   // Tien Ma's tag TM
   const sn = s.portal_getStoreCleanup().sameName.filter(e => e.targetName === 'SM NORTH');
   check('section 4: the two other brands are listed with target SM NORTH', sn.length === 2 && sn.some(e => e.storeId === fg && e.tagOnly) && sn.some(e => e.storeId === tm && e.tagOnly), JSON.stringify(sn));
+  const batch = s.portal_previewStoreCleanup([
+    { key: 'a', type: 'merge', keepId: fg, mergeIds: [], finalName: 'SM NORTH' },
+    { key: 'b', type: 'merge', keepId: tm, mergeIds: [], finalName: 'SM NORTH' },
+  ]);
+  check('ONE batch may rename two brands to the same name (Koobideh + Tien Ma\'s → MAKATI case)', batch.success && batch.plans.every(p => p.ok), JSON.stringify(batch.plans.map(p => p.errors)));
+  const fg2 = mk('NORTH EDSA', 'FIGARO', 'FRANCHISE'), fg3 = mk('EDSA NORTH', 'FIGARO', 'FRANCHISE');
+  const same = s.portal_previewStoreCleanup([
+    { key: 'c', type: 'merge', keepId: fg2, mergeIds: [], finalName: 'TRINOMA' },
+    { key: 'd', type: 'merge', keepId: fg3, mergeIds: [], finalName: 'TRINOMA' },
+  ]);
+  check('...but two stores of the SAME brand to one name in a batch is still refused', same.plans.some(p => !p.ok && /also used by another change/.test(p.errors.join(' '))), JSON.stringify(same.plans.map(p => p.errors)));
   check('rename Figaro', s.portal_applyStoreCleanupDecision({ type: 'merge', keepId: fg, mergeIds: [], finalName: 'SM NORTH' }).success);
   check('rename Tien Ma\'s', s.portal_applyStoreCleanupDecision({ type: 'merge', keepId: tm, mergeIds: [], finalName: 'SM NORTH' }).success);
   const st = sheetRows(env, 'SETTINGS', 2).filter(r => r[0] === 'SM NORTH').map(r => r[1]).sort();

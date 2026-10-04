@@ -585,6 +585,11 @@ function smt_defaultCategory_(ctx, suggestions, region) {
 // SECTION 3: PLANNING (pure — reads ctx, writes nothing)
 // ═══════════════════════════════════════════════════════════════
 
+/** Names taken within one batch are per brand: three brands may all become "MAKATI". */
+function smt_nameKey_(name, brand) {
+  return smt_cleanName_(name) + '|' + _normalizeEnum(brand);
+}
+
 function smt_newBatch_() {
   return { names: {}, entities: {}, mergedInto: {}, finalNameFor: {}, unmatchedNames: {} };
 }
@@ -648,7 +653,7 @@ function smt_planCreate_(ctx, d, batch, p) {
   if (storeName) {
     const owner = smt_nameOwner_(ctx, storeName, {}, brand);
     if (owner) p.errors.push('"' + storeName + '" is already a name of ' + smt_label_(ctx.entities[owner]) + ' — use "Same store as" for it, or type a different name.');
-    else if (batch.names[storeName]) p.errors.push('"' + storeName + '" is also used by another change in this list.');
+    else if (batch.names[smt_nameKey_(storeName, brand)]) p.errors.push('"' + storeName + '" is also used by another change in this list.');
   }
 
   const span = smt_span_(rows);
@@ -675,7 +680,7 @@ function smt_planCreate_(ctx, d, batch, p) {
     fields: { storeName, brand, region, category, status: CFG_STATUS.ACTIVE },
     unmappedId: entry ? entry.unmappedId : '',
   });
-  if (storeName) batch.names[storeName] = true;
+  if (storeName) batch.names[smt_nameKey_(storeName, brand)] = true;
   batch.unmatchedNames[name] = true;
 }
 
@@ -770,7 +775,7 @@ function smt_planMerge_(ctx, d, batch, p) {
   if (finalName) {
     const owner = smt_nameOwner_(ctx, finalName, group, keep.brand);
     if (owner) p.errors.push('"' + finalName + '" is already a name of ' + smt_label_(ctx.entities[owner]) + '.');
-    else if (batch.names[finalName]) p.errors.push('"' + finalName + '" is also used by another change in this list.');
+    else if (batch.names[smt_nameKey_(finalName, keep.brand)]) p.errors.push('"' + finalName + '" is also used by another change in this list.');
   }
 
   const renaming = !!finalName && finalName !== keep.name;
@@ -816,7 +821,7 @@ function smt_planMerge_(ctx, d, batch, p) {
   Object.assign(p, { keep, keepId, mergeIds, finalName, renaming, extendFrom, rows: changing, changedRows: changing.length });
   batch.entities[keepId] = true;
   mergeIds.forEach(id => { batch.entities[id] = true; batch.mergedInto[id] = keepId; });
-  if (finalName) { batch.names[finalName] = true; batch.finalNameFor[keepId] = finalName; }
+  if (finalName) { batch.names[smt_nameKey_(finalName, keep.brand)] = true; batch.finalNameFor[keepId] = finalName; }
 }
 
 function smt_planSplit_(ctx, d, batch, p) {
@@ -838,12 +843,12 @@ function smt_planSplit_(ctx, d, batch, p) {
       p.errors.push('"' + newName + '" is already a name of ' + smt_label_(ctx.entities[owner]) + '.');
       return;
     }
-    if (batch.names[newName]) { p.errors.push('"' + newName + '" is also used by another change in this list.'); return; }
+    if (batch.names[smt_nameKey_(newName, b)]) { p.errors.push('"' + newName + '" is also used by another change in this list.'); return; }
     const brandRows = rows.filter(r => r.brand === b);
     moves.push({ brand: b, name: newName, rows: brandRows });
     p.lines.push(brandRows.length + ' visit(s) saved as ' + b + ' → name "' + newName + '"'
       + (owner ? ' — already the name of ' + smt_label_(ctx.entities[owner]) + ', so they count there' : ''));
-    batch.names[newName] = true;
+    batch.names[smt_nameKey_(newName, b)] = true;
   });
   const stay = rows.filter(r => r.brand === keepBrand || !r.brand);
   const unknown = stay.filter(r => !r.brand).length;
