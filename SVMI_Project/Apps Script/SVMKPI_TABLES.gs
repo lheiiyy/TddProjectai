@@ -28,9 +28,10 @@
 // Reads MASTER_LOG A:I only. Never writes to MASTER_LOG.
 // Uses: _parseDateCell, _normalizeEnum, _normalizeVisitors, APPROVED_PURPOSES
 // (SVMKPI_CORE.gs); cfg_getConfiguration, CFG_AREA (SVMKPI_CONFIG.gs);
-// store_getUnmappedStores (SVMKPI_STORE_CONFIG.gs); sl_isAdmin
-// (SVMKPI_ACCESS.gs); logError (INPUT_PORTAL.gs) — all typeof-guarded where
-// a unit-test sandbox might not load them.
+// store_getUnmappedStores (SVMKPI_STORE_CONFIG.gs); smt_readMerges_
+// (SVMKPI_STORE_MATCH.gs); sl_isAdmin (SVMKPI_ACCESS.gs); logError
+// (INPUT_PORTAL.gs) — all typeof-guarded where a unit-test sandbox might not
+// load them.
 // ============================================================
 
 const SVT_SHEET = {
@@ -383,9 +384,13 @@ function svt_visitIdFromFingerprint_(fp) {
 
 /**
  * Store ID resolver, built once per run (one CONFIG_STORES read, one
- * CONFIG_UNMAPPED_STORES read). Order: MASTER_LOG column I → a name that
- * belongs to exactly one Store ID in any CONFIG_STORES version → a
- * RECONCILED unmapped entry → '' (never guessed).
+ * CONFIG_UNMAPPED_STORES read, one CONFIG_STORE_MERGES read). Order:
+ * MASTER_LOG column I → a name that belongs to exactly one Store ID in any
+ * CONFIG_STORES version → a RECONCILED unmapped entry → '' (never guessed).
+ * Whatever it finds, a Store ID that was merged into another one (Store Name
+ * Matching, SVMKPI_STORE_MATCH.gs) is followed to the store it was merged
+ * into — so a name shared only by a store and its merged duplicate is not
+ * ambiguous.
  */
 function svt_buildStoreResolver_() {
   const idsByName = {};
@@ -404,13 +409,21 @@ function svt_buildStoreResolver_() {
       if (name && id) reconciled[name] = id;
     });
   }
+  const mergedInto = typeof smt_readMerges_ === 'function' ? smt_readMerges_() : {};
+  const follow = id => {
+    let cur = id, hops = 0;
+    while (cur && mergedInto[cur] && hops < 20) { cur = mergedInto[cur]; hops++; }
+    return cur;
+  };
   return function (storeName, columnIStoreId) {
     const fromColumn = String(columnIStoreId || '').trim().toUpperCase();
-    if (fromColumn) return fromColumn;
+    if (fromColumn) return follow(fromColumn);
     const name = _normalizeEnum(storeName);
-    const ids = idsByName[name] ? Object.keys(idsByName[name]) : [];
+    const owners = {};
+    (idsByName[name] ? Object.keys(idsByName[name]) : []).forEach(id => { owners[follow(id)] = true; });
+    const ids = Object.keys(owners);
     if (ids.length === 1) return ids[0];
-    if (reconciled[name]) return reconciled[name];
+    if (reconciled[name]) return follow(reconciled[name]);
     return '';
   };
 }

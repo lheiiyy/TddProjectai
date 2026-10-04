@@ -838,7 +838,10 @@ function _cfg_syncLegacyMirror(area, entityId, suppressRebuild) {
   }
 }
 
-function _cfg_setStatus(area, versionId, newStatus, reason) {
+// `options.suppressRebuild` (optional, same meaning as cfg_createConfiguration's):
+// passed to the SETTINGS mirror so a batch tool (Store Name Matching) can skip
+// the per-call Store Health rebuild and run it once at the end.
+function _cfg_setStatus(area, versionId, newStatus, reason, options) {
   try {
     if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
     const schema = CFG_AREA_SCHEMAS[area];
@@ -867,7 +870,7 @@ function _cfg_setStatus(area, versionId, newStatus, reason) {
         const action = newStatus === CFG_STATUS.ACTIVE ? CFG_ACTION.ACTIVATE : CFG_ACTION.DEACTIVATE;
         _cfg_writeAudit_(area, entity, action, 'status=' + prevStatus, 'status=' + newStatus, effFrom, effTo, reason || '', versionNum, sl_getCurrentUser());
 
-        _cfg_syncLegacyMirror(area, entity);
+        _cfg_syncLegacyMirror(area, entity, options && options.suppressRebuild);
 
         return { success: true, versionId, status: newStatus };
       }
@@ -879,14 +882,14 @@ function _cfg_setStatus(area, versionId, newStatus, reason) {
   }
 }
 
-/** cfg_activateConfiguration(area, versionId, reason) — admin-gated. */
-function cfg_activateConfiguration(area, versionId, reason) {
-  return _cfg_setStatus(area, versionId, CFG_STATUS.ACTIVE, reason);
+/** cfg_activateConfiguration(area, versionId, reason, options) — admin-gated. */
+function cfg_activateConfiguration(area, versionId, reason, options) {
+  return _cfg_setStatus(area, versionId, CFG_STATUS.ACTIVE, reason, options);
 }
 
-/** cfg_deactivateConfiguration(area, versionId, reason) — admin-gated. */
-function cfg_deactivateConfiguration(area, versionId, reason) {
-  return _cfg_setStatus(area, versionId, CFG_STATUS.INACTIVE, reason);
+/** cfg_deactivateConfiguration(area, versionId, reason, options) — admin-gated. */
+function cfg_deactivateConfiguration(area, versionId, reason, options) {
+  return _cfg_setStatus(area, versionId, CFG_STATUS.INACTIVE, reason, options);
 }
 
 /**
