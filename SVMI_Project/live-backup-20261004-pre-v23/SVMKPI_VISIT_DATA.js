@@ -16,7 +16,7 @@
 //   * System Tools → "Compare Reports" runs the old and the new version
 //     side by side and lists every difference, read-only.
 //
-// Reports on the tables so far: Visited This Month (D.1), Unvisited / NAC (D.2).
+// Reports on the tables so far: Visited This Month (D.1).
 //
 // Every function except the portal_ entry points ends in "_" (private).
 // ============================================================
@@ -33,7 +33,7 @@ function portal_useVisitTablesForReports() {
   if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
   if (!svd_tablesExist_()) return { success: false, message: 'STORE_VISITS / STORE_VISIT_VISITORS not found — run Rebuild Visit Tables first.' };
   svd_setSource_(SVD_SOURCE.TABLES);
-  return { success: true, message: 'Reports now read the visit tables (by Store ID): Visited This Month, Unvisited / NAC.' };
+  return { success: true, message: 'Reports now read the visit tables (by Store ID): Visited This Month.' };
 }
 
 function portal_useMasterLogForReports() {
@@ -70,15 +70,6 @@ function portal_compareReports() {
       placed += c.placed;
       c.diffs.forEach(d => diffs.push(Object.assign({ month: m }, d)));
     }
-    // D.2 — Unvisited / NAC, each month evaluated as fully elapsed (or up to today).
-    let gSame = 0, gClosedLater = 0;
-    const gDiffs = [];
-    for (let m = 1; m <= lastMonth; m++) {
-      const c = svd_compareGaps_(_sl_complianceGapsFromLog_([], m, year), svd_complianceGaps_([], m, year, null, data));
-      gSame += c.same;
-      gClosedLater += c.closedLater;
-      c.diffs.forEach(d => gDiffs.push(Object.assign({ month: m }, d)));
-    }
     const monthName = m => ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1];
     // Each difference with the MASTER_LOG rows behind it: where the tables put
     // every visit recorded under that name that month.
@@ -97,10 +88,6 @@ function portal_compareReports() {
           + (rows.length ? ' · ' + rows.slice(0, 6).join('; ') : ''),
       };
     });
-    gDiffs.slice(0, 60).forEach(d => errors.push({
-      row: monthName(d.month) + ' NAC',
-      message: d.store + ' (' + (d.brand || '—') + '): MASTER_LOG ' + d.old + ', tables ' + d.now,
-    }));
     // Why they differ: the old report trusts the Brand column (D) when two
     // brands share a name, the tables trust the Store ID (column I).
     const unplaced = svd_unplaced_(data, year);
@@ -117,13 +104,10 @@ function portal_compareReports() {
       + same + ' store-month(s) identical'
       + (placed ? ' · ' + placed + ' visit(s) the old report could not place are now in their store' : '')
       + (diffs.length ? ' · ⚠ ' + diffs.length + ' difference(s)' : ' · no other differences ✔')
-      + ' || Unvisited/NAC: ' + gSame + ' store-month(s) identical'
-      + (gClosedLater ? ' · ' + gClosedLater + ' store-month(s) of stores closed since then (open at the time, now counted)' : '')
-      + (gDiffs.length ? ' · ⚠ ' + gDiffs.length + ' difference(s) (rows marked NAC)' : ' · no other differences ✔')
       + (unplaced.length ? ' · ' + unplaced.length + ' visit(s) the tables can\'t place in a store — listed below by MASTER_LOG row' : '')
       + (mismatches.length ? ' · ' + mismatches.length + ' MASTER_LOG row(s) whose Brand (D) is not the brand of their Store ID (I) — listed below by row' : '')
       + ' · reports now read: ' + (svd_useTables_() ? 'visit tables' : 'MASTER_LOG');
-    return { success: diffs.length === 0 && gDiffs.length === 0, message: msg, errors, diffs: diffs.length, gapDiffs: gDiffs.length, mismatches: mismatches.length, unplaced: unplaced.length };
+    return { success: diffs.length === 0, message: msg, errors, diffs: diffs.length, mismatches: mismatches.length, unplaced: unplaced.length };
   } catch (e) {
     if (typeof logError === 'function') logError('portal_compareReports', e);
     return { success: false, message: e.message, errors: [] };
@@ -377,147 +361,3 @@ function svd_compareVisited_(oldR, newR) {
   });
   return { same, placed, diffs };
 }
-
-
-// ═══════════════════════════════════════════════════════════════
-// SECTION 5: UNVISITED / NAC — COMPLIANCE GAPS (D.2)
-// ═══════════════════════════════════════════════════════════════
-
-/**
- * Same result shape as _sl_complianceGapsFromLog_() (SVMKPI_STORE_LOOKUP.gs)
- * plus `storeId`, with the same calendar-period-to-date rules, but:
- *   - visits are counted per Store ID (two brands may share a name);
- *   - the roster is CONFIG_STORES, not SETTINGS: every store that was OPEN
- *     on the evaluation date. A store closed since then still had to be
- *     visited in that period; a store closed by then is left out. A store
- *     whose first version starts later (start dates from the migration are
- *     not real opening dates) counts as open if it is open today.
- *   - name/brand/region/category shown are the store's current ones; the
- *     compliance rule is resolved as of the evaluation date, as before.
- * @returns {null|object[]} null = no tables (caller falls back to MASTER_LOG)
- */
-function svd_complianceGaps_(brandFilter, monthNumber, reportingYear, evaluationDateStr, preloaded) {
-  const visits = preloaded || svd_loadVisits_();
-  if (!visits) return null;
-
-  const now  = new Date();
-  const year = (reportingYear != null && !isNaN(Number(reportingYear))) ? Number(reportingYear) : getDefaultReportingYear();
-  const specificPeriodRequested = !!(monthNumber || reportingYear != null);
-  const refMonthIdx = (monthNumber && monthNumber >= 1 && monthNumber <= 12) ? monthNumber - 1 : now.getMonth();
-  const periodRefDate = new Date(year, refMonthIdx, 1);
-
-  const monthPeriod   = resolveCalendarPeriod(periodRefDate, CAL_PERIOD_FAMILY.MONTH);
-  const quarterPeriod = resolveCalendarPeriod(periodRefDate, CAL_PERIOD_FAMILY.QUARTER);
-  const semiPeriod    = resolveCalendarPeriod(periodRefDate, CAL_PERIOD_FAMILY.SEMI_ANNUAL);
-
-  let evaluationDate;
-  if (evaluationDateStr) evaluationDate = _parseDateCell(evaluationDateStr) || now;
-  else if (specificPeriodRequested) evaluationDate = monthPeriod.periodEnd;
-  else evaluationDate = now;
-
-  const clip = (periodEnd) => (periodEnd.getTime() < evaluationDate.getTime() ? periodEnd : evaluationDate);
-  const win = {
-    month:   [monthPeriod.periodStart,   clip(monthPeriod.periodEnd)],
-    quarter: [quarterPeriod.periodStart, clip(quarterPeriod.periodEnd)],
-    semi:    [semiPeriod.periodStart,    clip(semiPeriod.periodEnd)],
-  };
-  const inWin = (d, w) => d >= w[0] && d <= w[1];
-
-  // ── Roster: open on the evaluation date (see above) ──
-  const today = cfg_resolveAllAsOf(CFG_AREA.STORES, null);
-  const atEval = cfg_resolveAllAsOf(CFG_AREA.STORES, evaluationDate);
-  const isClosed = r => String((r.fields && r.fields.status) || CFG_STATUS.ACTIVE).toUpperCase() === CFG_STATUS.INACTIVE;
-  const roster = {};
-  Object.keys(today).forEach(id => {
-    const cur = today[id];
-    const then = atEval[id];
-    if (then ? isClosed(then) : isClosed(cur)) return;
-    const f = cur.fields || {};
-    const brand = _normalizeEnum(f.brand);
-    if (!_slBrandAllowed(brand, brandFilter)) return;
-    roster[id] = { name: _normalizeEnum(f.storeName), brand, region: _normalizeEnum(f.region), category: _normalizeEnum(f.category) };
-  });
-
-  // ── Visits per Store ID ──
-  const count = { month: {}, quarter: {}, semi: {} };
-  const last = {}, ytd = {};
-  visits.forEach(v => {
-    if (!v.storeId || !roster[v.storeId] || !v.date) return;
-    const id = v.storeId, d = v.date;
-    if (d.getFullYear() === year) ytd[id] = (ytd[id] || 0) + 1;
-    if (!last[id] || d > last[id]) last[id] = d;
-    Object.keys(win).forEach(k => { if (inWin(d, win[k])) count[k][id] = (count[k][id] || 0) + 1; });
-  });
-
-  const complianceByCategory = cfg_resolveAllAsOf(CFG_AREA.COMPLIANCE, evaluationDate);
-  const gaps = [];
-  Object.keys(roster).forEach(id => {
-    const st = roster[id];
-    let rule = null;
-    if (atEval[id] && typeof resolveComplianceConfigurationAsOf === 'function') {
-      rule = resolveComplianceConfigurationAsOf(id, evaluationDate, atEval, complianceByCategory);
-    }
-    if (!rule && typeof _cmp_resolveByCategory === 'function') rule = _cmp_resolveByCategory(st.category, evaluationDate, complianceByCategory);
-    if (!rule) return;
-
-    const requiredCount = rule.requiredCount || 1;
-    let windowLabel, actualCount;
-    if (rule.periodDefinition === CAL_PERIOD_FAMILY.MONTH) { windowLabel = 'Monthly'; actualCount = count.month[id] || 0; }
-    else if (rule.periodDefinition === CAL_PERIOD_FAMILY.QUARTER) { windowLabel = 'Quarterly'; actualCount = count.quarter[id] || 0; }
-    else if (rule.periodDefinition === CAL_PERIOD_FAMILY.SEMI_ANNUAL) { windowLabel = 'Semi-Annual'; actualCount = count.semi[id] || 0; }
-    else return;
-    if (actualCount >= requiredCount) return;
-
-    const lv = last[id] || null;
-    gaps.push({
-      storeId: id,
-      store: st.name,
-      brand: st.brand,
-      region: st.region,
-      category: st.category,
-      lastVisitDate: lv ? _sl_formatDate(lv) : '—',
-      daysSince: lv ? Math.floor((evaluationDate - lv) / 86400000) : null,
-      windowLabel,
-      ytdVisits: ytd[id] || 0,
-      requiredCount,
-      actualCount,
-    });
-  });
-  gaps.sort((a, b) => a.store.localeCompare(b.store) || a.brand.localeCompare(b.brand));
-  return gaps;
-}
-
-/**
- * Old vs new Unvisited / NAC for one month, matched by store name + brand.
- * `closedLater` = on the new list only because the store was open then but
- * is closed now (the old report reads today's SETTINGS, which drops closed
- * stores) — expected, not a difference.
- */
-function svd_compareGaps_(oldGaps, newGaps) {
-  const key = g => _normalizeEnum(g.store) + '|' + _normalizeEnum(g.brand);
-  const oldBy = {}, newBy = {};
-  (oldGaps || []).forEach(g => { oldBy[key(g)] = g; });
-  (newGaps || []).forEach(g => { newBy[key(g)] = g; });
-  const today = cfg_resolveAllAsOf(CFG_AREA.STORES, null);
-  const closedNow = id => {
-    const r = today[id];
-    return !!r && String((r.fields && r.fields.status) || '').toUpperCase() === CFG_STATUS.INACTIVE;
-  };
-  let same = 0, closedLater = 0;
-  const diffs = [];
-  const keys = {};
-  Object.keys(oldBy).concat(Object.keys(newBy)).forEach(k => { keys[k] = true; });
-  Object.keys(keys).sort().forEach(k => {
-    const o = oldBy[k], n = newBy[k];
-    if (o && n && o.actualCount === n.actualCount) { same++; return; }
-    if (!o && n && closedNow(n.storeId)) { closedLater++; return; }
-    const g = o || n;
-    diffs.push({
-      store: g.store, brand: g.brand,
-      old: o ? 'not met (' + o.actualCount + '/' + o.requiredCount + ')' : 'met / not listed',
-      now: n ? 'not met (' + n.actualCount + '/' + n.requiredCount + ')' : 'met / not listed',
-    });
-  });
-  return { same, closedLater, diffs };
-}
-

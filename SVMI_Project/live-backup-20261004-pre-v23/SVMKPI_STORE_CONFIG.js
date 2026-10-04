@@ -565,17 +565,6 @@ function store_migrateFromSettings(settingsStores, masterLogRows) {
 
   const rows = masterLogRows || [];
   const mapping = {};   // normalized name -> storeId
-  // Names any store has (had) in CONFIG_STORES, or that were reconciled by
-  // hand — e.g. closed stores, which are not in SETTINGS. Their visits are
-  // matched; never record them as unmapped again.
-  const knownNames = {};
-  cfg_getConfiguration(CFG_AREA.STORES).forEach(v => {
-    const n = String((v.fields && v.fields.storeName) || '').trim().toUpperCase();
-    if (n) knownNames[n] = true;
-  });
-  if (typeof store_getUnmappedStores === 'function') {
-    store_getUnmappedStores('RECONCILED').forEach(u => { knownNames[String(u.originalStoreName || '').trim().toUpperCase()] = true; });
-  }
   const created = [];
   const alreadyMigrated = [];
   const failed = [];
@@ -635,7 +624,7 @@ function store_migrateFromSettings(settingsStores, masterLogRows) {
   const unmappedStats = {}; // name -> {count, first, last}
   rows.forEach(row => {
     const name = String(row.store || '').trim().toUpperCase();
-    if (!name || mapping[name] || knownNames[name]) return; // mapped — nothing to track
+    if (!name || mapping[name]) return; // mapped — nothing to track
     const d = _parseDateCell(row.date);
     if (!unmappedStats[name]) unmappedStats[name] = { count: 0, first: null, last: null };
     const stat = unmappedStats[name];

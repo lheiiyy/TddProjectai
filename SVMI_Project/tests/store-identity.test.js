@@ -315,6 +315,18 @@ console.log('\n── Migration: two brands with one name are two stores (ZAMBOA
   check('running it again creates nothing', again.createdStoreIds.length === 0, JSON.stringify(again));
 }
 
+console.log('\n── Migration: a closed store (not in SETTINGS) or a reconciled name is not unmapped again ──');
+{
+  const { sandbox } = newSandbox();
+  sandbox.store_create({ storeName: 'SHANGRILA', brand: "ANGEL'S PIZZA", region: 'NCR', category: 'A' }, '2026-01-01', 'setup', { backdateConfirmed: true });
+  const t = sandbox.store_create({ storeName: 'SAN PEDRO', brand: "ANGEL'S PIZZA", region: 'NCR', category: 'A' }, '2026-01-01', 'setup', { backdateConfirmed: true });
+  const u = sandbox.store_recordUnmapped('SM SAN PEDRO', '2026-02-21', '2026-02-21', 1);
+  sandbox.store_reconcileUnmapped(u.unmappedId, t.storeId, 'same store');
+  const result = sandbox.store_migrateFromSettings([], [{ store: 'SHANGRILA', date: '2026-01-22' }, { store: 'SM SAN PEDRO', date: '2026-02-21' }, { store: 'NOWHERE', date: '2026-03-01' }]);
+  check('only the truly unknown name is unmapped', result.unmappedCount === 1, result.unmappedCount);
+  check('no new UNMAPPED entry for SHANGRILA / SM SAN PEDRO', sandbox.store_getUnmappedStores('UNMAPPED').map(x => x.originalStoreName).join() === 'NOWHERE', JSON.stringify(sandbox.store_getUnmappedStores('UNMAPPED')));
+}
+
 console.log('\n── Migration: a name with no exact SETTINGS match is never guessed — it is UNMAPPED ──');
 {
   const { sandbox } = newSandbox();

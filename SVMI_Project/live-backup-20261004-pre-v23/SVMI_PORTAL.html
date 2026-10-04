@@ -1055,7 +1055,7 @@ textarea.fi{padding-right:28px}
           <div class="tool-desc-hdr">Old (MASTER_LOG) vs new (visit tables)</div></div></div>
         <div class="tool-body">
           <span class="risk-badge safe">✓ Read-only · safe</span>
-          <p>Runs <b>Visited This Month</b> and <b>Unvisited / NAC</b> for every month of the year both ways and lists every store whose result differs. Visits the old report couldn't place (closed stores, old spellings) and stores closed since then are counted separately — those are expected. Run this before switching.</p>
+          <p>Runs <b>Visited This Month</b> for every month of the year both ways and lists every store whose numbers differ. Visits the old report couldn't place (closed stores, old spellings) are counted separately — those are expected. Run this before switching.</p>
           <button class="tool-run" onclick="runTool('compareReports','stat-CR')">▶ Compare Reports</button>
           <div class="tool-stat idle" id="stat-CR">Ready</div>
           <div class="tool-lock" id="lock-CR" hidden>🔒 Admin access required to run this tool.</div>
@@ -1068,7 +1068,7 @@ textarea.fi{padding-right:28px}
           <div class="tool-desc-hdr">Which data the reports read</div></div></div>
         <div class="tool-body">
           <span class="risk-badge info">🔄 Switch any time — nothing is changed in the sheets</span>
-          <p><b>Visit tables</b>: Visited This Month and Unvisited / NAC count visits by Store ID, so two brands with the same store name stay apart, closed stores keep their visits, and a store that was open in a past month is checked for that month. <b>MASTER_LOG</b>: the old way, by name. If the tables are missing the reports use MASTER_LOG anyway.</p>
+          <p><b>Visit tables</b>: Visited This Month counts visits by Store ID, so two brands with the same store name stay apart, and closed stores keep their visits. <b>MASTER_LOG</b>: the old way, by name. If the tables are missing the reports use MASTER_LOG anyway.</p>
           <button class="tool-run" onclick="runTool('useVisitTables','stat-RS')">▶ Use visit tables</button>
           <button class="tool-run" style="margin-top:6px" onclick="runTool('useMasterLog','stat-RS')">↩ Use MASTER_LOG</button>
           <div class="tool-stat idle" id="stat-RS">Ready</div>

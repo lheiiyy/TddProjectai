@@ -119,8 +119,8 @@ MASTER_LOG_FIXES and CONFIG_STORE_MERGES show exactly what changed.
 
 | Step | Report | Status |
 |---|---|---|
-| D.1 | Visited This Month | ✅ built (v19) |
-| D.2 | Unvisited / NAC (compliance gaps) | ⏳ |
+| D.1 | Visited This Month | ✅ live v19–v22 (Compare: only URDANETA differs — old report wrong) |
+| D.2 | Unvisited / NAC (compliance gaps) | ✅ built (v23) — roster = CONFIG_STORES open on the evaluation date |
 | D.3 | Store Insights | ⏳ |
 | D.4 | Store Health + Store Master Insight | ⏳ |
 | D.5 | Executive Summary / KPI | ⏳ |
