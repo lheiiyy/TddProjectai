@@ -1951,7 +1951,7 @@ node SVMI_Project/tests/store-name-matching.test.js
 node SVMI_Project/tests/store-name-matching-ui.test.js
 
 # Phase D.1: Visited This Month by Store ID from the visit tables, the
-# Report Source switch (default MASTER_LOG) and Compare Reports; D.2 Unvisited/NAC (37 checks)
+# Report Source switch (default MASTER_LOG) and Compare Reports; D.2 Unvisited/NAC; D.3 Store Insights (48 checks)
 node SVMI_Project/tests/phase-d-reports.test.js
 ```
 
