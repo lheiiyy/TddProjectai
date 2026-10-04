@@ -118,9 +118,12 @@ console.log('\n── Compare Reports ──');
   // closed, so it isn't in SETTINGS, and the old report gave its May visit to the open
   // Angel's Pizza URDANETA (same name).
   check('only difference: May URDANETA visit moves from Angel\'s Pizza (old, wrong) to Figaro (tables)',
-    c.diffs === 2 && c.errors.every(x => x.row === 'May' && /^URDANETA/.test(x.message))
+    c.diffs === 2 && c.errors.every(x => /^(May|Jun)( NAC)?$/.test(x.row) && /^URDANETA/.test(x.message))
     && c.errors.some(x => /URDANETA \(ANGEL'S PIZZA\): MASTER_LOG 1 visit\(s\), tables 0/.test(x.message))
     && c.errors.some(x => /URDANETA \(FIGARO\): MASTER_LOG 0 visit\(s\), tables 1/.test(x.message)), c.errors);
+  check('Unvisited/NAC: the same URDANETA visit made Angel\'s Pizza URDANETA look visited in Q2 (old) — tables: not met',
+    c.gapDiffs === 2 && c.errors.filter(x => / NAC$/.test(x.row)).every(x => /URDANETA \(ANGEL'S PIZZA\): MASTER_LOG met \/ not listed, tables not met \(0\/1\)/.test(x.message)), c.errors);
+  check('Unvisited/NAC: closed-since stores counted separately, not as differences', /store-month\(s\) of stores closed since then/.test(c.message), c.message);
   check('each difference shows the MASTER_LOG rows and where the tables put them', c.errors.some(x => /URDANETA \(FIGARO\).*row 11 → URDANETA \(FIGARO\)/.test(x.message)), c.errors);
   check('message names what reports read now', /reports now read: MASTER_LOG/.test(c.message), c.message);
 
@@ -168,6 +171,24 @@ console.log('\n── Old NAME list in column I is not a Store ID ──');
   const c = s.portal_compareReports();
   check('Compare: nothing unplaced', c.unplaced === 0, c.errors);
   check('duplicate check still works on such a row', s.checkDuplicateVisit({ store: 'STA. MARIA', storeId: ids.APSM, brand: "ANGEL'S PIZZA", dateVisited: '2026-01-05' }).duplicate === true);
+}
+
+console.log('\n── D.2 Unvisited / NAC from the visit tables ──');
+{
+  const { s, ids } = cleaned();
+  s.portal_useVisitTablesForReports();
+  const mar = s.sl_getComplianceGaps([], 3, 2026);
+  const sha = mar.filter(g => g.store === 'SHANGRILA')[0];
+  check('March: SHANGRILA (open then, closed June) has no March visit → listed, with its Store ID', sha && /^STR-/.test(sha.storeId) && sha.brand === "ANGEL'S PIZZA" && sha.actualCount === 0, mar);
+  const jul = s.sl_getComplianceGaps([], 7, 2026);
+  check('July: SHANGRILA closed by then → not listed', !jul.some(g => g.store === 'SHANGRILA'), jul.map(g => g.store));
+  const sta = jul.filter(g => g.store === 'STA. MARIA');
+  check('July: only Angel\'s Pizza STA. MARIA is behind (Figaro STA. MARIA was visited twice)', sta.length === 1 && sta[0].storeId === ids.APSM && sta[0].brand === "ANGEL'S PIZZA", sta);
+  check('every row carries a Store ID', jul.every(g => /^STR-/.test(g.storeId)));
+  const figOnly = s.sl_getComplianceGaps(['FIGARO'], 7, 2026);
+  check('brand filter', figOnly.every(g => g.brand === 'FIGARO'), figOnly);
+  s.portal_useMasterLogForReports();
+  check('switch back → MASTER_LOG version', JSON.stringify(s.sl_getComplianceGaps([], 7, 2026)) === JSON.stringify(s._sl_complianceGapsFromLog_([], 7, 2026)));
 }
 
 console.log('\n── Admin only ──');

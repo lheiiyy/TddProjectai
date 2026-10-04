@@ -886,6 +886,17 @@ function sl_getUnvisitedThisMonth(brandFilter) {
  * @returns {object[]} sorted A-Z by store name
  */
 function _sl_getComplianceGaps_impl(brandFilter, monthNumber, reportingYear, evaluationDateStr) {
+  // Phase D.2 (SVMKPI_VISIT_DATA.gs): by Store ID from the visit tables when
+  // an admin has switched reports to them; MASTER_LOG + SETTINGS otherwise.
+  if (typeof svd_useTables_ === 'function' && svd_useTables_()) {
+    const fromTables = svd_complianceGaps_(brandFilter, monthNumber, reportingYear, evaluationDateStr);
+    if (fromTables) return fromTables;
+  }
+  return _sl_complianceGapsFromLog_(brandFilter, monthNumber, reportingYear, evaluationDateStr);
+}
+
+/** Unvisited / NAC from MASTER_LOG + SETTINGS, by name (the pre-Phase-D report). */
+function _sl_complianceGapsFromLog_(brandFilter, monthNumber, reportingYear, evaluationDateStr) {
   const ss       = SpreadsheetApp.getActiveSpreadsheet();
   const now      = new Date();
   const year     = (reportingYear != null && !isNaN(Number(reportingYear)))
