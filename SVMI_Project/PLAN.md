@@ -1,12 +1,11 @@
 # SVMI — Fix & Improve Plan
 
-Last updated: 2026-10-04 · Working branch: `svmi/phase-d-reports`
+Last updated: 2026-10-05 · Working branch: `svmi/phase-d3-insights` (PR #22)
 
-**🚀 LIVE = version 18 (2026-10-04)** — same Web App URL. v18 = same name for 3+ brands in one batch + brand tags;
-v17 = Store Name Matching section 4 (same name as another brand's store); v16 = Store ID portal / same name across
-brands; v15 = Store Name Matching; v14 = Phase C visit tables (2026-10-03).
-Rollback sources: `live-backup-20261004-pre-v18/` (= v17), `-pre-v17/` (= v16), `-pre-v16/` (= v15), `-pre-v15/` (= v14).
-**Next: Phase D** — reports read STORE_VISITS by Store ID.
+**🚀 LIVE = version 23 (2026-10-04)** — same Web App URL. v23 = D.2 Unvisited/NAC by Store ID; reports switched to
+the visit tables. v24 (D.3 Store Insights) is built in PR #22, not yet deployed (no `-pre-v24` backup in the repo).
+Rollback sources: `live-backup-20261004-pre-v23/` (= v22) and older `live-backup-*` folders.
+**Next: the 🐞 Bug & fix plan below (2026-10-05), then D.4.**
 Rule for now: **functionality first.** Security is parked (except admin access).
 Live backups (`live-backup-*`) are the safe fallback — never edited.
 
@@ -52,6 +51,110 @@ changes (#5, #6, #7, #9) plus `appsscript.json`.
 |---|------|--------|
 | 11 | Visited By: type + Enter does nothing (phones) | ✅ `keyup` fallback for Android keyboards that send Enter as keyCode 229; Enter also works if the list was closed. Applied to Store, Visitor, Purpose, Store Insights search |
 | 12 | Executive Summary slow (`[SVMI PERF] 5108 ms`) | ✅ MASTER_LOG read 3× → 1×; purpose check read PURPOSES+KPI+RISK config per purpose → 1 PURPOSES read. Same results. Re-measure after deploy |
+
+## 🐞 Bug & fix plan (from Leo's live check, 2026-10-05)
+
+Leo's report: Store Insights / Unvisited / other reports are slow (did the table switch cause it?); reports can't go
+back to past years; no way to edit/delete a wrong visit record; Unvisited tier pills can't be combined; Input Portal
+date picker doesn't open (typing only) and Enter on the date jumps past Visited By; Admin → Configuration "add new
+store" sits on "Saving…"; existing records need an admin-only ✏️ edit option.
+
+Order = smallest/safest first, one deploy per batch, same deploy routine (tests → `-pre-vNN` backup → live → Leo checks → PR → Leo merges).
+D.4/D.5 wait until F1–F3 are done (functionality first).
+
+### F0 — Measure before fixing speed (no deploy needed)
+
+Every slow report is already timed: Apps Script → **Executions** shows `[SVMI PERF] sl_getStoreData`,
+`sl_getComplianceGaps`, `sl_getVisitedThisMonth`, `sl_getStoreList`, `getStoreHealthReport` … in ms.
+Leo: open each slow screen twice, note the ms; then System Tools → Report Source → **↩ Use MASTER_LOG**, repeat, and switch
+back (**▶ Use visit tables**). That A/B answers "did the database change cause it" with numbers, not guesses.
+
+What the code already shows:
+- Live (v23) Store Insights still reads MASTER_LOG — it is slow for the old reasons: one lookup reads all of MASTER_LOG,
+  SETTINGS and the compliance/risk config and scores **every** store's health just to show one.
+- With the tables switch on, Visited / Unvisited read STORE_VISITS + STORE_VISIT_VISITORS + CONFIG_STORES (twice for
+  Unvisited) **and still** MASTER_LOG's date column (`getDefaultReportingYear()`, because the page sends no year).
+  So the switch added reads instead of replacing them. D.3 (v24) adds the same for Store Insights.
+- Nothing is cached between calls: every tab open / filter change re-reads every sheet.
+
+### F1 — Input Portal + Unvisited filter (small, low risk) → v25
+
+| # | Bug | Cause found in code | Fix |
+|---|-----|--------------------|-----|
+| F1.1 | 📅 date picker doesn't open; typing only | `openDatePicker()` calls `showPicker()` on a hidden date input. Browsers refuse `showPicker()` for date inputs inside a cross-origin iframe — which is how every Apps Script web app runs — and the fallback `click()` on a hidden, `pointer-events:none` input does nothing | Put the real (transparent) date input **over the 📅 button** so the user's own tap opens the native calendar — no `showPicker()` needed. Typing MM/DD/YYYY stays as is |
+| F1.2 | Enter on Date Visited skips Visited By, lands on Purpose | Enter's keydown on the date field moves focus to Visited By; the **same** Enter's keyup then fires on Visited By (the Android Enter fallback `comboKeyUp`), sees an empty box and advances again | The date field marks that Enter as handled (`_comboEnterAt`), and the keyup fallback only acts on an Enter whose keydown happened in that same field. Also: Enter on an empty Visited By with **no** visitor chosen stays put |
+| F1.3 | Unvisited: can't combine Monthly + Quarterly / Monthly + Semi | Pills are single-select (`setFilter`), although the Required column filter underneath already supports several values | Pills become on/off toggles feeding that same filter: Monthly+Quarterly, Monthly+Semi, any mix; "All Stores" clears. KPI cards and count follow the selection |
+
+Tests: portal tests for the date proxy placement, the Enter sequence (keydown on date → keyup on Visited By must not
+advance), and multi-select pills.
+
+### F2 — Admin → Configuration: "add new store" stuck on Saving → v25 (same batch if it's small)
+
+Cause found in code: one store save = write CONFIG_STORES → mirror to SETTINGS → **full Store Health rebuild**
+(`refreshRiskEngine()`, a whole MASTER_LOG scan + rewrite of the Store Health sheet) inside the same call. The button
+waits for all of it; on live data this can take minutes or hit Apps Script's 6-minute limit.
+First check (Leo, 2 min): Executions → the `store_create` run — finished, failed, or timed out? And CONFIG_STORES —
+was the store added anyway (then it must not be added a second time)?
+
+Fix:
+- Save returns as soon as CONFIG_STORES + SETTINGS are written; Store Health is marked "needs refresh" and rebuilt
+  once later (time trigger a minute later, or the next Store Health open), not inside the save.
+- Button shows a clear result: saved / failed with the reason / "still working — check the list before retrying".
+- Guard against a double add of the same name + brand on retry.
+- Same treatment for Visitors and Purposes saves (they share the mirror-then-rebuild pattern).
+
+### F3 — Speed → v26
+
+After F0's numbers:
+1. Reports switched to tables stop reading MASTER_LOG: the reporting year comes from the visit tables (or the page
+   sends it — see F4), CONFIG_STORES is read once per call.
+2. Short cache (CacheService, a few minutes) of the loaded visits + store lookup, cleared on every submission,
+   edit/delete (F5), Rebuild Visit Tables and store config change. Repeat opens / filter changes become near-instant.
+3. Store Insights: health for **one** store from the tables instead of scoring every store from MASTER_LOG — this is
+   D.4's first piece, pulled forward.
+4. Page side: the store list for Store Insights is loaded once per session, not per tab open.
+Target: each report under ~3 s on live data; record before/after ms in `TESTING_LOG.md`.
+
+### F4 — Past years in reports → v27
+
+Today: only Executive Summary has a Year dropdown. Visited This Month and Unvisited send only a month (the year is
+"latest year with data"), Store Insights is all-time, Store Health and KPI 2026 take no year.
+Side bug: in January of a new year with no visits yet, "Current Month" resolves to **January of last year**.
+Fix:
+- One Year dropdown (years that have visits, from STORE_VISITS) next to the Month dropdown, used by Visited This
+  Month, Unvisited and Store Insights (Store Insights: "All years" default + one year).
+- Store Health gets a Year (as of the end of that year for past years).
+- KPI 2026: a year dropdown too, or keep it 2026-only — Leo's decision (below).
+- "Current Month" always means the real current month and year.
+
+### F5 — Edit / delete visit records, admin only → v28
+
+Leo (2026-10-05): existing records must be editable; ✏️ edit icon beside each record; **admin only**.
+Design (MASTER_LOG stays the audit trail):
+- ✏️ beside each visit in Store Insights' visit list (full list for the store, filterable by year — not only the last
+  few) and in a **Visit Records** list (filter by store / date / visitor) for admins; hidden from non-admins, and every
+  server function re-checks admin (`sl_isAdmin()`), not just the page.
+- Edit: date, store (Store ID picker), visitors, purpose, remarks. Saves to the MASTER_LOG row, writes the old and
+  new values + who + when + reason to a new **VISIT_CORRECTIONS** sheet, and replaces that visit in STORE_VISITS /
+  STORE_VISIT_VISITORS (its Visit ID changes because IDs come from the row's content — handled in the same step).
+- Delete = **void**, not row removal: the visit drops out of every report, the row stays in MASTER_LOG and is listed in
+  VISIT_CORRECTIONS with the reason; an admin can restore it. (Removing MASTER_LOG rows shifts row numbers — that is
+  why the hand-deleted test row showed up in Check Visit Tables.)
+- Duplicate check runs again on edit (same store + date + visitor).
+- Rebuild Visit Tables must re-apply voids (so a rebuild can't bring a voided visit back); Check Visit Tables reports
+  voided visits separately.
+- Admin → Configuration's existing store/visitor/purpose records already edit by adding a new version; after F2 they
+  get the same ✏️ next to each row so editing doesn't start from the "new" form.
+
+### Decisions needed from Leo
+
+| # | Question | Recommendation |
+|---|----------|----------------|
+| L1 | Delete: void (hidden from reports, restorable) or permanent? | Void |
+| L2 | Reason required on every edit/void? | Yes, one line |
+| L3 | KPI 2026: add a year dropdown, or keep it fixed to 2026? | Year dropdown |
+| L4 | Store Health refresh after an admin save: background (a minute later) or on next Store Health open? | Background |
+| L5 | Order: F1+F2 → F3 → F4 → F5, then D.4/D.5 | As listed |
 
 ## 🧱 Phase C — visit tables in Google Sheets (live in v14)
 
