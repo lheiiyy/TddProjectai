@@ -3,7 +3,7 @@
 Last updated: 2026-10-05 · Working branch: `svmi/phase-d3-insights` (PR #22)
 
 **🚀 LIVE = version 23 (2026-10-04)** — same Web App URL. v23 = D.2 Unvisited/NAC by Store ID; reports switched to
-the visit tables. v24 (D.3 Store Insights) is built in PR #22, not yet deployed (no `-pre-v24` backup in the repo).
+the visit tables. v24 (D.3 Store Insights, PR #22): deploy started 2026-10-05 — `live-backup-20261004-pre-v24/` committed; Leo to confirm it's live.
 Rollback sources: `live-backup-20261004-pre-v23/` (= v22) and older `live-backup-*` folders.
 **Next: the 🐞 Bug & fix plan below (2026-10-05), then D.4.**
 Rule for now: **functionality first.** Security is parked (except admin access).
