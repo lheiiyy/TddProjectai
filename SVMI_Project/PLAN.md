@@ -57,104 +57,145 @@ changes (#5, #6, #7, #9) plus `appsscript.json`.
 Leo's report: Store Insights / Unvisited / other reports are slow (did the table switch cause it?); reports can't go
 back to past years; no way to edit/delete a wrong visit record; Unvisited tier pills can't be combined; Input Portal
 date picker doesn't open (typing only) and Enter on the date jumps past Visited By; Admin → Configuration "add new
-store" sits on "Saving…"; existing records need an admin-only ✏️ edit option.
+store" sits on loading/"Saving…"; existing records need an admin-only ✏️ edit option; review **all** Admin areas
+(Configuration, Tools, Audit) for issues; add a **weekly history (Monday–Sunday)** to the Input Portal.
 
-Order = smallest/safest first, one deploy per batch, same deploy routine (tests → `-pre-vNN` backup → live → Leo checks → PR → Leo merges).
-D.4/D.5 wait until F1–F3 are done (functionality first).
+Order = biggest breakage first, one deploy per batch, same routine (tests → `-pre-vNN` backup → live → Leo checks →
+PR → Leo merges). D.4/D.5 wait until these are done (functionality first).
+C = confirmed by reading the code · S = suspected, confirm on live.
 
-### F0 — Measure before fixing speed (no deploy needed)
+### Root cause shared by many admin screens
 
-Every slow report is already timed: Apps Script → **Executions** shows `[SVMI PERF] sl_getStoreData`,
-`sl_getComplianceGaps`, `sl_getVisitedThisMonth`, `sl_getStoreList`, `getStoreHealthReport` … in ms.
-Leo: open each slow screen twice, note the ms; then System Tools → Report Source → **↩ Use MASTER_LOG**, repeat, and switch
-back (**▶ Use visit tables**). That A/B answers "did the database change cause it" with numbers, not guesses.
+Apps Script cannot send a `Date` back to the page: if a server result contains one, the page receives **nothing**
+(`null`). Several admin functions return raw dates from the sheets, so their screens spin forever, show "nothing
+found", or report failure after a success. Fix once: every server result that goes to the page carries dates as text
+(`yyyy-MM-dd` / `yyyy-MM-dd HH:mm`, Asia/Manila), plus a test that scans every page-facing result for Date objects.
 
-What the code already shows:
-- Live (v23) Store Insights still reads MASTER_LOG — it is slow for the old reasons: one lookup reads all of MASTER_LOG,
-  SETTINGS and the compliance/risk config and scores **every** store's health just to show one.
-- With the tables switch on, Visited / Unvisited read STORE_VISITS + STORE_VISIT_VISITORS + CONFIG_STORES (twice for
-  Unvisited) **and still** MASTER_LOG's date column (`getDefaultReportingYear()`, because the page sends no year).
-  So the switch added reads instead of replacing them. D.3 (v24) adds the same for Store Insights.
-- Nothing is cached between calls: every tab open / filter change re-reads every sheet.
+### F0 — Measure before fixing speed (Leo, no deploy)
 
-### F1 — Input Portal + Unvisited filter (small, low risk) → v25
+- Apps Script → **Executions** shows `[SVMI PERF] sl_getStoreData`, `sl_getComplianceGaps`, `sl_getVisitedThisMonth`,
+  `sl_getStoreList`, `getStoreHealthReport` … in ms. Open each slow screen twice and note the ms; then System Tools →
+  Report Source → **↩ Use MASTER_LOG**, repeat, then switch back (**▶ Use visit tables**). That answers "did the
+  database change cause it" with numbers.
+- Executions → the `store_create` run from the stuck add-store: finished / failed / timed out? CONFIG_STORES: was the
+  store added anyway? (Then don't add it again — a retry creates a second Store ID.)
+- MASTER_LOG_FIXES: any row with RowNum 2–13? (see F2.4 — the leaderboard)
 
-| # | Bug | Cause found in code | Fix |
-|---|-----|--------------------|-----|
-| F1.1 | 📅 date picker doesn't open; typing only | `openDatePicker()` calls `showPicker()` on a hidden date input. Browsers refuse `showPicker()` for date inputs inside a cross-origin iframe — which is how every Apps Script web app runs — and the fallback `click()` on a hidden, `pointer-events:none` input does nothing | Put the real (transparent) date input **over the 📅 button** so the user's own tap opens the native calendar — no `showPicker()` needed. Typing MM/DD/YYYY stays as is |
-| F1.2 | Enter on Date Visited skips Visited By, lands on Purpose | Enter's keydown on the date field moves focus to Visited By; the **same** Enter's keyup then fires on Visited By (the Android Enter fallback `comboKeyUp`), sees an empty box and advances again | The date field marks that Enter as handled (`_comboEnterAt`), and the keyup fallback only acts on an Enter whose keydown happened in that same field. Also: Enter on an empty Visited By with **no** visitor chosen stays put |
-| F1.3 | Unvisited: can't combine Monthly + Quarterly / Monthly + Semi | Pills are single-select (`setFilter`), although the Required column filter underneath already supports several values | Pills become on/off toggles feeding that same filter: Monthly+Quarterly, Monthly+Semi, any mix; "All Stores" clears. KPI cards and count follow the selection |
+### F1 — Input Portal + Unvisited filter → v25
 
-Tests: portal tests for the date proxy placement, the Enter sequence (keydown on date → keyup on Visited By must not
-advance), and multi-select pills.
+| # | Bug | Cause (C) | Fix |
+|---|-----|-----------|-----|
+| F1.1 | 📅 date picker doesn't open; typing only | `openDatePicker()` calls `showPicker()`; browsers refuse it for date inputs inside a cross-origin iframe (every Apps Script web app); the fallback `click()` on a hidden `pointer-events:none` input does nothing | Real (transparent) date input placed **over the 📅 button**, so the user's own tap opens the calendar. Typing stays |
+| F1.2 | Enter on Date Visited skips Visited By → Purpose | The date field's Enter keydown moves focus to Visited By; the **same** Enter's keyup then fires there (`comboKeyUp`, the Android fallback), sees an empty box, advances again | Keyup fallback only acts on an Enter whose keydown happened in the same field; Enter on an empty Visited By with no visitor chosen stays put |
+| F1.3 | Unvisited: can't combine Monthly+Quarterly / Monthly+Semi | Pills are single-select, though the Required column filter already takes several values | Pills become on/off toggles on that same filter; "All Stores" clears; KPI cards/count follow |
 
-### F2 — Admin → Configuration: "add new store" stuck on Saving → v25 (same batch if it's small)
+### F2 — Admin → Configuration → v25 (with F1)
 
-Cause found in code: one store save = write CONFIG_STORES → mirror to SETTINGS → **full Store Health rebuild**
-(`refreshRiskEngine()`, a whole MASTER_LOG scan + rewrite of the Store Health sheet) inside the same call. The button
-waits for all of it; on live data this can take minutes or hit Apps Script's 6-minute limit.
-First check (Leo, 2 min): Executions → the `store_create` run — finished, failed, or timed out? And CONFIG_STORES —
-was the store added anyway (then it must not be added a second time)?
+| # | Sev | Issue | Fix |
+|---|-----|-------|-----|
+| F2.1 | High (C) | **Store list, store detail/history and the refresh after a save return Dates** (`admin_listAllStores`, `admin_getConfigEntityDetail`, `admin_getRiskDetail`) → page gets null → spinner forever. Most likely why "add new store" looks stuck | Dates as text (root cause above); `if (!r)` guards with a real message |
+| F2.2 | High (C) | Every store/visitor save, activate/deactivate and rollback runs a **full Store Health rebuild inside the save**; that rebuild re-reads CONFIG_PURPOSES + CONFIG_RISK ~9× **per store** (thousands of reads) → minutes / 6-min timeout | Save returns after CONFIG + SETTINGS are written; Store Health refreshed once afterwards (L4); risk weights/thresholds read once per rebuild |
+| F2.3 | High (C) | A timed-out save is half-done (store written, Store Health sheet already cleared); **retry creates a duplicate store** — no name+brand check on create; both share one SETTINGS row | Reject a duplicate name+brand among current stores; build Store Health rows before clearing the sheet |
+| F2.4 | High (C) | **Store Name Matching can overwrite Leo's leaderboard in MASTER_LOG I2:I13** — rows 2–13 have names (not Store IDs) in column I, so any map/merge/rename touching those visits writes a Store ID there. Old values are in MASTER_LOG_FIXES, so recoverable | Never write column I for rows 2–13 (those visits keep their Store ID in the tables only); restore from MASTER_LOG_FIXES if F0 finds hits |
+| F2.5 | Med (C) | Editing a store jumps to a blank "Create New Store" form (looks lost → invites a duplicate) | Stay on the edited store |
+| F2.6 | Med (C) | Editing an **inactive** store silently reactivates it (Status field starts blank = ACTIVE) | Edit form pre-filled from the current version; server keeps fields not changed |
+| F2.7 | Med (C) | Activate / deactivate / rollback / status buttons have no loading state or double-click guard | Same `withButtonLoading` as Save |
+| F2.8 | Med (C) | Store list reads CONFIG_STORES once **per store** | One read (`cfg_resolveAllAsOf`) |
+| F2.9 | Med (C) | Brand dropdown only offers brands already in SETTINGS; brands/regions/categories hard-coded (`APPROVED_*`) — a new brand (e.g. first KOOBIDEH store) or region can't be added | Lists come from config (new Brands/Regions list in Admin); hard-coded lists only as fallback |
+| F2.10 | Med (C) | A store with a **future** effective date never reaches SETTINGS (sync checks today only) → never in Store Health / Unvisited | Daily sync of stores whose version starts today |
+| F2.11 | Low (C) | "Today" comes from the phone/PC clock, server uses Asia/Manila → today can count as "backdated" | Today from the server |
+| F2.12 | Low (C) | Store dropdowns stay empty if their load fails (error swallowed) → "Missing Brand" | Show the error + retry |
+| F2.13 | Low (S) | No lock on admin saves — two saves at once can write the same SETTINGS row | `LockService` around create + mirror |
+| F2.14 | Low (C) | Visitors: Entity ID and Visitor Name can differ | Fill one from the other |
+| F2.15 | — | Leo: ✏️ beside every existing record, admin only | ✏️ on each row of the store/visitor/purpose lists opens the pre-filled edit form (adds a new version, as now) |
 
-Fix:
-- Save returns as soon as CONFIG_STORES + SETTINGS are written; Store Health is marked "needs refresh" and rebuilt
-  once later (time trigger a minute later, or the next Store Health open), not inside the save.
-- Button shows a clear result: saved / failed with the reason / "still working — check the list before retrying".
-- Guard against a double add of the same name + brand on retry.
-- Same treatment for Visitors and Purposes saves (they share the mirror-then-rebuild pattern).
+### F3 — Admin → System Tools → v26
 
-### F3 — Speed → v26
+| # | Sev | Issue | Fix |
+|---|-----|-------|-----|
+| F3.1 | Med (C) | Tool runner: button stays clickable while running (double runs → two rebuilds clearing the same sheet); a null result leaves "⏳ Running…" forever | Disable until done; null guard |
+| F3.2 | Med (C) | **Data Sheet Headers** blanks SETTINGS G1/I1 (ADMIN_EMAILS / GUEST_PASSWORD headers), shrinks those columns to 20 px (hides them), rewrites D2:D, and relabels MASTER_LOG I1 — card says "Data rows untouched" | Remove the SETTINGS part; hide the tool (retire with Phase E) |
+| F3.3 | Med (S) | Validate MASTER_LOG: ~3 config reads per row → can time out; never checks Store ID | Read once; add Store ID check |
+| F3.4 | Med (S) | Store Health / Store Master Insight format each row separately (~5k calls) → slow | One batched format call |
+| F3.5 | Med (S) | Store Health rebuild has no lock; reports read during a rebuild see an empty sheet | Lock + write-then-swap |
+| F3.6 | Low (S) | Migrate Legacy SETTINGS: no lock, can recreate a renamed store | Hide (C.1 is done) |
+| F3.7 | Low (C) | Card texts out of date (Store Master Insight, Executive Summary sheet, KPI source); Report Source card doesn't show the current source | Update texts; show "Reports now read: …" on the card |
+| F3.8 | Low (C) | Some callable functions skip the admin check: `buildRiskEngineSheet` (wipes STORE HEALTH), `store_recordUnmapped`, `_cfg_ensureSheet`, `_cfg_ensureAuditSheet` | Make them private (trailing `_`) or add `sl_isAdmin()` |
+
+Verdicts: OK — Rebuild/Check Visit Tables, Compare Reports, Report Source, KPI 2026. Fix — Store Health, Validate,
+Store Name Matching (F2.4). Retire later (Phase E) — Store Master Insight, Executive Summary sheet, Migrate Legacy
+SETTINGS, Data Sheet Headers.
+
+### F4 — Admin → Audit, Report Snapshots, Identity → v26 (with F3)
+
+| # | Sev | Issue | Fix |
+|---|-----|-------|-----|
+| F4.1 | High (C) | **Audit log always looks empty** — rows carry Dates → page gets null → "No audit entries match" | Dates as text; filter + newest-first + cap (~500) on the server |
+| F4.2 | High (C) | **Finalize Report succeeds but says "Finalization failed"**; retry → "already finalized" | Dates as text |
+| F4.3 | High (C) | Snapshot list / snapshot detail / View Draft show nothing (Dates) | Dates as text |
+| F4.4 | High (C) | Identity screens hang (Account panel, pending registrations, user detail — Dates) | Dates as text + null guards |
+| F4.5 | High (C) | `handleExternalIdentityDisabled` can be called from any browser and can disable an account — no permission check | Make it private |
+| F4.6 | Med (C) | Snapshot of a past year freezes the **latest** year's Executive Summary | Pass the year |
+| F4.7 | Med (C) | Snapshots mix sources (store risk from MASTER_LOG by name, gaps from the tables) | Same source as the Reports tab (fits F6/F7) |
+| F4.8 | Med (C) | Identity admin can never work for Leo: it needs an identity-ADMIN account and nothing creates the first one | Admin list (`sl_isAdmin`) counts as identity admin, or a one-time "make me identity admin" |
+| F4.9 | Med (C) | Not audited at all: visit submissions, Store Name Matching MASTER_LOG rewrites, merges, Rebuild Visit Tables, report-source switch; IDENTITY_AUDIT has no viewer | One audit row per such action (SYSTEM area); edits/voids from F8 audited too |
+| F4.10 | Low (C) | View Draft rewrites the shared EXECUTIVE SUMMARY sheet (screen says "never persisted"); finalize/supersede/approve have no loading guard | Draft computed in memory; button guards |
+| F4.11 | Low (C) | Read functions without admin check: audit log, snapshot list/detail, draft | Add `sl_isAdmin()` |
+| F4.12 | Note (C) | The web app runs as the deployer with anonymous access, so only the deployer's account is recognised (admin, identity, "who" in audit is blank for others) | Leo's decision L7 — stays as is until then |
+
+### F5 — Input Portal weekly history (new) → v27
+
+Leo (2026-10-05): a history list in the Input Portal covering **one week, Monday to Sunday**.
+- "This week" panel under the form: Mon–Sun of the current week (Asia/Manila), newest first — date visited, store +
+  brand, visitors, purpose, remarks. Count per day + week total.
+- ◀ / ▶ to look at the previous week(s) — or this week only (L6b).
+- Filter by visitor (pick your own name — the app can't tell who is typing, see F4.12).
+- New submissions appear in the list right away (the queue already knows them).
+- Admins see ✏️ / 🗑 on each row (F8); others read-only.
+- Read from STORE_VISITS by Store ID (one week only → fast).
+
+### F6 — Speed → v28
 
 After F0's numbers:
-1. Reports switched to tables stop reading MASTER_LOG: the reporting year comes from the visit tables (or the page
-   sends it — see F4), CONFIG_STORES is read once per call.
-2. Short cache (CacheService, a few minutes) of the loaded visits + store lookup, cleared on every submission,
-   edit/delete (F5), Rebuild Visit Tables and store config change. Repeat opens / filter changes become near-instant.
-3. Store Insights: health for **one** store from the tables instead of scoring every store from MASTER_LOG — this is
-   D.4's first piece, pulled forward.
-4. Page side: the store list for Store Insights is loaded once per session, not per tab open.
-Target: each report under ~3 s on live data; record before/after ms in `TESTING_LOG.md`.
+1. Reports on the tables stop reading MASTER_LOG (year from the tables or sent by the page); CONFIG_STORES read once.
+2. Short cache (CacheService, minutes) of loaded visits + store lookup; cleared on submit, edit/void, Rebuild Visit
+   Tables, store config change.
+3. Store Insights health for **one** store from the tables (D.4's first piece, pulled forward); risk config read once.
+4. Store Insights store list loaded once per session.
+Target: each report under ~3 s on live data; before/after ms in `TESTING_LOG.md`.
 
-### F4 — Past years in reports → v27
+### F7 — Past years in reports → v29
 
-Today: only Executive Summary has a Year dropdown. Visited This Month and Unvisited send only a month (the year is
-"latest year with data"), Store Insights is all-time, Store Health and KPI 2026 take no year.
-Side bug: in January of a new year with no visits yet, "Current Month" resolves to **January of last year**.
-Fix:
-- One Year dropdown (years that have visits, from STORE_VISITS) next to the Month dropdown, used by Visited This
-  Month, Unvisited and Store Insights (Store Insights: "All years" default + one year).
-- Store Health gets a Year (as of the end of that year for past years).
-- KPI 2026: a year dropdown too, or keep it 2026-only — Leo's decision (below).
-- "Current Month" always means the real current month and year.
+Today only Executive Summary has a Year; Visited / Unvisited send just a month; Store Insights is all-time; Store
+Health and KPI 2026 have no year. Side bug (C): in January before any visit, "Current Month" = January of **last** year.
+- Year dropdown (years with visits, from STORE_VISITS) beside Month for Visited, Unvisited, Store Insights ("All years"
+  default), Store Health; KPI 2026 per L3. "Current Month" always = the real current month/year. Snapshots use it (F4.6).
 
-### F5 — Edit / delete visit records, admin only → v28
+### F8 — Edit / void visit records, admin only → v30
 
-Leo (2026-10-05): existing records must be editable; ✏️ edit icon beside each record; **admin only**.
-Design (MASTER_LOG stays the audit trail):
-- ✏️ beside each visit in Store Insights' visit list (full list for the store, filterable by year — not only the last
-  few) and in a **Visit Records** list (filter by store / date / visitor) for admins; hidden from non-admins, and every
-  server function re-checks admin (`sl_isAdmin()`), not just the page.
-- Edit: date, store (Store ID picker), visitors, purpose, remarks. Saves to the MASTER_LOG row, writes the old and
-  new values + who + when + reason to a new **VISIT_CORRECTIONS** sheet, and replaces that visit in STORE_VISITS /
-  STORE_VISIT_VISITORS (its Visit ID changes because IDs come from the row's content — handled in the same step).
-- Delete = **void**, not row removal: the visit drops out of every report, the row stays in MASTER_LOG and is listed in
-  VISIT_CORRECTIONS with the reason; an admin can restore it. (Removing MASTER_LOG rows shifts row numbers — that is
-  why the hand-deleted test row showed up in Check Visit Tables.)
-- Duplicate check runs again on edit (same store + date + visitor).
-- Rebuild Visit Tables must re-apply voids (so a rebuild can't bring a voided visit back); Check Visit Tables reports
-  voided visits separately.
-- Admin → Configuration's existing store/visitor/purpose records already edit by adding a new version; after F2 they
-  get the same ✏️ next to each row so editing doesn't start from the "new" form.
+Leo: existing records editable, ✏️ beside each record, **admin only**.
+- ✏️ / 🗑 beside each visit in the weekly history (F5), Store Insights' full visit list, and an admin **Visit Records**
+  list (filter by store / date / visitor). Hidden from non-admins; every server function re-checks `sl_isAdmin()`.
+- Edit: date, store (Store ID picker), visitors, purpose, remarks → saves to the MASTER_LOG row; old/new values + who +
+  when + reason go to a new **VISIT_CORRECTIONS** sheet (and the audit, F4.9); the visit is replaced in STORE_VISITS /
+  STORE_VISIT_VISITORS (its Visit ID changes, since IDs come from the row's content — same step).
+- Delete = **void**: gone from every report, row stays in MASTER_LOG, listed in VISIT_CORRECTIONS, restorable.
+  (Removing MASTER_LOG rows shifts row numbers.)
+- Duplicate check on edit; Rebuild Visit Tables re-applies voids; Check Visit Tables lists voided visits separately.
+- Never touches MASTER_LOG rows 2–13 column I (leaderboard).
 
 ### Decisions needed from Leo
 
 | # | Question | Recommendation |
 |---|----------|----------------|
-| L1 | Delete: void (hidden from reports, restorable) or permanent? | Void |
+| L1 | Delete a visit: void (hidden, restorable) or permanent? | Void |
 | L2 | Reason required on every edit/void? | Yes, one line |
-| L3 | KPI 2026: add a year dropdown, or keep it fixed to 2026? | Year dropdown |
+| L3 | KPI 2026: year dropdown, or fixed to 2026? | Year dropdown |
 | L4 | Store Health refresh after an admin save: background (a minute later) or on next Store Health open? | Background |
-| L5 | Order: F1+F2 → F3 → F4 → F5, then D.4/D.5 | As listed |
+| L5 | Order F1+F2 → F3+F4 → F5 → F6 → F7 → F8, then D.4/D.5 | As listed |
+| L6a | Weekly history: by **date visited** or by **date submitted**? | Date visited, with submitted time shown |
+| L6b | Weekly history: this week only, or ◀ ▶ to older weeks? | ◀ ▶ allowed |
+| L7 | Deployment: keep "anyone, runs as deployer" (only you are recognised) or require Google sign-in so admins/visitors are known? | Decide before F4.8 |
 
 ## 🧱 Phase C — visit tables in Google Sheets (live in v14)
 
