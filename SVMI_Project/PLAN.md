@@ -81,6 +81,19 @@ found", or report failure after a success. Fix once: every server result that go
   store added anyway? (Then don't add it again — a retry creates a second Store ID.)
 - MASTER_LOG_FIXES: any row with RowNum 2–13? (see F2.4 — the leaderboard)
 
+**F0 result (Leo, live v24, 2026-10-05 12:32) — the visit tables are FASTER, not the cause:**
+
+| Report | Visit tables | MASTER_LOG |
+|---|---|---|
+| Visited This Month (`sl_getVisitedThisMonth`) | 3.4 s | 7.0 s |
+| Unvisited / NAC (`sl_getComplianceGaps`) | 4.9 s | 8.6 s |
+| Store Health / KPI 2026 / Executive Summary | 1.9 / 4.3 / 4.3 s | 1.7 / 4.5 / 5.3 s (not switch-dependent) |
+
+Even trivial calls take ~1.5–3 s (`sl_isAdmin` 2.2 s, `getAvailableReportingYears` 3.2 s, `admin_getAreaSchema` 1.6 s),
+and the page fires several at once — that per-call overhead is a big share of the wait. F6 adds fewer round-trips.
+Store Insights (`sl_getStoreData`) not measured yet. Switch was left on MASTER_LOG after the test — set it back to tables.
+The stuck "add new store" **did save** (Leo, 2026-10-05) — the save worked, the screen after it didn't (F2.1).
+
 ### F1 — Input Portal + Unvisited filter → v25
 
 | # | Bug | Cause (C) | Fix |
@@ -162,6 +175,7 @@ After F0's numbers:
    Tables, store config change.
 3. Store Insights health for **one** store from the tables (D.4's first piece, pulled forward); risk config read once.
 4. Store Insights store list loaded once per session.
+5. Fewer round-trips: one combined call on page/tab open instead of several small ones (each costs ~1.5–3 s).
 Target: each report under ~3 s on live data; before/after ms in `TESTING_LOG.md`.
 
 ### F7 — Past years in reports → v29
