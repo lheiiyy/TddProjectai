@@ -378,9 +378,7 @@ function applyRiskTableFormatting(sheet, numDataRows) {
     .setFontFamily('Arial')
     .setFontSize(9)
     .setVerticalAlignment('middle');
-  for (let r = 0; r < numDataRows; r++) {
-    sheet.setRowHeight(RISK_ROW.DATA_START + r, 24);  // slightly taller for readability
-  }
+  sheet.setRowHeights(RISK_ROW.DATA_START, numDataRows, 24);  // slightly taller for readability (v28: one call, was one per row)
   sheet.getRange(RISK_ROW.DATA_START, RISK_COL.STORE, numDataRows, 1).setHorizontalAlignment('left').setFontWeight('bold');
   sheet.getRange(RISK_ROW.DATA_START, RISK_COL.BRAND, numDataRows, 1).setHorizontalAlignment('left');
   sheet.getRange(RISK_ROW.DATA_START, RISK_COL.REGION, numDataRows, 1).setHorizontalAlignment('center');
@@ -396,14 +394,10 @@ function applyRiskTableFormatting(sheet, numDataRows) {
   sheet.getRange(RISK_ROW.DATA_START, RISK_COL.ACTION, numDataRows, 1).setHorizontalAlignment('center').setWrap(true);
   sheet.getRange(RISK_ROW.DATA_START, RISK_COL.ATTENTION_REASON, numDataRows, 1).setHorizontalAlignment('left').setWrap(true);
 
-  // Alternating row bands (applied first; tier/action/reason cells
-  // are recolored on top below so the color-coding always wins)
-  for (let r = 0; r < numDataRows; r++) {
-    const bg = r % 2 === 0 ? RISK_COLORS.WHITE : RISK_COLORS.LIGHT_GRAY;
-    sheet.getRange(RISK_ROW.DATA_START + r, 1, 1, totalCols).setBackground(bg);
-  }
-
-  // Read back Risk Tier + Action + Attention Reason to color-code
+  // Alternating row bands + tier/action/reason color-coding (the color-coding
+  // wins over the band). v28: built as arrays and written in three calls —
+  // it used to be ~5 calls per store row (thousands on live), which made
+  // every Store Health rebuild slow.
   const tiers   = sheet.getRange(RISK_ROW.DATA_START, RISK_COL.RISK_TIER, numDataRows, 1).getValues();
   const actions = sheet.getRange(RISK_ROW.DATA_START, RISK_COL.ACTION, numDataRows, 1).getValues();
   const reasons = sheet.getRange(RISK_ROW.DATA_START, RISK_COL.ATTENTION_REASON, numDataRows, 1).getValues();
@@ -418,33 +412,27 @@ function applyRiskTableFormatting(sheet, numDataRows) {
     'Planned Follow-up':      RISK_COLORS.AMBER,
     'Monitor':                RISK_COLORS.EMERALD_GREEN,
   };
+  const BOLD_COLS = [RISK_COL.STORE, RISK_COL.RISK_SCORE, RISK_COL.RISK_TIER, RISK_COL.ATTENTION_REASON];
 
+  const backgrounds = [], fontColors = [], fontWeights = [];
   for (let r = 0; r < numDataRows; r++) {
-    const row    = RISK_ROW.DATA_START + r;
-    const tier   = tiers[r][0];
-    const action = actions[r][0];
-    const reason = reasons[r][0];
-
-    if (TIER_COLOR[tier]) {
-      sheet.getRange(row, RISK_COL.RISK_TIER)
-        .setBackground(TIER_COLOR[tier])
-        .setFontColor(RISK_COLORS.WHITE_TEXT);
+    const band = r % 2 === 0 ? RISK_COLORS.WHITE : RISK_COLORS.LIGHT_GRAY;
+    const bg = [], fc = [], fw = [];
+    for (let c = 1; c <= totalCols; c++) {
+      bg.push(band);
+      fc.push(RISK_COLORS.BODY_TEXT);
+      fw.push(BOLD_COLS.indexOf(c) !== -1 ? 'bold' : 'normal');
     }
-    if (ACTION_COLOR[action]) {
-      sheet.getRange(row, RISK_COL.ACTION)
-        .setBackground(ACTION_COLOR[action])
-        .setFontColor(RISK_COLORS.WHITE_TEXT);
-    }
-
+    const tier = tiers[r][0], action = actions[r][0], reason = reasons[r][0];
+    if (TIER_COLOR[tier]) { bg[RISK_COL.RISK_TIER - 1] = TIER_COLOR[tier]; fc[RISK_COL.RISK_TIER - 1] = RISK_COLORS.WHITE_TEXT; }
+    if (ACTION_COLOR[action]) { bg[RISK_COL.ACTION - 1] = ACTION_COLOR[action]; fc[RISK_COL.ACTION - 1] = RISK_COLORS.WHITE_TEXT; }
     // Attention Reason: always stands out (bold + light peach tint);
     // text turns the danger color when it's a QA/MS-driven reason.
-    const reasonCell = sheet.getRange(row, RISK_COL.ATTENTION_REASON)
-      .setBackground(RISK_COLORS.LIGHT_PEACH)
-      .setFontWeight('bold');
-    reasonCell.setFontColor(
-      String(reason).indexOf('QA/MS') !== -1 ? RISK_COLORS.BURNT_ORANGE : RISK_COLORS.BODY_TEXT
-    );
+    bg[RISK_COL.ATTENTION_REASON - 1] = RISK_COLORS.LIGHT_PEACH;
+    fc[RISK_COL.ATTENTION_REASON - 1] = String(reason).indexOf('QA/MS') !== -1 ? RISK_COLORS.BURNT_ORANGE : RISK_COLORS.BODY_TEXT;
+    backgrounds.push(bg); fontColors.push(fc); fontWeights.push(fw);
   }
+  dataRange.setBackgrounds(backgrounds).setFontColors(fontColors).setFontWeights(fontWeights);
 
   // Borders — outer card border + internal gridlines
   dataRange.setBorder(true, true, true, true, true, true, RISK_COLORS.BORDER_GRID, SpreadsheetApp.BorderStyle.SOLID);

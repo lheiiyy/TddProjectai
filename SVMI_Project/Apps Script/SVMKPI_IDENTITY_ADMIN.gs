@@ -60,7 +60,7 @@ function listPendingRegistrations() {
 function approveRegistration(userId) {
   const auth = _identity_authorizeCurrentUser_(IDENTITY_PERMISSION.REGISTRATION_APPROVE);
   if (!auth.authorized) return { success: false, message: auth.reason };
-  const actor = _identity_currentUserRecord_();
+  const actor = _identity_actorRecord_();
   const result = _identity_transitionStatus_(userId, IDENTITY_STATUS.ACTIVE, actor.userId, 'Approved');
   if (!result.success) return result;
 
@@ -85,7 +85,7 @@ function approveRegistration(userId) {
 function rejectRegistration(userId, reason) {
   const auth = _identity_authorizeCurrentUser_(IDENTITY_PERMISSION.REGISTRATION_APPROVE);
   if (!auth.authorized) return { success: false, message: auth.reason };
-  const actor = _identity_currentUserRecord_();
+  const actor = _identity_actorRecord_();
   const result = _identity_transitionStatus_(userId, IDENTITY_STATUS.REJECTED, actor.userId, reason || '');
   if (!result.success) return result;
 
@@ -101,7 +101,7 @@ function rejectRegistration(userId, reason) {
 function suspendAccount(userId, reason) {
   const auth = _identity_authorizeCurrentUser_(IDENTITY_PERMISSION.USER_MANAGE);
   if (!auth.authorized) return { success: false, message: auth.reason };
-  const actor = _identity_currentUserRecord_();
+  const actor = _identity_actorRecord_();
   const result = _identity_transitionStatus_(userId, IDENTITY_STATUS.SUSPENDED, actor.userId, reason || '');
   if (!result.success) return result;
   _identity_writeAudit_(IDENTITY_AUDIT_EVENT.ACCOUNT_SUSPENDED, actor.userId, userId, String(reason || ''));
@@ -111,7 +111,7 @@ function suspendAccount(userId, reason) {
 function reactivateAccount(userId, reason) {
   const auth = _identity_authorizeCurrentUser_(IDENTITY_PERMISSION.USER_MANAGE);
   if (!auth.authorized) return { success: false, message: auth.reason };
-  const actor = _identity_currentUserRecord_();
+  const actor = _identity_actorRecord_();
   const result = _identity_transitionStatus_(userId, IDENTITY_STATUS.ACTIVE, actor.userId, reason || '');
   if (!result.success) return result;
   _identity_writeAudit_(IDENTITY_AUDIT_EVENT.ACCOUNT_REACTIVATED, actor.userId, userId, String(reason || ''));
@@ -127,7 +127,7 @@ function reactivateAccount(userId, reason) {
 function disableAccount(userId, reason) {
   const auth = _identity_authorizeCurrentUser_(IDENTITY_PERMISSION.USER_MANAGE);
   if (!auth.authorized) return { success: false, message: auth.reason };
-  const actor = _identity_currentUserRecord_();
+  const actor = _identity_actorRecord_();
   const result = _identity_transitionStatus_(userId, IDENTITY_STATUS.DISABLED, actor.userId, reason || '');
   if (!result.success) return result;
   _identity_writeAudit_(IDENTITY_AUDIT_EVENT.ACCOUNT_DISABLED, actor.userId, userId, String(reason || ''));
@@ -148,7 +148,7 @@ function disableAccount(userId, reason) {
  * privilege even if called unexpectedly.
  * @returns {{success:boolean, message:string}}
  */
-function handleExternalIdentityDisabled(authProvider, authSubject) {
+function handleExternalIdentityDisabled_(authProvider, authSubject) {   // v28: private — callable from any browser before, and it disables accounts
   const usersSheet = _identity_ensureSheet_(IDENTITY_SHEET.USERS, IDENTITY_HEADERS.USERS);
   const rows = _identity_readAll_(usersSheet);
   for (let i = 0; i < rows.length; i++) {
@@ -193,7 +193,7 @@ function assignRole(userId, roleId, grant) {
     return { success: false, message: 'Unknown role: ' + roleId + '.' };
   }
 
-  const actor = _identity_currentUserRecord_();
+  const actor = _identity_actorRecord_();
   const sheet = _identity_ensureSheet_(IDENTITY_SHEET.USER_ROLES, IDENTITY_HEADERS.USER_ROLES);
   const rows = _identity_readAll_(sheet);
   const existingRowNum = (() => {
@@ -235,7 +235,7 @@ function assignPermissions(userId, permissionKey, grant) {
     return { success: false, message: 'Unknown permission: ' + permissionKey + '.' };
   }
 
-  const actor = _identity_currentUserRecord_();
+  const actor = _identity_actorRecord_();
   const sheet = _identity_ensureSheet_(IDENTITY_SHEET.USER_PERMISSIONS, IDENTITY_HEADERS.USER_PERMISSIONS);
   const rows = _identity_readAll_(sheet);
   const existingRowNum = (() => {
@@ -278,7 +278,7 @@ function assignScope(userId, scopeType, scopeValue, grant) {
     return { success: false, message: 'scopeValue is required for ' + normalizedType + ' scope.' };
   }
 
-  const actor = _identity_currentUserRecord_();
+  const actor = _identity_actorRecord_();
   const sheet = _identity_ensureSheet_(IDENTITY_SHEET.USER_SCOPE, IDENTITY_HEADERS.USER_SCOPE);
   const rows = _identity_readAll_(sheet);
   const existingRowNum = (() => {

@@ -953,7 +953,7 @@ body.admin-busy .vm-btn,body.admin-busy #content-Admin .btn-navy{opacity:.55;poi
           <div class="tool-desc-hdr">All stores · visits · status · risk</div></div></div>
         <div class="tool-body">
           <span class="risk-badge info">🔄 Regenerated from MASTER_LOG</span>
-          <p>Rebuilds STORE MASTER INSIGHT sheet with per-store visit counts, last visit, risk tier, and compliance status.</p>
+          <p>Rebuilds the STORE MASTER INSIGHT <i>sheet</i> (per-store counts, last visit, risk tier, compliance) from the SETTINGS store list by name. Nothing in the portal reads this sheet — Store Health and Store Insights are the live views.</p>
           <button class="tool-run" onclick="runTool('rebuildStoreMaster','stat-SMI')">▶ Rebuild Store Master</button>
           <div class="tool-stat idle" id="stat-SMI">Ready</div>
           <div class="tool-lock" id="lock-SMI" hidden>🔒 Admin access required to run this tool.</div>
@@ -966,7 +966,7 @@ body.admin-busy .vm-btn,body.admin-busy #content-Admin .btn-navy{opacity:.55;poi
           <div class="tool-desc-hdr">Risk scores + sheet rebuild</div></div></div>
         <div class="tool-body">
           <span class="risk-badge info">🔄 Regenerated from MASTER_LOG</span>
-          <p>Reads MASTER_LOG, scores all stores by visit frequency and QA/MS history, writes STORE HEALTH sheet.</p>
+          <p>Writes the STORE HEALTH <i>sheet</i>: scores every open store by visit frequency and QA/MS history — from the visit tables by Store ID when reports read them, MASTER_LOG otherwise. The Reports tab's Store Health is computed live and doesn't need this.</p>
           <button class="tool-run" onclick="runTool('rebuildStoreHealth','stat-SH')">▶ Rebuild Store Health</button>
           <div class="tool-stat idle" id="stat-SH">Ready</div>
           <div class="tool-lock" id="lock-SH" hidden>🔒 Admin access required to run this tool.</div>
@@ -979,7 +979,7 @@ body.admin-busy .vm-btn,body.admin-busy #content-Admin .btn-navy{opacity:.55;poi
           <div class="tool-desc-hdr">Layout + live GS formulas</div></div></div>
         <div class="tool-body">
           <span class="risk-badge warn">⚠ Clears formatting too</span>
-          <p>Rebuilds EXECUTIVE SUMMARY with COUNTIF/COUNTIFS/QUERY formulas that auto-update from MASTER_LOG.</p>
+          <p>Rebuilds the EXECUTIVE SUMMARY <i>sheet</i> (COUNTIF/QUERY formulas over MASTER_LOG) — a copy for the spreadsheet only; the Reports tab computes its Executive Summary itself.</p>
           <button class="tool-run" onclick="runTool('rebuildExecutiveSummary','stat-ES')">▶ Rebuild Executive Summary</button>
           <div class="tool-stat idle" id="stat-ES">Ready</div>
           <div class="tool-lock" id="lock-ES" hidden>🔒 Admin access required to run this tool.</div>
@@ -1020,7 +1020,7 @@ body.admin-busy .vm-btn,body.admin-busy #content-Admin .btn-navy{opacity:.55;poi
           <div class="tool-desc-hdr">MASTER_LOG + SETTINGS headers</div></div></div>
         <div class="tool-body">
           <span class="risk-badge warn">⚠ Rewrites headers</span>
-          <p>Restores MASTER_LOG row 1 headers with brand color rules. Restores SETTINGS headers and rebuilds col D formula. Data rows untouched.</p>
+          <p>Restores MASTER_LOG row 1 headers with brand color rules (I1:J1 keep the leaderboard labels NAME / # OF VISIT). Restores SETTINGS headers (incl. ADMIN EMAILS in G, GUEST PASSWORD in I) and rewrites the col D check formula on every store row. No other data is changed.</p>
           <button class="tool-run" onclick="runTool('rebuildDataHeaders','stat-DH')">▶ Rebuild Data Headers</button>
           <div class="tool-stat idle" id="stat-DH">Ready</div>
           <div class="tool-lock" id="lock-DH" hidden>🔒 Admin access required to run this tool.</div>
@@ -1076,7 +1076,7 @@ body.admin-busy .vm-btn,body.admin-busy #content-Admin .btn-navy{opacity:.55;poi
           <div class="tool-desc-hdr">Which data the reports read</div></div></div>
         <div class="tool-body">
           <span class="risk-badge info">🔄 Switch any time — nothing is changed in the sheets</span>
-          <p><b>Visit tables</b>: Visited This Month, Unvisited / NAC and Store Insights count visits by Store ID, so two brands with the same store name stay apart, closed stores keep their visits, and a store that was open in a past month is checked for that month. <b>MASTER_LOG</b>: the old way, by name. If the tables are missing the reports use MASTER_LOG anyway.</p>
+          <p><b>Visit tables</b>: Visited This Month, Unvisited / NAC, Store Insights and Store Health count visits by Store ID, so two brands with the same store name stay apart, closed stores keep their visits, and a store that was open in a past month is checked for that month. <b>MASTER_LOG</b>: the old way, by name. If the tables are missing the reports use MASTER_LOG anyway.</p>
           <button class="tool-run" onclick="runTool('useVisitTables','stat-RS')">▶ Use visit tables</button>
           <button class="tool-run" style="margin-top:6px" onclick="runTool('useMasterLog','stat-RS')">↩ Use MASTER_LOG</button>
           <div class="tool-stat idle" id="stat-RS">Ready</div>
@@ -1252,11 +1252,12 @@ function loadDataYear() {
 // again themselves, since hiding a button here can't stop a direct call.
 function applyAdminGating(isAdmin) {
   document.querySelectorAll('.tool-card[data-admin-only]').forEach(function(card) {
-    var btn  = card.querySelector('.tool-run');
+    // v28: every button on the card (Report Source has two).
+    card.querySelectorAll('.tool-run').forEach(function(btn) { btn.hidden = !isAdmin; });
     var lock = card.querySelector('.tool-lock');
-    if (btn)  btn.hidden  = !isAdmin;
     if (lock) lock.hidden = isAdmin;
   });
+  if (isAdmin) loadReportSource();
   // Convenience only, same disclosure as above: the Admin tab's own
   // mutations (config create/rollback/activate/deactivate, finalize,
   // supersede, regenerate) each independently re-check sl_isAdmin()
@@ -1266,6 +1267,19 @@ function applyAdminGating(isAdmin) {
     adminTab.hidden = !isAdmin;
     if (isAdmin) initAdminTabOnce();
   }
+}
+
+// v28: the Report Source card says which source the reports read right now.
+function loadReportSource() {
+  google.script.run
+    .withSuccessHandler(function(r) {
+      var el = document.getElementById('stat-RS');
+      if (!el || !r || !r.success) return;
+      el.textContent = 'Now: reports read ' + (r.source === 'TABLES' ? 'the visit tables (by Store ID)' : 'MASTER_LOG (by name)');
+      el.className = 'tool-stat ' + (r.source === 'TABLES' ? 'success' : 'idle');
+    })
+    .withFailureHandler(function(){})
+    .portal_getReportSource();
 }
 
 function loadAdminStatus() {
@@ -3052,6 +3066,7 @@ function execTool(key, statId) {
     .withSuccessHandler(function(r) {
       toolsRunning[key] = false;
       r = r || { success: false, message: 'No reply from the server — check Apps Script → Executions.' };
+      if (key === 'useVisitTables' || key === 'useMasterLog') setTimeout(loadReportSource, 1500);
       if (r.success) {
         el.textContent = '✅ '+r.message; el.className = 'tool-stat success';
         addLog('ok','✅ '+key+': '+r.message);
@@ -3741,10 +3756,34 @@ var ADMIN_FIELD_HELP = {
 var adminStoreFormOptions = null;
 
 // ── Generic helpers ─────────────────────────────────────────────────
+// v28: admin actions that change something can't be sent twice while the
+// first is still running (double-clicks used to finalize/approve twice), and
+// an empty reply ends as an error instead of a handler crash.
+var ADMIN_MUTATIONS = {
+  finalizeReport: 1, supersedeReportSnapshot: 1, regenerateReportSheet: 1,
+  approveRegistration: 1, rejectRegistration: 1, assignRole: 1, assignPermissions: 1, assignScope: 1,
+  suspendAccount: 1, reactivateAccount: 1, disableAccount: 1
+};
+var adminInFlight = {};
 function callServer(fnName, args, onSuccess, onError) {
+  if (typeof onError !== 'function') onError = function(msg) { if (typeof adminToast === 'function') adminToast('❌ ' + msg); };
+  var guarded = !!ADMIN_MUTATIONS[fnName];
+  if (guarded) {
+    if (adminInFlight[fnName]) { if (typeof adminToast === 'function') adminToast('⏳ Still working on the previous ' + fnName + '…'); return; }
+    adminInFlight[fnName] = true;
+  }
   var runner = google.script.run
-    .withSuccessHandler(onSuccess)
-    .withFailureHandler(function(err) { onError(err && err.message ? err.message : String(err)); });
+    .withSuccessHandler(function(r) {
+      if (guarded) {
+        adminInFlight[fnName] = false;
+        if (r == null) { onError('No reply from the server — check the list before trying again.'); return; }
+      }
+      onSuccess(r);
+    })
+    .withFailureHandler(function(err) {
+      if (guarded) adminInFlight[fnName] = false;
+      onError(err && err.message ? err.message : String(err));
+    });
   runner[fnName].apply(runner, args);
 }
 function todayDateStr() {

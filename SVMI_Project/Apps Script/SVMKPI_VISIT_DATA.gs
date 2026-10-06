@@ -34,13 +34,21 @@ function portal_useVisitTablesForReports() {
   if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
   if (!svd_tablesExist_()) return { success: false, message: 'STORE_VISITS / STORE_VISIT_VISITORS not found — run Rebuild Visit Tables first.' };
   svd_setSource_(SVD_SOURCE.TABLES);
+  if (typeof svmiAuditSystem_ === 'function') svmiAuditSystem_('REPORT_SOURCE', 'SWITCH', 'TABLES');
   return { success: true, message: 'Reports now read the visit tables (by Store ID): Visited This Month, Unvisited / NAC, Store Insights, Store Health.' };
 }
 
 function portal_useMasterLogForReports() {
   if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
   svd_setSource_(SVD_SOURCE.MASTER_LOG);
+  if (typeof svmiAuditSystem_ === 'function') svmiAuditSystem_('REPORT_SOURCE', 'SWITCH', 'MASTER_LOG');
   return { success: true, message: 'Reports read MASTER_LOG again (as before Phase D).' };
+}
+
+/** v28: which source the reports read now (for the Report Source card). */
+function portal_getReportSource() {
+  if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
+  return { success: true, source: svd_useTables_() && svd_tablesExist_() ? SVD_SOURCE.TABLES : SVD_SOURCE.MASTER_LOG };
 }
 
 /**

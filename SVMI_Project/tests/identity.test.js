@@ -405,17 +405,17 @@ console.log('\n── suspend / reactivate / disable ──');
   check('DISABLED is terminal — cannot reactivate from it', reactivateDisabled.success === false, JSON.stringify(reactivateDisabled));
 }
 
-console.log('\n── handleExternalIdentityDisabled() — offboarding hook ──');
+console.log('\n── handleExternalIdentityDisabled_() — offboarding hook (private since v28) ──');
 {
   const { sandbox } = newIdentitySandbox();
   sandbox._identity_ensureSeeds_();
   const usersSheet = sandbox._identity_ensureSheet_('IDENTITY_USERS', ['User ID','Full Name','Email','Department','Account Status','Auth Provider','Auth Subject','Email Verified At','Created At','Last Seen At','Status Changed At','Status Changed By']);
   usersSheet.appendRow(['USR-1', 'Ivy', 'ivy@example.com', 'Ops', 'ACTIVE', 'google', 'ivy-google-sub', new Date(), new Date(), '', new Date(), '']);
-  const result = sandbox.handleExternalIdentityDisabled('google', 'ivy-google-sub');
+  const result = sandbox.handleExternalIdentityDisabled_('google', 'ivy-google-sub');
   check('external disablement hook disables the matching account', result.success === true, JSON.stringify(result));
   eq('ivy is now DISABLED', sandbox._identity_findUserById_('USR-1').user.accountStatus, 'DISABLED');
 
-  const noMatch = sandbox.handleExternalIdentityDisabled('google', 'no-such-subject');
+  const noMatch = sandbox.handleExternalIdentityDisabled_('google', 'no-such-subject');
   check('no matching account -> fails, not silently ignored', noMatch.success === false, JSON.stringify(noMatch));
 }
 

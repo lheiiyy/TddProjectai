@@ -294,7 +294,7 @@ console.log('\n── REQUIRED FINDING 2 (refreshRiskEngine) — admin-gated for
       SHEET: { MASTER_LOG: 'MASTER_LOG' },
       _getSheet: () => null,
       _getData: () => ({ totalRows: 3, stores: [] }),
-      buildRiskEngineSheet: () => makeWritableSheet(),
+      buildRiskEngineSheet_: () => makeWritableSheet(),
       populateRiskEngine: () => {},
       _log: () => {},
       Utilities: { getUuid: (() => { let n = 0; return () => 'risk-uuid-' + (++n); })() },
@@ -310,8 +310,9 @@ console.log('\n── REQUIRED FINDING 2 (refreshRiskEngine) — admin-gated for
     // to the authorization gate, not Store Health's scoring/presentation
     // logic (already covered by risk-scoring.test.js / canonical-risk-
     // engine.test.js / risk-config.test.js).
-    sandbox.buildRiskEngineSheet = () => makeWritableSheet();
+    sandbox.buildRiskEngineSheet_ = () => makeWritableSheet();
     sandbox.populateRiskEngine = () => {};
+    sandbox._sl_storeHealthRows_ = () => [];   // v28: rows are computed before the sheet is cleared
     return sandbox;
   }
 

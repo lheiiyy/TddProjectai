@@ -381,12 +381,29 @@ function _identity_currentUserHasPermission_(permissionKey) {
 }
 
 /**
+ * v28: who to record as the actor of an identity admin action — the
+ * caller's own identity when linked, otherwise the admin-list email.
+ */
+function _identity_actorRecord_() {
+  const current = _identity_currentUserRecord_();
+  if (current) return current;
+  const email = (typeof sl_getCurrentUser === 'function') ? String(sl_getCurrentUser() || '') : '';
+  return { userId: 'ADMIN:' + (email || 'unknown') };
+}
+
+/**
  * _identity_authorizeCurrentUser_(permissionKey)
  * @returns {{authorized:boolean, reason?:string}} reason is set only
  *   when authorized is false, and is safe to surface to the caller (it
  *   never reveals another user's data or a secret value).
  */
 function _identity_authorizeCurrentUser_(permissionKey) {
+  // v28: someone on the admin list (sl_isAdmin — same gate as every other
+  // admin action, MFA included when enforced) may run identity admin too.
+  // Before, these screens needed an ACTIVE identity with the identity ADMIN
+  // role, and nothing could ever create the first one — so the owner could
+  // never approve a registration or manage a user.
+  if (typeof sl_isAdmin === 'function' && sl_isAdmin()) return { authorized: true };
   const current = _identity_currentUserRecord_();
   if (!current) return { authorized: false, reason: 'No SVMI identity linked to this Google account.' };
   if (current.accountStatus !== IDENTITY_STATUS.ACTIVE) return { authorized: false, reason: 'Account is not ACTIVE.' };

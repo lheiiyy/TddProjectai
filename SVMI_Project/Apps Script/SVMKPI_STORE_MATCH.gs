@@ -232,6 +232,11 @@ function portal_applyStoreCleanupDecision(decision) {
     else if (plan.type === SMT_TYPE.SPLIT) result = smt_applySplit_(ctx, plan);
     else result = smt_applyMerge_(ctx, plan);
     SpreadsheetApp.flush();
+    // v28: the Audit tab shows Store Name Matching changes too (details per
+    // MASTER_LOG row stay in MASTER_LOG_FIXES / CONFIG_STORE_MERGES).
+    if (result && result.success && typeof svmiAuditSystem_ === 'function') {
+      svmiAuditSystem_('STORE_NAME_MATCHING', String(plan.type || '').toUpperCase(), result.message || '');
+    }
     return result;
   } catch (e) {
     if (typeof logError === 'function') logError('portal_applyStoreCleanupDecision', e);

@@ -101,7 +101,11 @@ function makeReportEngineStub(ssMock) {
     if (!sheet) sheet = ssMock.insertSheet('EXECUTIVE SUMMARY'); else sheet.clear();
     sheet.getRange(1, 1, 1, 2).setValues([['YEAR', year]]);
   }
-  function getExecutiveSummaryReport() {
+  function getExecutiveSummaryReport(year) {
+    // v28: the real report is computed from MASTER_LOG for the year it is
+    // given (View Draft no longer rebuilds the sheet first), so the stub
+    // answers for that year directly when one is passed.
+    if (year != null) return { year: Number(year), kpi: [{ label: 'Total Visits', value: '0' }] };
     const sheet = ssMock.getSheetByName('EXECUTIVE SUMMARY');
     if (!sheet || sheet.getLastRow() < 1) throw new Error('EXECUTIVE SUMMARY sheet not found.');
     const yearRow = sheet.getRange(1, 1, 1, 2).getValues()[0];
