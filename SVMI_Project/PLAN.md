@@ -138,6 +138,16 @@ ends as an error.
 "MASTER_LOG changed while this ran — press Find again" after the CONFIG part was already saved.
 Not in v25: F2.9 (brand/region lists from config), F2.10, F2.11, F2.13, F2.14 → with F3/F4.
 
+**v26 (Store Insights speed) — built 2026-10-06 (branch `svmi/v26-insights-speed`), on top of v25.** Leo (2026-10-06):
+"searching a store and loading its details takes very long". Cause (C): every Store Insights lookup scores the health
+of **every** store to show one, and each store re-read CONFIG_PURPOSES / CONFIG_RISK for its 4 purpose weights and the
+tier thresholds — measured 621 config sheet reads for 65 stores (~9.5 per store; ~5,800 on live's ~600 stores) per lookup.
+The same pass runs in every Store Health rebuild. Fix: each config answer is read once per scoring pass
+(`_sl_riskMemo_`, pass-scoped, so a config change is seen by the next pass) — reads no longer grow with store count,
+scores identical. Search: shows "⏳ Loading the store list…" until the list arrives and then fills in by itself (it
+used to look like "no match"). Remaining cost per lookup (F6 / D.4): MASTER_LOG + SETTINGS reads for the health score.
+The old v26 (Tools + Audit) becomes v27, and the rest shift by one.
+
 ### F3 — Admin → System Tools → v26
 
 | # | Sev | Issue | Fix |
@@ -332,6 +342,6 @@ Known gaps (not configurable yet):
 
 ## Tests
 
-34 files, 1,913 checks, all passing (`node tests/<file>.test.js`) — v25 added `tests/v25-fixes.test.js` (60).
+35 files, 1,924 checks, all passing (`node tests/<file>.test.js`) — v25 added `tests/v25-fixes.test.js` (60), v26 `tests/v26-speed.test.js` (11).
 `store-name-matching-ui.test.js` clicks through the real `SVMI_PORTAL.html` with the real `.gs` code
 behind it (Playwright); the other portal tests use the demo page.

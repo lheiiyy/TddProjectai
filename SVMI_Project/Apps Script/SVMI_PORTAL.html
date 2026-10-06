@@ -2101,12 +2101,25 @@ function setBtnLoading(on) {
 // ═══════════════════════════════════════
 // TAB 2 — STORE INSIGHTS
 // ═══════════════════════════════════════
+// v26: the list arrives once per session; until it does, the dropdown says
+// so (instead of looking like the search found nothing) and fills itself in
+// as soon as the list lands. A failed load can be retried by typing again.
+var siStoresState = 'idle';   // idle | loading | ready | failed
 function loadSIStores() {
+  if (siStoresState === 'loading' || siStoresState === 'ready') return;
+  siStoresState = 'loading';
   google.script.run
     .withSuccessHandler(function(stores) {
       siAllStores = stores || [];
+      siStoresState = 'ready';
+      var box = document.getElementById('siSearch');
+      if (box && document.activeElement === box) filterSIStores();
     })
-    .withFailureHandler(function(){})
+    .withFailureHandler(function() {
+      siStoresState = 'failed';
+      var drop = document.getElementById('siDrop');
+      if (drop && drop.classList.contains('open')) filterSIStores();
+    })
     .sl_getStoreList();
 }
 
@@ -2115,6 +2128,13 @@ function loadSIStores() {
 function filterSIStores() {
   var q    = document.getElementById('siSearch').value.trim().toUpperCase();
   var drop = document.getElementById('siDrop');
+  if (siStoresState !== 'ready') {
+    if (siStoresState !== 'loading') loadSIStores();
+    drop.innerHTML = '<div class="ss-note" style="padding:8px 10px;font-size:12px;color:var(--muted)">'
+      + (siStoresState === 'failed' ? 'Could not load the store list — type again to retry.' : '⏳ Loading the store list…') + '</div>';
+    drop.classList.add('open');
+    return;
+  }
   var base = gBrands.length === 0 ? siAllStores
            : siAllStores.filter(function(s){ return gBrands.indexOf(s.brand) !== -1; });
   var list = base.filter(function(s) {

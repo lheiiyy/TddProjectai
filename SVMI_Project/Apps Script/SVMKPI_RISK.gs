@@ -268,9 +268,28 @@ function _sl_computeComplianceScore(lastDate, category, today, prebuiltMap) {
  * @param {Date} [dateRef] - resolution date; omit for today
  * @returns {string}
  */
+// v26: one scoring pass (_computeStoreRisk) used to re-read CONFIG_PURPOSES /
+// CONFIG_RISK about 9 times PER STORE (4 purpose weights + the tier
+// thresholds, each a full sheet read) — thousands of reads for one Store
+// Insights lookup or one Store Health rebuild. While a pass runs, each
+// answer is now read once and reused for every store. The memo only lives
+// for that one pass, so a config change is always seen by the next one.
+var _SL_RISK_MEMO_ = null;
+function _sl_riskMemo_(key, compute) {
+  if (!_SL_RISK_MEMO_) return compute();
+  if (!(key in _SL_RISK_MEMO_)) _SL_RISK_MEMO_[key] = compute();
+  return _SL_RISK_MEMO_[key];
+}
+function _sl_dateKey_(d) {
+  return d instanceof Date ? String(d.getTime()) : String(d == null ? '' : d);
+}
+function _sl_purposeWeight_(purpose, dateRef) {
+  return _sl_riskMemo_('w|' + purpose + '|' + _sl_dateKey_(dateRef), () => risk_resolvePurposeWeight(purpose, dateRef));
+}
+
 function _sl_riskTier(score, dateRef) {
   const t = (typeof resolveRiskConfigurationAsOf === 'function')
-    ? resolveRiskConfigurationAsOf(dateRef)
+    ? _sl_riskMemo_('t|' + _sl_dateKey_(dateRef), () => resolveRiskConfigurationAsOf(dateRef))
     : { mediumThreshold: 5, highThreshold: 10 };
   if (score >= t.highThreshold) return RISK_TIER_LABEL.HIGH;
   if (score >= t.mediumThreshold) return RISK_TIER_LABEL.MEDIUM;
@@ -329,7 +348,7 @@ function _sl_attentionReason(activeFailedPenalty, complianceStatus, categoryLabe
 function _sl_computeMonthlyPurposeScores(monthBuckets, monthLimit, dateRef) {
   const _weightOf = (purpose) => {
     if (typeof risk_resolvePurposeWeight === 'function') {
-      const r = risk_resolvePurposeWeight(purpose, dateRef);
+      const r = _sl_purposeWeight_(purpose, dateRef);
       if (r) return r.weight;
     }
     return RISK_PURPOSE_SCORE[purpose];
@@ -356,7 +375,7 @@ function _sl_computeMonthlyPurposeScores(monthBuckets, monthLimit, dateRef) {
     if (!(purpose in otherWeightCache)) {
       let w = null;
       if (typeof risk_resolvePurposeWeight === 'function') {
-        const r = risk_resolvePurposeWeight(purpose, dateRef);
+        const r = _sl_purposeWeight_(purpose, dateRef);
         w = r ? r.weight : null;
       } else if (typeof RISK_PURPOSE_SCORE !== 'undefined' && RISK_PURPOSE_SCORE[purpose] != null) {
         w = RISK_PURPOSE_SCORE[purpose];
@@ -421,6 +440,17 @@ function _sl_computeMonthlyPurposeScores(monthBuckets, monthLimit, dateRef) {
  * @returns {object[]} One row object per store, unsorted
  */
 function _computeStoreRisk(data, today, year) {
+  // v26: config answers are read once for this whole pass (see _sl_riskMemo_).
+  const outerMemo = _SL_RISK_MEMO_;
+  if (!outerMemo) _SL_RISK_MEMO_ = {};
+  try {
+    return _computeStoreRiskPass_(data, today, year);
+  } finally {
+    if (!outerMemo) _SL_RISK_MEMO_ = null;
+  }
+}
+
+function _computeStoreRiskPass_(data, today, year) {
   const byStore = {};
   const metaLookup = _sl_getStoreMetaLookup();
   const evaluationYear = (year != null && !isNaN(Number(year))) ? Number(year) : getDefaultReportingYear();

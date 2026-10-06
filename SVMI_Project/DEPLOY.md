@@ -1960,6 +1960,10 @@ node SVMI_Project/tests/phase-d-reports.test.js
 # rebuild queued instead of inside Save; in a real browser: 📅 date input,
 # Enter on Date Visited, combinable tier pills, admin edit pre-fill, tool runner (60 checks)
 node SVMI_Project/tests/v25-fixes.test.js
+
+# v26 Store Insights speed: risk config read once per scoring pass (not ~9× per
+# store), identical scores; search shows "loading" until the store list lands (11 checks)
+node SVMI_Project/tests/v26-speed.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a
