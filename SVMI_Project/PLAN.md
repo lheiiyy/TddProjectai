@@ -1,11 +1,13 @@
 # SVMI — Fix & Improve Plan
 
-Last updated: 2026-10-05 · Working branch: `svmi/phase-d3-insights` (PR #22)
+Last updated: 2026-10-06 · Working branch: `svmi/v26-insights-speed` (PR #24, stacked on #23 → #22)
 
-**🚀 LIVE = version 23 (2026-10-04)** — same Web App URL. v23 = D.2 Unvisited/NAC by Store ID; reports switched to
-the visit tables. v24 (D.3 Store Insights, PR #22): deploy started 2026-10-05 — `live-backup-20261004-pre-v24/` committed; Leo to confirm it's live.
-Rollback sources: `live-backup-20261004-pre-v23/` (= v22) and older `live-backup-*` folders.
-**v25 built (2026-10-06, branch `svmi/v25-fixes`): F1 + F2 of the 🐞 plan below — deploy next. Then F3+F4, F5…, then D.4.**
+**🚀 LIVE = version 27 (2026-10-06)** — same Web App URL; reports read the visit tables.
+v27 = D.4 Store Health live by Store ID · v26 = Store Insights speed (risk config read once per pass) ·
+v25 = Input Portal + Admin fixes (🐞 F1 + F2) · v24 = D.3 Store Insights by Store ID.
+Rollback sources: `live-backup-20261006-pre-v27/` (= v26), `-pre-v26/` (= v25), `-pre-v25/` (= v24), `live-backup-20261004-pre-v24/` (= v23).
+**Merge:** PR #24 contains #22 + #23 — merging #24 brings `main` up to live (v27); #22/#23 then show as merged.
+**Next:** Leo checks v25–v27 on live → then 🐞 F3 + F4 (System Tools, Audit/Snapshots/Identity), F5 weekly history, F7 past years, F8 edit/void visits, D.5.
 Rule for now: **functionality first.** Security is parked (except admin access).
 Live backups (`live-backup-*`) are the safe fallback — never edited.
 
