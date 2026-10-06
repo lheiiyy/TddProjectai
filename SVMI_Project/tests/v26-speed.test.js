@@ -27,15 +27,23 @@ new Function('lib', 'require', '__dirname',
 )(lib, require, __dirname);
 const src = f => fs.readFileSync(path.join(__dirname, '..', 'Apps Script', f), 'utf8');
 const EXTRA = ['SVMKPI_REPORTING_YEAR.gs', 'SVMKPI_CALENDAR.gs', 'SVMKPI_COMPLIANCE_CONFIG.gs', 'SVMKPI_RISK_CONFIG.gs',
-  'SVMKPI_PURPOSE_CONFIG.gs', 'SVMKPI_RISK.gs', 'SVMKPI_STORE_LOOKUP.gs', 'SVMKPI_VISIT_DATA.gs'];
+  'SVMKPI_PURPOSE_CONFIG.gs', 'SVMKPI_RISK.gs', 'SVMKPI_RISK_LAYOUT.gs', 'SVMKPI_STORE_LOOKUP.gs', 'SVMKPI_VISIT_DATA.gs', 'SVMKPI_REPORTS.gs'];
 const TODAY = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); })();
 
-function env(extraStores) {
+function env(extraStores, cleanup) {
   const e = lib.newSandbox();
   const props = {};
   e.sandbox.PropertiesService = { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = v; }, deleteProperty: k => { delete props[k]; } }) };
   EXTRA.forEach(f => vm.runInContext(src(f), e.sandbox, { filename: f }));
   const ids = lib.seed(e);
+  if (cleanup) {
+    // The live clean-up (v15–v18): Figaro Sta. Maria spellings merged, closed stores created.
+    const run = d => { const r = e.sandbox.portal_applyStoreCleanupDecision(d); if (!r.success) throw new Error(JSON.stringify(r)); };
+    run({ type: 'merge', keepId: ids.K, mergeIds: [ids.M], finalName: 'STA. MARIA' });
+    run({ type: 'map', name: 'STA. MARIA (F)', storeId: ids.K });
+    run({ type: 'create', name: 'SHANGRILA', storeName: 'SHANGRILA', brand: "ANGEL'S PIZZA", region: 'NCR', category: 'NCR', active: false, closedFrom: '2026-06-01' });
+    run({ type: 'create', name: 'URDANETA FIGARO', storeName: 'URDANETA', brand: 'FIGARO', region: 'FRANCHISE', category: 'FAR PROVINCIAL', active: false, closedFrom: '2026-05-06' });
+  }
   for (let i = 0; i < extraStores; i++) {
     const r = e.sandbox.store_create({ storeName: 'EXTRA STORE ' + i, brand: 'FIGARO', region: 'FRANCHISE', category: 'NCR' }, '2026-01-01', 'setup', { backdateConfirmed: true });
     if (!r.success) throw new Error(JSON.stringify(r));
@@ -87,6 +95,44 @@ console.log('\n── Same scores as before ──');
   s.risk_create({ lowThreshold: 0, mediumThreshold: 0.01, highThreshold: 0.02 }, TODAY, 'test', { backdateConfirmed: true });
   const after = s._computeStoreRisk(data, today, 2026).filter(r => r.store === before.store && r.brand === before.brand)[0];
   check('a config change is seen by the next pass', before && after && after.riskTier === 'HIGH', { before: before && before.riskTier, after: after && after.riskTier });
+}
+
+console.log('\n── D.4 Store Health by Store ID, live ──');
+{
+  const { e, s, ids } = env(0, true);
+  // MASTER_LOG still holds an old spelling for one Figaro STA. MARIA visit and
+  // the Store Health sheet is an old snapshot — the live report must not care.
+  e.master.getRange(4, 3).setValue('STA MARIA');
+  s.portal_rebuildVisitTables();
+  const rep = s.getStoreHealthReport();
+  check('live report (no STORE HEALTH sheet needed)', rep && rep.live === true && rep.rows.length > 0, rep && rep.rows && rep.rows.length);
+  check('no Date objects in the report', !JSON.stringify(rep).match(/T\d\d:\d\d:\d\d/) && rep.rows.every(r => typeof r.lastVisitDate === 'string'));
+  const fig = rep.rows.filter(r => r.storeId === ids.K)[0];
+  const tableVisits = s.svd_loadVisits_().filter(v => v.storeId === ids.K);
+  const last = tableVisits.reduce((m, v) => (!m || v.date > m ? v.date : m), null);
+  const p2 = x => String(x).padStart(2, '0');
+  const ymd = d => d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+  check('Figaro STA. MARIA: one row, all its visits (any spelling) by Store ID', fig && fig.store === 'STA. MARIA' && fig.brand === 'FIGARO', fig);
+  check('…last visit = the latest visit in the tables', fig && fig.lastVisitDate === ymd(last), { row: fig && fig.lastVisitDate, tables: ymd(last) });
+  check('…visits this year = the tables\' count', fig && fig.totalYtd === tableVisits.filter(v => v.date.getFullYear() === 2026).length, { row: fig && fig.totalYtd, n: tableVisits.length });
+  const ap = rep.rows.filter(r => r.storeId === ids.APSM)[0];
+  check('Angel\'s Pizza STA. MARIA is its own row (same name, other brand)', ap && ap.brand === "ANGEL'S PIZZA" && ap.totalYtd === 1, ap);
+  check('closed stores are not on Store Health', !rep.rows.some(r => r.store === 'SHANGRILA'), rep.rows.map(r => r.store));
+  check('KPI cards: total = rows', rep.kpis[0].value === String(rep.rows.length), rep.kpis);
+
+  const ins = s.sl_getStoreData('STA. MARIA', 'FIGARO', ids.K);
+  check('Store Insights health = the store\'s Store Health row', ins.health.score === fig.riskScore && ins.health.label === fig.riskTier, { ins: ins.health, row: fig && [fig.riskScore, fig.riskTier] });
+  const closed = s.sl_getStoreData('SHANGRILA', "ANGEL'S PIZZA", s.svd_storeList_().filter(x => x.name === 'SHANGRILA')[0].storeId);
+  check('closed store still opens in Store Insights', closed && closed.meta.closed === true && closed.health && closed.health.label === 'LOW', closed && closed.health);
+
+  const cmp = s.portal_compareReports();
+  check('Compare Reports includes Store Health', /Store Health 2026: \d+ store\(s\) identical/.test(cmp.message), cmp.message);
+  check('…and lists the old spelling\'s difference', typeof cmp.healthDiffs === 'number' && cmp.errors.some(x => x.row === 'Health'), cmp.errors.filter(x => x.row === 'Health').slice(0, 3));
+
+  s.portal_useMasterLogForReports();
+  let threw = null;
+  try { s.getStoreHealthReport(); } catch (err) { threw = err.message; }
+  check('switch back to MASTER_LOG → the old sheet-based report', threw && /STORE HEALTH sheet not found/.test(threw), threw);
 }
 
 // ─────────────────────────────────────────────────────────────

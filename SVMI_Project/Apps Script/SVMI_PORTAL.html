@@ -1063,7 +1063,7 @@ body.admin-busy .vm-btn,body.admin-busy #content-Admin .btn-navy{opacity:.55;poi
           <div class="tool-desc-hdr">Old (MASTER_LOG) vs new (visit tables)</div></div></div>
         <div class="tool-body">
           <span class="risk-badge safe">✓ Read-only · safe</span>
-          <p>Runs <b>Visited This Month</b> and <b>Unvisited / NAC</b> for every month (and compares each store's <b>Store Insights</b> total) of the year both ways and lists every store whose result differs. Visits the old report couldn't place (closed stores, old spellings) and stores closed since then are counted separately — those are expected. Run this before switching.</p>
+          <p>Runs <b>Visited This Month</b> and <b>Unvisited / NAC</b> for every month (and compares each store's <b>Store Insights</b> total and <b>Store Health</b> last visit / visits this year) of the year both ways and lists every store whose result differs. Visits the old report couldn't place (closed stores, old spellings) and stores closed since then are counted separately — those are expected. Run this before switching.</p>
           <button class="tool-run" onclick="runTool('compareReports','stat-CR')">▶ Compare Reports</button>
           <div class="tool-stat idle" id="stat-CR">Ready</div>
           <div class="tool-lock" id="lock-CR" hidden>🔒 Admin access required to run this tool.</div>
@@ -2942,7 +2942,8 @@ function healthRenderRow(r, i) {
 function renderStoreHealthReport(data) {
   var h = repKpiRow(data.kpis);
   h += '<div class="p-card" style="margin-bottom:14px">'
-    + '<div class="p-card-hdr">Store Health — ' + data.rows.length + ' store' + (data.rows.length !== 1 ? 's' : '') + '</div>'
+    + '<div class="p-card-hdr">Store Health — ' + data.rows.length + ' store' + (data.rows.length !== 1 ? 's' : '')
+    + (data.live ? ' <span style="font-weight:400;font-size:10px;opacity:.8">· live, by Store ID · counts = this year</span>' : '') + '</div>'
     + '<div class="p-card-body"><div id="healthBody"></div></div></div>';
   document.getElementById('reportsPanel').innerHTML = h;
 

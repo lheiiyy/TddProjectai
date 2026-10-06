@@ -146,6 +146,14 @@ The same pass runs in every Store Health rebuild. Fix: each config answer is rea
 (`_sl_riskMemo_`, pass-scoped, so a config change is seen by the next pass) — reads no longer grow with store count,
 scores identical. Search: shows "⏳ Loading the store list…" until the list arrives and then fills in by itself (it
 used to look like "no match"). Remaining cost per lookup (F6 / D.4): MASTER_LOG + SETTINGS reads for the health score.
+**Also in v26 — D.4 Store Health by Store ID** (Leo 2026-10-06: "Store Health details don't match — last visit and
+counts"). Cause (C): Store Health was a sheet snapshot from the last rebuild (6 AM daily / after admin saves), computed
+from MASTER_LOG by store name, while Store Insights / Visited / Unvisited read the visit tables live by Store ID — so
+old spellings, merged stores and same-name-other-brand visits landed on different rows, and anything logged since the
+last rebuild was missing. Now, with reports on the tables: the Reports tab's Store Health is computed **live** from the
+tables by Store ID (open stores in CONFIG_STORES; counts are this year, as before — the header says so), the STORE
+HEALTH sheet is rebuilt from the same rows, and Store Insights' health score is that store's Store Health row (no
+MASTER_LOG read any more). Compare Reports gained a Store Health section (rows marked Health).
 The old v26 (Tools + Audit) becomes v27, and the rest shift by one.
 
 ### F3 — Admin → System Tools → v26
@@ -250,7 +258,7 @@ Design: [`PHASE_C_TABLES.md`](PHASE_C_TABLES.md) (mirrors `database/migrations/0
 | Tests | ✅ `tests/visit-tables.test.js` (48 checks) |
 | Deploy, run Rebuild once, then Check | ✅ v14, 2026-10-03: **In sync — 1,136 visits, 1,248 visitor links**; rebuild took ~18 s |
 | C.1 Data cleanup before Phase D | ✅ 2026-10-04 (v15–v18): every visit has a Store ID; closed stores created; Figaro Sta. Maria merged; 16+ stores given the same name as the other brand's store (Leo: "naka set na tamang store names") |
-| Phase D: reports read the tables instead of MASTER_LOG | 🟡 D.1 Visited This Month + D.2 Unvisited/NAC live (v23, switched to visit tables 2026-10-04); D.3 Store Insights built (v24); next D.4 Store Health |
+| Phase D: reports read the tables instead of MASTER_LOG | 🟡 D.1 Visited This Month + D.2 Unvisited/NAC live (v23, switched to visit tables 2026-10-04); D.3 Store Insights (v24); D.4 Store Health built (v26); next D.5 Executive Summary/KPI |
 | Phase E: MASTER_LOG audit-trail only | ⏳ later |
 
 ### C.1 — status 2026-10-04
@@ -342,6 +350,6 @@ Known gaps (not configurable yet):
 
 ## Tests
 
-35 files, 1,924 checks, all passing (`node tests/<file>.test.js`) — v25 added `tests/v25-fixes.test.js` (60), v26 `tests/v26-speed.test.js` (11).
+35 files, 1,938 checks, all passing (`node tests/<file>.test.js`) — v25 added `tests/v25-fixes.test.js` (60), v26 `tests/v26-speed.test.js` (24).
 `store-name-matching-ui.test.js` clicks through the real `SVMI_PORTAL.html` with the real `.gs` code
 behind it (Playwright); the other portal tests use the demo page.

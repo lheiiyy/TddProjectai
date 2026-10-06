@@ -1962,7 +1962,8 @@ node SVMI_Project/tests/phase-d-reports.test.js
 node SVMI_Project/tests/v25-fixes.test.js
 
 # v26 Store Insights speed: risk config read once per scoring pass (not ~9× per
-# store), identical scores; search shows "loading" until the store list lands (11 checks)
+# store), identical scores; search shows "loading" until the store list lands;
+# D.4 Store Health live by Store ID from the visit tables (24 checks)
 node SVMI_Project/tests/v26-speed.test.js
 ```
 

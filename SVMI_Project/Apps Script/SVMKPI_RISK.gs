@@ -450,16 +450,10 @@ function _computeStoreRisk(data, today, year) {
   }
 }
 
-function _computeStoreRiskPass_(data, today, year) {
-  const byStore = {};
-  const metaLookup = _sl_getStoreMetaLookup();
-  const evaluationYear = (year != null && !isNaN(Number(year))) ? Number(year) : getDefaultReportingYear();
-  const monthLimit = (today.getFullYear && today.getFullYear() === evaluationYear)
-    ? today.getMonth()
-    : 11;
-
+/** One store's empty accumulator for the risk pass (shared with svd_storeRisk_, v26/D.4). */
+function _sl_freshRiskStore_(name, meta) {
   const freshBucket = () => ({ failedCount: 0, storeVisitCount: 0, curingCount: 0, tltcCount: 0, otherCounts: {} });
-  const freshStore = (name, meta) => ({
+  return {
     store: name,
     brand: (meta && meta.brand !== '—') ? meta.brand : '—',
     region: (meta && meta.region !== '—') ? meta.region : '—',
@@ -474,7 +468,62 @@ function _computeStoreRiskPass_(data, today, year) {
     storeVisitCount: 0,
     monthlyBuckets: Array.from({ length: 12 }, freshBucket),
     hasHistory: false,
-  });
+  };
+}
+
+/** Adds one visit to a store's accumulator (shared with svd_storeRisk_, v26/D.4). */
+function _sl_addRiskVisit_(s, date, purpose, evaluationYear, monthLimit) {
+  if (_sl_isValidDate(date)) {
+    s.hasHistory = true;
+    if (!s.lastDate || date > s.lastDate) {
+      s.lastDate = date;
+      s.lastPurposes = [purpose];
+    } else if (date.getTime() === s.lastDate.getTime()) {
+      s.lastPurposes.push(purpose);
+    }
+  }
+
+  const isYTD = _sl_isValidDate(date) && date.getFullYear() === evaluationYear && date.getMonth() <= monthLimit;
+  if (isYTD) {
+    const monthIdx = date.getMonth();
+    s.totalYTD++;
+
+    if (purpose === 'STORE VISIT') {
+      s.storeYTD++;
+      s.storeVisitCount++;
+      s.monthlyBuckets[monthIdx].storeVisitCount++;
+    } else if (purpose === 'FAILED QA/MS') {
+      s.failedCount++;
+      s.monthlyBuckets[monthIdx].failedCount++;
+    } else if (purpose === 'CURING/SUPPORT') {
+      s.curingCount++;
+      s.monthlyBuckets[monthIdx].curingCount++;
+    } else if (purpose === 'TLTC') {
+      s.tltcCount++;
+      s.monthlyBuckets[monthIdx].tltcCount++;
+    } else if (purpose) {
+      // Phase 2C: any OTHER purpose — discovered directly from the data,
+      // never a hardcoded name — still counts toward this store's
+      // totalYTD (above, unchanged) AND now feeds its own weighted
+      // contribution to the risk score generically (see
+      // _sl_computeMonthlyPurposeScores()'s otherCounts handling),
+      // instead of being silently invisible to scoring the way it was
+      // before this purpose had a named bucket slot.
+      const bucket = s.monthlyBuckets[monthIdx];
+      bucket.otherCounts[purpose] = (bucket.otherCounts[purpose] || 0) + 1;
+    }
+  }
+}
+
+function _computeStoreRiskPass_(data, today, year) {
+  const byStore = {};
+  const metaLookup = _sl_getStoreMetaLookup();
+  const evaluationYear = (year != null && !isNaN(Number(year))) ? Number(year) : getDefaultReportingYear();
+  const monthLimit = (today.getFullYear && today.getFullYear() === evaluationYear)
+    ? today.getMonth()
+    : 11;
+
+  const freshStore = _sl_freshRiskStore_;
 
   // Seed every store from SETTINGS first, not just ones with a MASTER_LOG
   // row: a store with zero visits ever previously got no entry at all
@@ -509,48 +558,21 @@ function _computeStoreRiskPass_(data, today, year) {
       s.region = region || s.region;
     }
 
-    if (_sl_isValidDate(date)) {
-      s.hasHistory = true;
-      if (!s.lastDate || date > s.lastDate) {
-        s.lastDate = date;
-        s.lastPurposes = [purpose];
-      } else if (date.getTime() === s.lastDate.getTime()) {
-        s.lastPurposes.push(purpose);
-      }
-    }
-
-    const isYTD = _sl_isValidDate(date) && date.getFullYear() === evaluationYear && date.getMonth() <= monthLimit;
-    if (isYTD) {
-      const monthIdx = date.getMonth();
-      s.totalYTD++;
-
-      if (purpose === 'STORE VISIT') {
-        s.storeYTD++;
-        s.storeVisitCount++;
-        s.monthlyBuckets[monthIdx].storeVisitCount++;
-      } else if (purpose === 'FAILED QA/MS') {
-        s.failedCount++;
-        s.monthlyBuckets[monthIdx].failedCount++;
-      } else if (purpose === 'CURING/SUPPORT') {
-        s.curingCount++;
-        s.monthlyBuckets[monthIdx].curingCount++;
-      } else if (purpose === 'TLTC') {
-        s.tltcCount++;
-        s.monthlyBuckets[monthIdx].tltcCount++;
-      } else if (purpose) {
-        // Phase 2C: any OTHER purpose — discovered directly from the data,
-        // never a hardcoded name — still counts toward this store's
-        // totalYTD (above, unchanged) AND now feeds its own weighted
-        // contribution to the risk score generically (see
-        // _sl_computeMonthlyPurposeScores()'s otherCounts handling),
-        // instead of being silently invisible to scoring the way it was
-        // before this purpose had a named bucket slot.
-        const bucket = s.monthlyBuckets[monthIdx];
-        bucket.otherCounts[purpose] = (bucket.otherCounts[purpose] || 0) + 1;
-      }
-    }
+    _sl_addRiskVisit_(s, date, purpose, evaluationYear, monthLimit);
   }
 
+  return _sl_scoreStores_(byStore, today, monthLimit);
+}
+
+/**
+ * _sl_scoreStores_(byStore, today, monthLimit) — v26 (D.4).
+ * The scoring half of _computeStoreRisk(), split out so the Store-ID
+ * version built from the visit tables (svd_storeRisk_, SVMKPI_VISIT_DATA.gs)
+ * scores stores with exactly the same rules. `byStore` values are the
+ * per-store accumulators built by either aggregator; a `storeId` on one is
+ * carried into its row.
+ */
+function _sl_scoreStores_(byStore, today, monthLimit) {
   // Built ONCE for every store below, instead of once PER STORE inside
   // the .map() — _sl_getCadenceDays()/cmp_getCadenceDays() previously
   // re-read all of CONFIG_COMPLIANCE on every single store's compliance
@@ -577,7 +599,7 @@ function _computeStoreRiskPass_(data, today, year) {
       s.hasHistory
     );
 
-    return {
+    const row = {
       store: s.store,
       brand: s.brand,
       region: s.region,
@@ -604,6 +626,8 @@ function _computeStoreRiskPass_(data, today, year) {
       action: RISK_ACTION_LABEL[tier],
       attentionReason: reason,
     };
+    if (s.storeId) row.storeId = s.storeId;
+    return row;
   });
 }
 
@@ -645,7 +669,10 @@ function buildRiskEngineSheet() {
  */
 function populateRiskEngine(sheet, data, year) {
   const today = new Date();
-  const rows  = _computeStoreRisk(data, today, year)
+  // D.4 (v26): the STORE HEALTH sheet is built from the visit tables by Store
+  // ID when reports read them, so the sheet and the Reports tab agree.
+  const fromTables = (typeof svd_useTables_ === 'function' && svd_useTables_()) ? svd_storeRisk_(today, year) : null;
+  const rows  = (fromTables || _computeStoreRisk(data, today, year))
     .sort((a, b) => b.riskScore - a.riskScore || a.store.localeCompare(b.store));
 
   if (rows.length === 0) return;

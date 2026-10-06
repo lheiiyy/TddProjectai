@@ -118,12 +118,15 @@ console.log('\n── Compare Reports ──');
   // closed, so it isn't in SETTINGS, and the old report gave its May visit to the open
   // Angel's Pizza URDANETA (same name).
   check('only difference: May URDANETA visit moves from Angel\'s Pizza (old, wrong) to Figaro (tables)',
-    c.diffs === 2 && c.errors.every(x => /^(May|Jun)( NAC)?$/.test(x.row) && /^URDANETA/.test(x.message))
+    c.diffs === 2 && c.errors.filter(x => x.row !== 'Health').every(x => /^(May|Jun)( NAC)?$/.test(x.row) && /^URDANETA/.test(x.message))
     && c.errors.some(x => /URDANETA \(ANGEL'S PIZZA\): MASTER_LOG 1 visit\(s\), tables 0/.test(x.message))
     && c.errors.some(x => /URDANETA \(FIGARO\): MASTER_LOG 0 visit\(s\), tables 1/.test(x.message)), c.errors);
   check('Unvisited/NAC: the same URDANETA visit made Angel\'s Pizza URDANETA look visited in Q2 (old) — tables: not met',
     c.gapDiffs === 2 && c.errors.filter(x => / NAC$/.test(x.row)).every(x => /URDANETA \(ANGEL'S PIZZA\): MASTER_LOG met \/ not listed, tables not met \(0\/1\)/.test(x.message)), c.errors);
   check('Unvisited/NAC: closed-since stores counted separately, not as differences', /store-month\(s\) of stores closed since then/.test(c.message), c.message);
+  // D.4 (v26): Store Health shows the same URDANETA fix (and SHANGRILA, closed) in its own rows.
+  check('Store Health: the same URDANETA visit no longer counts for Angel\'s Pizza URDANETA; SHANGRILA (closed) noted',
+    c.errors.filter(x => x.row === 'Health').every(x => /URDANETA \(ANGEL'S PIZZA\)|SHANGRILA/.test(x.message)), c.errors.filter(x => x.row === 'Health'));
   check('each difference shows the MASTER_LOG rows and where the tables put them', c.errors.some(x => /URDANETA \(FIGARO\).*row 11 → URDANETA \(FIGARO\)/.test(x.message)), c.errors);
   check('message names what reports read now', /reports now read: MASTER_LOG/.test(c.message), c.message);
 
