@@ -445,7 +445,7 @@ function _snap_captureProvenance(evaluationDate) {
  * @param {object} [options] - reserved for future use
  * @returns {{success:boolean, message?:string, snapshotId?:string, reportingYear?:number, snapshotVersion?:number, status?:string, evaluationDate?:Date, finalizedAt?:Date, finalizedBy?:string}}
  */
-function finalizeReport(year, evaluationDateStr, reason, options) {
+function finalizeReport_raw_(year, evaluationDateStr, reason, options) {
   try {
     if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
 
@@ -540,6 +540,13 @@ function finalizeReport(year, evaluationDateStr, reason, options) {
   }
 }
 
+/** Page-facing wrapper (v25): same result as finalizeReport_raw_(), with dates as
+ * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
+function finalizeReport(year, evaluationDateStr, reason, options) {
+  const r = finalizeReport_raw_(year, evaluationDateStr, reason, options);
+  return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
+}
+
 
 // ═══════════════════════════════════════════════════════════════
 // SECTION 6: CORRECTION / SUPERSESSION
@@ -557,7 +564,7 @@ function finalizeReport(year, evaluationDateStr, reason, options) {
  * @param {object} [options]
  * @returns {{success:boolean, message?:string, previousSnapshotId?:string, snapshotId?:string, reportingYear?:number, snapshotVersion?:number, status?:string}}
  */
-function supersedeReportSnapshot(year, previousSnapshotId, evaluationDateStr, reason, options) {
+function supersedeReportSnapshot_raw_(year, previousSnapshotId, evaluationDateStr, reason, options) {
   try {
     if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
 
@@ -651,6 +658,13 @@ function supersedeReportSnapshot(year, previousSnapshotId, evaluationDateStr, re
   }
 }
 
+/** Page-facing wrapper (v25): same result as supersedeReportSnapshot_raw_(), with dates as
+ * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
+function supersedeReportSnapshot(year, previousSnapshotId, evaluationDateStr, reason, options) {
+  const r = supersedeReportSnapshot_raw_(year, previousSnapshotId, evaluationDateStr, reason, options);
+  return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
+}
+
 
 // ═══════════════════════════════════════════════════════════════
 // SECTION 7: RETRIEVAL — never recalculates; always reads the
@@ -658,21 +672,35 @@ function supersedeReportSnapshot(year, previousSnapshotId, evaluationDateStr, re
 // ═══════════════════════════════════════════════════════════════
 
 /** getReportSnapshot(snapshotId) — full snapshot (incl. frozen result), or null. */
-function getReportSnapshot(snapshotId) {
+function getReportSnapshot_raw_(snapshotId) {
   if (!snapshotId) return null;
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(REPORT_SNAPSHOT_SHEET);
   if (!sheet) return null;
   return _snap_readAll(sheet, true).filter(s => s.snapshotId === snapshotId)[0] || null;
 }
 
+/** Page-facing wrapper (v25): same result as getReportSnapshot_raw_(), with dates as
+ * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
+function getReportSnapshot(snapshotId) {
+  const r = getReportSnapshot_raw_(snapshotId);
+  return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
+}
+
 /** getReportSnapshotByVersion(year, version) — full snapshot, or null. */
-function getReportSnapshotByVersion(year, version) {
+function getReportSnapshotByVersion_raw_(year, version) {
   const y = normalizeReportingYear(year);
   const v = Number(version);
   if (y === null || !Number.isFinite(v)) return null;
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(REPORT_SNAPSHOT_SHEET);
   if (!sheet) return null;
   return _snap_readAll(sheet, true).filter(s => s.reportingYear === y && s.snapshotVersion === v)[0] || null;
+}
+
+/** Page-facing wrapper (v25): same result as getReportSnapshotByVersion_raw_(), with dates as
+ * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
+function getReportSnapshotByVersion(year, version) {
+  const r = getReportSnapshotByVersion_raw_(year, version);
+  return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
 }
 
 /**
@@ -682,7 +710,7 @@ function getReportSnapshotByVersion(year, version) {
  * numerically higher without being the answer). Returns null if the year
  * has never been finalized.
  */
-function getLatestFinalizedReportSnapshot(year) {
+function getLatestFinalizedReportSnapshot_raw_(year) {
   const y = normalizeReportingYear(year);
   if (y === null) return null;
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(REPORT_SNAPSHOT_SHEET);
@@ -693,13 +721,20 @@ function getLatestFinalizedReportSnapshot(year) {
   return finalized[0] || null;
 }
 
+/** Page-facing wrapper (v25): same result as getLatestFinalizedReportSnapshot_raw_(), with dates as
+ * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
+function getLatestFinalizedReportSnapshot(year) {
+  const r = getLatestFinalizedReportSnapshot_raw_(year);
+  return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
+}
+
 /**
  * listReportSnapshots(year)
  * Every version for a year, ascending, metadata only (no Result JSON —
  * fetch a specific version's full result via getReportSnapshot()/
  * getReportSnapshotByVersion()).
  */
-function listReportSnapshots(year) {
+function listReportSnapshots_raw_(year) {
   const y = normalizeReportingYear(year);
   if (y === null) return [];
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(REPORT_SNAPSHOT_SHEET);
@@ -707,6 +742,13 @@ function listReportSnapshots(year) {
   return _snap_readAll(sheet, false)
     .filter(s => s.reportingYear === y)
     .sort((a, b) => a.snapshotVersion - b.snapshotVersion);
+}
+
+/** Page-facing wrapper (v25): same result as listReportSnapshots_raw_(), with dates as
+ * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
+function listReportSnapshots(year) {
+  const r = listReportSnapshots_raw_(year);
+  return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
 }
 
 
@@ -722,7 +764,7 @@ function listReportSnapshots(year) {
  * getLatestFinalizedReportSnapshot() — see DEPLOY.md's Phase 1E section.
  * @returns {{mode:'DRAFT', reportingYear:number, evaluationDate:Date, calculatedAt:Date, result:object}|null}
  */
-function getDraftReport(year, evaluationDateStr) {
+function getDraftReport_raw_(year, evaluationDateStr) {
   const y = normalizeReportingYear(year);
   if (y === null) return null;
   const evaluationDate = evaluationDateStr ? _parseDateCell(evaluationDateStr) : new Date();
@@ -730,6 +772,13 @@ function getDraftReport(year, evaluationDateStr) {
 
   const result = _snap_captureCalculatedResult(y, evaluationDate);
   return { mode: 'DRAFT', reportingYear: y, evaluationDate, calculatedAt: new Date(), result };
+}
+
+/** Page-facing wrapper (v25): same result as getDraftReport_raw_(), with dates as
+ * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
+function getDraftReport(year, evaluationDateStr) {
+  const r = getDraftReport_raw_(year, evaluationDateStr);
+  return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
 }
 
 
@@ -767,7 +816,7 @@ function regenerateReportSheet(year) {
   const y = normalizeReportingYear(year);
   if (y === null) return { success: false, message: 'Invalid reporting year: ' + year };
 
-  const snap = getLatestFinalizedReportSnapshot(y);
+  const snap = getLatestFinalizedReportSnapshot_raw_(y);
   if (!snap) return { success: false, message: 'No finalized snapshot exists for ' + y + ' to regenerate from.' };
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();

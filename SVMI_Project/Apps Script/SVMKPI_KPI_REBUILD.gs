@@ -140,11 +140,15 @@ function _visitorWeekFormula(ref, year, month, s, e) {
  *   getDefaultReportingYear() (SVMKPI_REPORTING_YEAR.gs) — the latest
  *   year actually present in MASTER_LOG, never a hardcoded literal.
  */
-function buildKPI2026(year) {
+function buildKPI2026(year, __systemToken) {
   // Phase 1H-B.1 (Required finding 2, reviews/003 §H) — see
   // buildExecutiveSummaryLayout() in SVMKPI_LAYOUT.gs for the full
   // rationale; same fix, same typeof-guard, applied here.
-  if (typeof sl_isAdmin === 'function' && !sl_isAdmin()) {
+  // v25: the queued-rebuild trigger (svmiQueueRebuild_) passes the same
+  // server-only token refreshRiskEngine() accepts.
+  const isSystemTrigger = (typeof _SYSTEM_TRIGGER_TOKEN_ !== 'undefined') &&
+    !!__systemToken && __systemToken === _SYSTEM_TRIGGER_TOKEN_;
+  if (!isSystemTrigger && typeof sl_isAdmin === 'function' && !sl_isAdmin()) {
     throw new Error('Admin access required.');
   }
   const ss = SpreadsheetApp.getActiveSpreadsheet();

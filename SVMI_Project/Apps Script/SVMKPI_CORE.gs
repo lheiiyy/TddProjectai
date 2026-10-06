@@ -673,3 +673,33 @@ function debugVisitorCounting() {
 function _perfLog(fnName, t0, detail) {
   try { console.log('[SVMI PERF] ' + fnName + ' ' + (Date.now() - t0) + ' ms' + (detail ? ' · ' + detail : '')); } catch (e) {}
 }
+
+/**
+ * svmiPlain_(value) — v25.
+ * A copy of `value` that google.script.run can deliver to the page: every
+ * Date becomes text ('yyyy-MM-dd' at midnight, else 'yyyy-MM-dd HH:mm:ss',
+ * in the script's time zone, Asia/Manila); an invalid Date becomes ''.
+ * Apps Script cannot send a Date back to the page — a result containing one
+ * arrives as null, which is what left Admin → Configuration, Audit, Report
+ * Snapshots and the identity screens spinning or "empty".
+ * Arrays and plain objects are copied recursively; everything else as is.
+ */
+function svmiPlain_(value) {
+  if (value instanceof Date) {
+    if (isNaN(value.getTime())) return '';
+    const p = n => String(n).padStart(2, '0');
+    const day = value.getFullYear() + '-' + p(value.getMonth() + 1) + '-' + p(value.getDate());
+    if (!value.getHours() && !value.getMinutes() && !value.getSeconds()) return day;
+    return day + ' ' + p(value.getHours()) + ':' + p(value.getMinutes()) + ':' + p(value.getSeconds());
+  }
+  if (Array.isArray(value)) return value.map(svmiPlain_);
+  if (value && typeof value === 'object') {
+    const out = {};
+    Object.keys(value).forEach(k => {
+      const v = value[k];
+      if (typeof v !== 'function') out[k] = svmiPlain_(v);
+    });
+    return out;
+  }
+  return value;
+}

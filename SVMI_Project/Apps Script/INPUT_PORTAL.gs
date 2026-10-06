@@ -543,7 +543,8 @@ function manageVisitor(action, visitorName, suppressRebuild) {
       // once, after the whole batch, instead.
       if (!suppressRebuild) {
         try {
-          if (ss.getSheetByName(_kpiSheetName())) buildKPI2026();
+          // v25: queued (a minute later), not inside this save.
+          if (ss.getSheetByName(_kpiSheetName()) && (typeof svmiQueueRebuild_ !== 'function' || !svmiQueueRebuild_('KPI'))) buildKPI2026();   // inline only if queuing failed
         } catch (e) { logError('manageVisitor (KPI 2026 auto-refresh)', e); }
       }
 
@@ -729,7 +730,8 @@ function portal_saveStore(store, brand, region, category, suppressRebuild, stric
     // MASTER_LOG scan) is what timed the migration out.
     if (!suppressRebuild) {
       try {
-        if (ss.getSheetByName(RISK_SHEET_NAME)) refreshRiskEngine();
+        // v25: queued (a minute later), not inside this save.
+        if (ss.getSheetByName(RISK_SHEET_NAME) && (typeof svmiQueueRebuild_ !== 'function' || !svmiQueueRebuild_('STORE_HEALTH'))) refreshRiskEngine();   // inline only if queuing failed
       } catch (e) { logError('portal_saveStore (Store Health auto-refresh)', e); }
     }
 
@@ -811,7 +813,8 @@ function portal_removeStore(storeName, suppressRebuild, brandOnly) {
     // on their own. suppressRebuild: see portal_saveStore()'s comment.
     if (!suppressRebuild) {
       try {
-        if (ss.getSheetByName(RISK_SHEET_NAME)) refreshRiskEngine();
+        // v25: queued (a minute later), not inside this save.
+        if (ss.getSheetByName(RISK_SHEET_NAME) && (typeof svmiQueueRebuild_ !== 'function' || !svmiQueueRebuild_('STORE_HEALTH'))) refreshRiskEngine();   // inline only if queuing failed
       } catch (e) { logError('portal_removeStore (Store Health auto-refresh)', e); }
     }
 

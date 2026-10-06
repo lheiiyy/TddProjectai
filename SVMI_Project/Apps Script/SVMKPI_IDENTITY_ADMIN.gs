@@ -27,7 +27,7 @@
  * approval UI needs — never a raw sheet row.
  * @returns {{success:boolean, registrations?:object[], message?:string}}
  */
-function listPendingRegistrations() {
+function listPendingRegistrations_raw_() {
   const auth = _identity_authorizeCurrentUser_(IDENTITY_PERMISSION.REGISTRATION_APPROVE);
   if (!auth.authorized) return { success: false, message: auth.reason };
   const sheet = _identity_ensureSheet_(IDENTITY_SHEET.USERS, IDENTITY_HEADERS.USERS);
@@ -40,6 +40,13 @@ function listPendingRegistrations() {
       department: u.department, emailVerifiedAt: u.emailVerifiedAt, createdAt: u.createdAt,
     }));
   return { success: true, registrations: registrations };
+}
+
+/** Page-facing wrapper (v25): same result as listPendingRegistrations_raw_(), with dates as
+ * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
+function listPendingRegistrations() {
+  const r = listPendingRegistrations_raw_();
+  return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
 }
 
 /**
@@ -302,7 +309,7 @@ function assignScope(userId, scopeType, scopeValue, grant) {
  * takes either). Never returns MFA secret or verification-code data.
  * @returns {{success:boolean, user?:object, roles?:string[], permissions?:string[], directPermissions?:string[], scope?:object[], mfaStatus?:string, message?:string}}
  */
-function identityAdmin_getUserDetail(userIdOrEmail) {
+function identityAdmin_getUserDetail_raw_(userIdOrEmail) {
   const canView = _identity_currentUserHasPermission_(IDENTITY_PERMISSION.REGISTRATION_APPROVE) ||
     _identity_currentUserHasPermission_(IDENTITY_PERMISSION.USER_MANAGE) ||
     _identity_currentUserHasPermission_(IDENTITY_PERMISSION.ROLE_ASSIGN) ||
@@ -338,4 +345,11 @@ function identityAdmin_getUserDetail(userIdOrEmail) {
     scope: scope,
     mfaStatus: mfaStatus,
   };
+}
+
+/** Page-facing wrapper (v25): same result as identityAdmin_getUserDetail_raw_(), with dates as
+ * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
+function identityAdmin_getUserDetail(userIdOrEmail) {
+  const r = identityAdmin_getUserDetail_raw_(userIdOrEmail);
+  return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
 }

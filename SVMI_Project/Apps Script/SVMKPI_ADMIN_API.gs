@@ -72,11 +72,18 @@ function admin_listConfigEntityIds(area) {
  * UI's detail/history panel needs in one call.
  * @returns {{current:(object|null), history:object[]}}
  */
-function admin_getConfigEntityDetail(area, entityId, dateStr) {
+function admin_getConfigEntityDetail_raw_(area, entityId, dateStr) {
   return {
     current: cfg_resolveConfigurationAsOf(area, entityId, dateStr),
     history: cfg_getConfiguration(area, entityId).sort((a, b) => a.versionNum - b.versionNum),
   };
+}
+
+/** Page-facing wrapper (v25): same result as admin_getConfigEntityDetail_raw_(), with dates as
+ * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
+function admin_getConfigEntityDetail(area, entityId, dateStr) {
+  const r = admin_getConfigEntityDetail_raw_(area, entityId, dateStr);
+  return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
 }
 
 /**
@@ -84,8 +91,15 @@ function admin_getConfigEntityDetail(area, entityId, dateStr) {
  * Risk (SVMKPI_RISK_CONFIG.gs) is a global singleton — no entity
  * enumeration needed, just its one CFG_SINGLETON_ENTITY history.
  */
+function admin_getRiskDetail_raw_(dateStr) {
+  return admin_getConfigEntityDetail_raw_(CFG_AREA.RISK, CFG_SINGLETON_ENTITY, dateStr);
+}
+
+/** Page-facing wrapper (v25): same result as admin_getRiskDetail_raw_(), with dates as
+ * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
 function admin_getRiskDetail(dateStr) {
-  return admin_getConfigEntityDetail(CFG_AREA.RISK, CFG_SINGLETON_ENTITY, dateStr);
+  const r = admin_getRiskDetail_raw_(dateStr);
+  return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
 }
 
 /**
@@ -98,11 +112,18 @@ function admin_getRiskDetail(dateStr) {
  * purpose_getConfigurationStatus() — never re-deriving that status here.
  * @returns {object[]} purpose_getConfigurationStatus()'s own shape, one per known purpose
  */
-function admin_listPurposes(dateStr) {
+function admin_listPurposes_raw_(dateStr) {
   const names = {};
   (typeof APPROVED_PURPOSES !== 'undefined' ? APPROVED_PURPOSES : []).forEach(p => { names[p] = true; });
   cfg_getConfiguration(CFG_AREA.PURPOSES).forEach(v => { names[v.entityId] = true; });
   return Object.keys(names).sort().map(name => purpose_getConfigurationStatus(name, dateStr));
+}
+
+/** Page-facing wrapper (v25): same result as admin_listPurposes_raw_(), with dates as
+ * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
+function admin_listPurposes(dateStr) {
+  const r = admin_listPurposes_raw_(dateStr);
+  return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
 }
 
 /**
@@ -132,11 +153,12 @@ function admin_listComplianceCategories() {
  * it is correctly hidden from the Input Portal's store picker.
  * @returns {{storeId:string, storeName:string, brand:string, region:string, category:string, status:string, versionNum:number, effectiveFrom:Date}[]}
  */
-function admin_listAllStores(dateStr) {
-  const ids = _store_listEntityIds();
-  return ids
+function admin_listAllStores_raw_(dateStr) {
+  // v25: one CONFIG_STORES read for every store (was one read per store).
+  const all = cfg_resolveAllAsOf(CFG_AREA.STORES, dateStr || null);
+  return Object.keys(all)
     .map(id => {
-      const resolved = resolveStoreAsOf(id, dateStr);
+      const resolved = all[id];
       if (!resolved) return null;
       const f = resolved.fields || {};
       return {
@@ -152,6 +174,13 @@ function admin_listAllStores(dateStr) {
     })
     .filter(Boolean)
     .sort((a, b) => String(a.storeName).localeCompare(String(b.storeName)));
+}
+
+/** Page-facing wrapper (v25): same result as admin_listAllStores_raw_(), with dates as
+ * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
+function admin_listAllStores(dateStr) {
+  const r = admin_listAllStores_raw_(dateStr);
+  return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
 }
 
 /**

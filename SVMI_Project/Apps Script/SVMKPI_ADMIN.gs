@@ -316,6 +316,57 @@ function triggerRefreshDashboard() {
 }
 
 
+// ── v25: rebuilds queued by admin saves ─────────────────────────
+// An admin save (store add/edit/remove, visitor add) used to rebuild
+// Store Health / KPI 2026 inside the same call — a full MASTER_LOG scan
+// plus config reads per store, so the Save button waited minutes (or hit
+// the 6-minute limit) although the save itself was already done. Now the
+// save only marks what needs rebuilding and a one-off trigger runs it
+// about a minute later, once, however many saves happened meanwhile.
+const QUEUED_REBUILD_FN = 'triggerQueuedRebuilds';
+const QUEUED_REBUILD_PROP = 'SVMI_QUEUED_REBUILDS';
+const QUEUED_REBUILD = { STORE_HEALTH: 'STORE_HEALTH', KPI: 'KPI' };
+
+function svmiQueueRebuild_(kind) {
+  if (typeof ScriptApp === 'undefined' || !ScriptApp.newTrigger) return false;   // caller rebuilds inline
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const cur = String(props.getProperty(QUEUED_REBUILD_PROP) || '').split(',').filter(Boolean);
+    if (cur.indexOf(kind) === -1) cur.push(kind);
+    props.setProperty(QUEUED_REBUILD_PROP, cur.join(','));
+    const pending = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === QUEUED_REBUILD_FN);
+    if (!pending) ScriptApp.newTrigger(QUEUED_REBUILD_FN).timeBased().after(60 * 1000).create();
+    return true;
+  } catch (e) {
+    logError('svmiQueueRebuild_', e);
+    return false;
+  }
+}
+
+/** Trigger handler. Does nothing unless an admin save queued a rebuild. */
+function triggerQueuedRebuilds() {
+  const props = PropertiesService.getScriptProperties();
+  const kinds = String(props.getProperty(QUEUED_REBUILD_PROP) || '').split(',').filter(Boolean);
+  props.deleteProperty(QUEUED_REBUILD_PROP);
+  try {
+    ScriptApp.getProjectTriggers().forEach(t => {
+      if (t.getHandlerFunction() === QUEUED_REBUILD_FN) ScriptApp.deleteTrigger(t);
+    });
+  } catch (e) { logError('triggerQueuedRebuilds (cleanup)', e); }
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (kinds.indexOf(QUEUED_REBUILD.STORE_HEALTH) !== -1) {
+    try {
+      if (ss.getSheetByName(RISK_SHEET_NAME)) refreshRiskEngine(undefined, _SYSTEM_TRIGGER_TOKEN_);
+    } catch (e) { logError('triggerQueuedRebuilds (Store Health)', e); }
+  }
+  if (kinds.indexOf(QUEUED_REBUILD.KPI) !== -1) {
+    try {
+      if (typeof _kpiSheetName === 'function' && ss.getSheetByName(_kpiSheetName())) buildKPI2026(undefined, _SYSTEM_TRIGGER_TOKEN_);
+    } catch (e) { logError('triggerQueuedRebuilds (KPI)', e); }
+  }
+  return { success: true, ran: kinds };
+}
+
 // ═══════════════════════════════════════════════════════════════
 // SECTION 6: INTERNAL HELPERS
 // ═══════════════════════════════════════════════════════════════

@@ -999,12 +999,18 @@ function smt_writeRowsSafely_(ctx, changes, action) {
   changes.forEach(c => {
     c.rows.forEach(r => {
       const nameChanges = r.rawName !== c.name;
-      const idChanges = c.id != null && r.colI !== c.id;
+      // v25: column I is only ever written where it is blank or already a
+      // Store ID. Rows 2–13 hold Leo's visitor leaderboard (names) in I:J —
+      // those cells are never overwritten; the visit keeps its Store ID in
+      // the visit tables (resolved by name + brand) instead.
+      const rawI = String(r.colIRaw == null ? '' : r.colIRaw).trim();
+      const colIFree = rawI === '' || /^STR-/i.test(rawI);
+      const idChanges = c.id != null && r.colI !== c.id && colIFree;
       if (!nameChanges && !idChanges) return;
       touched.push(r);
       if (nameChanges) (nameRefs[c.name] = nameRefs[c.name] || []).push('C' + r.rowNum);
       if (idChanges) (idRefs[c.id] = idRefs[c.id] || []).push('I' + r.rowNum);
-      log.push([fixId, at, by, action, r.rowNum, r.date || '', r.rawName, c.name, r.colIRaw, c.id != null ? c.id : r.colIRaw]);
+      log.push([fixId, at, by, action, r.rowNum, r.date || '', r.rawName, c.name, r.colIRaw, idChanges ? c.id : r.colIRaw]);
     });
   });
   if (!log.length) return { count: 0, stale: false };
@@ -1028,7 +1034,10 @@ function smt_rowsUnchanged_(ctx, rows) {
   return rows.every(r => {
     const v = block[r.rowNum - min];
     return String(v[0] == null ? '' : v[0]) === r.rawName
-      && String(v[6] == null ? '' : v[6]).trim().toUpperCase() === r.colI;
+      // v25: compare column I the same way it was read (Store ID or ''). Raw
+      // text there (the leaderboard names in rows 2–13) used to look like a
+      // change, so any merge touching those rows aborted with "MASTER_LOG changed".
+      && svt_storeIdCell_(v[6]) === r.colI;
   });
 }
 

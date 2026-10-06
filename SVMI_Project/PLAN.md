@@ -5,7 +5,7 @@ Last updated: 2026-10-05 · Working branch: `svmi/phase-d3-insights` (PR #22)
 **🚀 LIVE = version 23 (2026-10-04)** — same Web App URL. v23 = D.2 Unvisited/NAC by Store ID; reports switched to
 the visit tables. v24 (D.3 Store Insights, PR #22): deploy started 2026-10-05 — `live-backup-20261004-pre-v24/` committed; Leo to confirm it's live.
 Rollback sources: `live-backup-20261004-pre-v23/` (= v22) and older `live-backup-*` folders.
-**Next: the 🐞 Bug & fix plan below (2026-10-05), then D.4.**
+**v25 built (2026-10-06, branch `svmi/v25-fixes`): F1 + F2 of the 🐞 plan below — deploy next. Then F3+F4, F5…, then D.4.**
 Rule for now: **functionality first.** Security is parked (except admin access).
 Live backups (`live-backup-*`) are the safe fallback — never edited.
 
@@ -121,6 +121,22 @@ The stuck "add new store" **did save** (Leo, 2026-10-05) — the save worked, th
 | F2.13 | Low (S) | No lock on admin saves — two saves at once can write the same SETTINGS row | `LockService` around create + mirror |
 | F2.14 | Low (C) | Visitors: Entity ID and Visitor Name can differ | Fill one from the other |
 | F2.15 | — | Leo: ✏️ beside every existing record, admin only | ✏️ on each row of the store/visitor/purpose lists opens the pre-filled edit form (adds a new version, as now) |
+
+**v25 — built 2026-10-06 (branch `svmi/v25-fixes`), not yet deployed.** Done:
+F1.1 📅 date input on the icon · F1.2 Enter stops at Visited By (+ stays there while no visitor is picked) ·
+F1.3 combinable pills · F2.1 dates as text: `svmiPlain_` + `<fn>_raw_` / page wrapper for the admin store list/detail,
+risk detail, purposes, audit log, all Report Snapshot reads/finalize/supersede, getCurrentUser, pending registrations,
+user detail, identity audit (also covers F4.1–F4.4) · F2.2 Store Health / KPI rebuild **queued** (one-off trigger ~1 min
+later, `triggerQueuedRebuilds`, server token; inline only if triggers are unavailable) — decision L4 taken as the
+recommended "background" · F2.3 no second **open** store with the same name + brand · F2.4 column I written only where
+blank or already a Store ID · F2.5 stay on the edited record · F2.6 edit form pre-filled (inactive stays inactive; a brand
+missing from the list is kept) · F2.7 one admin action at a time · F2.8 store list and name lookup read CONFIG_STORES once ·
+F2.12 Brand/Region/Category load error shown · F2.15 ✏️ on every record row · F3.1 tool runner: no double run, empty reply
+ends as an error.
+**Found while testing (fixed in v25):** Store Name Matching's "MASTER_LOG changed" guard compared raw column I text
+(the leaderboard names in rows 2–13) with the Store ID it had read, so any merge/map touching rows 2–13 aborted with
+"MASTER_LOG changed while this ran — press Find again" after the CONFIG part was already saved.
+Not in v25: F2.9 (brand/region lists from config), F2.10, F2.11, F2.13, F2.14 → with F3/F4.
 
 ### F3 — Admin → System Tools → v26
 
@@ -316,6 +332,6 @@ Known gaps (not configurable yet):
 
 ## Tests
 
-33 files, 1,853 checks, all passing (`node tests/<file>.test.js`).
+34 files, 1,913 checks, all passing (`node tests/<file>.test.js`) — v25 added `tests/v25-fixes.test.js` (60).
 `store-name-matching-ui.test.js` clicks through the real `SVMI_PORTAL.html` with the real `.gs` code
 behind it (Playwright); the other portal tests use the demo page.

@@ -104,13 +104,15 @@ textarea.fi{resize:vertical;min-height:50px}
 .ss-opt:hover{background:#EAF4E1;color:var(--tld-d)}
 
 /* ── Date field: typable text + the real native picker, both at once ── */
-/* The native type="date" control sits invisibly on top of its own text
-   input, present only so openDatePicker()/showPicker() has something real
-   to call — pointer-events:none means a tap always reaches the typable
-   text field or the 📅 button underneath/beside it, never this control
-   directly (which is what makes phones show ONLY their native modal with
-   no typing, the exact complaint this fixes). */
-.date-native-proxy{position:absolute;inset:0;opacity:0;pointer-events:none;border:none;padding:0}
+/* v25: the transparent date input now covers ONLY the 📅 icon and takes the
+   tap itself (pointer-events on) — showPicker() from code is refused inside
+   Apps Script's cross-origin iframe. Its own calendar indicator is stretched
+   over the whole box so a click anywhere on 📅 opens the picker on desktop
+   Chrome too (phones open it on any tap of a date input). */
+.date-btn{display:inline-flex;align-items:center;justify-content:center;overflow:hidden}
+.date-native-proxy{position:absolute;inset:0;width:100%;height:100%;opacity:0;border:none;padding:0;margin:0;
+  cursor:pointer;font-size:16px;color:transparent;background:transparent}
+.date-native-proxy::-webkit-calendar-picker-indicator{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;cursor:pointer}
 
 /* ── Visitor chips ── */
 /* Selected visitors sit inside the same box you type in — one control, not a
@@ -533,6 +535,9 @@ textarea.fi{padding-right:28px}
 .admin-entity-row{padding:8px;border-radius:6px;cursor:pointer;font-size:12px;margin-bottom:3px;
   border:1px solid transparent;word-break:break-word}
 .admin-entity-row:hover{background:var(--bg)}
+.admin-edit-btn{float:right;border:none;background:none;cursor:pointer;font-size:13px;padding:2px 4px;border-radius:4px;line-height:1}
+.admin-edit-btn:hover{background:var(--green-l)}
+body.admin-busy .vm-btn,body.admin-busy #content-Admin .btn-navy{opacity:.55;pointer-events:none}
 .admin-entity-row.active{background:var(--green-l);border-color:var(--green);font-weight:700}
 .admin-detail-col{flex:1;min-width:0;background:var(--card);border:1px solid var(--border);
   border-radius:8px;padding:16px;box-sizing:border-box}
@@ -664,14 +669,16 @@ textarea.fi{padding-right:28px}
         <div class="ss-wrap">
           <input type="text" id="dateVisitedText" class="fi" placeholder="MM/DD/YYYY" inputmode="numeric" autocomplete="off"
             oninput="onDateTextInput()" onblur="onDateTextBlur()" onkeydown="fieldKey(event,'visSearch')">
-          <button type="button" class="combo-caret" title="Open calendar"
-            onmousedown="event.preventDefault();openDatePicker()">📅</button>
-          <!-- The real type="date" control: kept fully functional (native picker on every
-               device) but never tapped directly — openDatePicker() invokes it via
-               showPicker(), and its own onchange writes back into the typable text field
-               above. Native type="date" inputs on phones only offer their picker UI with
-               no way to type into them at all; this lets both work at once, everywhere. -->
-          <input type="date" id="dateVisited" class="date-native-proxy" tabindex="-1" onchange="onNativeDateChange()">
+          <!-- 📅 = the real type="date" control, transparent, sitting exactly on the
+               calendar icon. The user's own tap on it opens the native calendar on every
+               device. (Opening it from code with showPicker() is refused inside the
+               cross-origin iframe every Apps Script web app runs in — v25 fix.)
+               Typing MM/DD/YYYY in the text field above keeps working; both write the
+               same #dateVisited value that the rest of the form reads. -->
+          <span class="combo-caret date-btn" title="Open calendar">📅
+            <input type="date" id="dateVisited" class="date-native-proxy" tabindex="-1"
+              aria-label="Pick the visit date" onchange="onNativeDateChange()">
+          </span>
         </div>
       </div>
 
@@ -1393,19 +1400,11 @@ function onDateTextBlur() {
   var txt = document.getElementById('dateVisitedText').value.trim();
   if (txt && !_textToIso(txt)) showStatus('Enter the date as MM/DD/YYYY, or use the 📅 button.', 'error');
 }
-// Fires when the user picks a date from the native picker (openDatePicker()) —
+// Fires when the user picks a date from the native picker (tap on 📅) —
 // mirrors it back into the typable text field so both stay in sync.
 function onNativeDateChange() {
   document.getElementById('dateVisitedText').value = _dateToText(document.getElementById('dateVisited').value);
   clearStatus();
-}
-function openDatePicker() {
-  var native = document.getElementById('dateVisited');
-  if (typeof native.showPicker === 'function') {
-    try { native.showPicker(); return; } catch (e) { /* fall through */ }
-  }
-  native.focus();
-  native.click();
 }
 
 // ═══════════════════════════════════════
@@ -1830,10 +1829,18 @@ function focusNext(nextId) {
 // keyCode 229 / key "Unidentified" while a word is still being composed, so
 // comboKey() never sees it. keyup still reports Enter — use it as a fallback.
 var _comboEnterAt = 0;   // time of the last Enter comboKey() handled
+// Time of the last real Enter keydown ANYWHERE on the page (v25). An Enter
+// pressed in Date Visited moves focus to Visited By on keydown; that same
+// Enter's keyup then lands on Visited By. Without this, the keyup fallback
+// below treated it as a second Enter and jumped on to Purpose.
+var _anyEnterDownAt = 0;
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' || e.keyCode === 13) _anyEnterDownAt = Date.now();
+}, true);
 function comboKeyUp(e, dropId, inputId, nextId) {
   var isEnter = e.key === 'Enter' || e.keyCode === 13;
   if (!isEnter) return;
-  if (Date.now() - _comboEnterAt < 1000) return;   // keydown already handled this Enter
+  if (Date.now() - Math.max(_comboEnterAt, _anyEnterDownAt) < 1000) return;   // keydown already handled this Enter
   comboKey({ key: 'Enter', keyCode: 13, ctrlKey: e.ctrlKey, metaKey: e.metaKey, preventDefault: function(){} },
            dropId, inputId, nextId);
 }
@@ -1876,6 +1883,10 @@ function comboKey(e, dropId, inputId, nextId) {
       if (dropId !== 'visDrop') focusNext(nextId);
     } else if (COMBOS[dropId].enterClosed) {
       COMBOS[dropId].enterClosed();    // e.g. re-run the lookup for the committed store
+    } else if (dropId === 'visDrop' && !selVisitors.length) {
+      // No visitor picked yet: stay here and show the list instead of
+      // moving on with Visited By still empty (v25).
+      COMBOS[dropId].refresh();
     } else {
       focusNext(nextId);
     }
@@ -2644,20 +2655,29 @@ function compOnRender(rows, allRows) {
 
 // The Monthly/Quarterly/Semi-Annual pills are a shortcut for the "Required"
 // column filter rather than a second, separate mechanism, so the two agree.
+// v25: pills toggle on/off and combine (Monthly + Quarterly, Monthly +
+// Semi-Annual, any mix); "All Stores" clears the filter.
 function setFilter(btn, f) {
-  document.querySelectorAll('.cf-btn').forEach(function(b){ b.classList.remove('active'); });
-  btn.classList.add('active');
-  if (f === 'ALL') delete FT.comp.colF.windowLabel;
-  else FT.comp.colF.windowLabel = { type: 'set', sel: [f] };
+  if (!FT.comp) return;
+  if (f === 'ALL') {
+    delete FT.comp.colF.windowLabel;
+  } else {
+    var cur = FT.comp.colF.windowLabel && FT.comp.colF.windowLabel.sel ? FT.comp.colF.windowLabel.sel.slice() : [];
+    var at = cur.indexOf(f);
+    if (at === -1) cur.push(f); else cur.splice(at, 1);
+    if (cur.length) FT.comp.colF.windowLabel = { type: 'set', sel: cur };
+    else delete FT.comp.colF.windowLabel;
+  }
   ftClosePop();
   ftRender('comp');
+  syncWindowButtons();
 }
 
 function syncWindowButtons() {
   var f = FT.comp ? FT.comp.colF.windowLabel : null;
-  var active = (f && f.sel && f.sel.length === 1) ? f.sel[0] : (f ? null : 'ALL');
+  var sel = (f && f.sel) ? f.sel : [];
   document.querySelectorAll('.cf-btn').forEach(function(b) {
-    b.classList.toggle('active', b.dataset.f === active);
+    b.classList.toggle('active', b.dataset.f === 'ALL' ? !sel.length : sel.indexOf(b.dataset.f) !== -1);
   });
 }
 
@@ -2997,12 +3017,20 @@ function confirmProceed() {
   if (t) execTool(t.key, t.statId);
 }
 
+// v25: a tool can't be started again while it is still running (two runs
+// rebuilding the same sheet at once), and an empty reply no longer leaves
+// "⏳ Running…" on screen forever.
+var toolsRunning = {};
 function execTool(key, statId) {
   var el = document.getElementById(statId);
+  if (toolsRunning[key]) { addLog('info', '⏳ '+key+' is still running — wait for it to finish.'); return; }
+  toolsRunning[key] = true;
   el.textContent = '⏳ Running…'; el.className = 'tool-stat running';
   addLog('info', '▶ '+key+' started…');
   google.script.run
     .withSuccessHandler(function(r) {
+      toolsRunning[key] = false;
+      r = r || { success: false, message: 'No reply from the server — check Apps Script → Executions.' };
       if (r.success) {
         el.textContent = '✅ '+r.message; el.className = 'tool-stat success';
         addLog('ok','✅ '+key+': '+r.message);
@@ -3016,6 +3044,7 @@ function execTool(key, statId) {
       }
     })
     .withFailureHandler(function(err) {
+      toolsRunning[key] = false;
       var msg = err.message || String(err);
       el.textContent = '❌ '+msg; el.className = 'tool-stat error';
       addLog('err','❌ '+key+' failed: '+msg);
@@ -3703,6 +3732,9 @@ function todayDateStr() {
 }
 function fmtDate(v) {
   if (!v) return '—';
+  // v25: the server now sends dates as text ('yyyy-MM-dd' or
+  // 'yyyy-MM-dd HH:mm:ss') — show the date part as is, no time-zone shifts.
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
   var d = (v instanceof Date) ? v : new Date(v);
   if (isNaN(d.getTime())) return esc(String(v));
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
@@ -4076,7 +4108,10 @@ function loadAdminArea(area) {
 }
 
 function adminEntityRowHtml(id, label, sub, badgeClass) {
-  return '<div class="admin-entity-row" data-id="' + esc(id) + '" onclick="selectAdminEntity(\'' + esc(id).replace(/'/g, "\\'") + '\')">'
+  var jsId = esc(id).replace(/'/g, "\\'");
+  return '<div class="admin-entity-row" data-id="' + esc(id) + '" onclick="selectAdminEntity(\'' + jsId + '\')">'
+    // v25: ✏️ opens this record with its edit form already filled in.
+    + '<button type="button" class="admin-edit-btn" title="Edit" onclick="event.stopPropagation();adminEditEntity(\'' + jsId + '\')">✏️</button>'
     + (badgeClass ? '<span class="admin-badge ' + badgeClass + '"> </span> ' : '')
     + '<b>' + esc(label) + '</b>' + (sub ? '<div style="font-size:10px;color:var(--muted)">' + esc(sub) + '</div>' : '')
     + '</div>';
@@ -4092,6 +4127,7 @@ function loadAdminEntityList(area) {
   }
   if (area === 'SYSTEM') {
     callServer('admin_getSystemAreaInfo', [], function(info) {
+      if (!info) { adminShowError('adminEntityList', 'No response from the server — try again.'); return; }
       listEl.innerHTML = info.entities.length
         ? info.entities.map(function(id){ return adminEntityRowHtml(id, id, '', null); }).join('')
         : '<div class="admin-note">No system settings have ever been defined.</div>';
@@ -4101,6 +4137,7 @@ function loadAdminEntityList(area) {
   }
   if (area === 'STORES') {
     callServer('admin_listAllStores', [null], function(list) {
+      if (!list) { adminShowError('adminEntityList', 'No response from the server — try again.'); return; }
       adminEntities = list;
       listEl.innerHTML = list.length
         ? list.map(function(s){ return adminEntityRowHtml(s.storeId, s.storeName, s.storeId + ' · ' + s.status, s.status === 'ACTIVE' ? 'ok' : 'no'); }).join('')
@@ -4110,6 +4147,7 @@ function loadAdminEntityList(area) {
   }
   if (area === 'PURPOSES') {
     callServer('admin_listPurposes', [null], function(list) {
+      if (!list) { adminShowError('adminEntityList', 'No response from the server — try again.'); return; }
       adminEntities = list;
       listEl.innerHTML = list.map(function(p) {
         var sub = p.valid ? 'Valid — KPI + Risk configured' : p.incomplete ? 'Incomplete' : 'Exists';
@@ -4120,6 +4158,7 @@ function loadAdminEntityList(area) {
   }
   if (area === 'COMPLIANCE') {
     callServer('admin_listComplianceCategories', [], function(cats) {
+      cats = cats || [];
       adminEntities = cats;
       listEl.innerHTML = cats.length
         ? cats.map(function(c){ return adminEntityRowHtml(c, c, '', null); }).join('')
@@ -4129,6 +4168,7 @@ function loadAdminEntityList(area) {
   }
   // VISITORS, KPI — plain entity-ID enumeration from CONFIG_*
   callServer('admin_listConfigEntityIds', [area], function(ids) {
+    ids = ids || [];
     adminEntities = ids;
     listEl.innerHTML = ids.length
       ? ids.map(function(id){ return adminEntityRowHtml(id, id, '', null); }).join('')
@@ -4147,8 +4187,40 @@ function selectAdminEntity(entityId) {
   var fn   = (adminArea === 'RISK') ? 'admin_getRiskDetail' : 'admin_getConfigEntityDetail';
   var args = (adminArea === 'RISK') ? [null] : [adminArea, entityId, null];
   callServer(fn, args, function(detail) {
+    if (!detail) { adminShowError('adminDetailCol', 'No response from the server — try again.'); return; }
     col.innerHTML = renderAdminDetail(adminArea, entityId, detail);
+    // v25: the "Add New Version" form starts from the current values, so an
+    // edit changes only what you change (an inactive store stays inactive).
+    if (detail.current && detail.current.fields) adminPrefillForm(detail.current.fields);
+    if (adminScrollToForm) {
+      adminScrollToForm = false;
+      var form = document.getElementById('af_submitBtn');
+      if (form && form.scrollIntoView) form.closest('.p-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }, function(msg) { adminShowError('adminDetailCol', msg); });
+}
+
+var adminScrollToForm = false;
+function adminEditEntity(entityId) {
+  adminScrollToForm = true;
+  selectAdminEntity(entityId);
+}
+
+// Fill the edit form with the record's current values. A select whose list
+// lacks the current value (e.g. a brand no other store uses) gets it added,
+// so saving never silently blanks a field.
+function adminPrefillForm(fields) {
+  (adminSchema && adminSchema.fields || []).forEach(function(f) {
+    var el = document.getElementById('af_' + f.key);
+    var v = fields[f.key];
+    if (!el || v == null || v === '') return;
+    v = String(v);
+    if (el.tagName === 'SELECT') {
+      var has = Array.prototype.some.call(el.options, function(o) { return o.value === v; });
+      if (!has) { var o = document.createElement('option'); o.value = v; o.textContent = v; el.appendChild(o); }
+    }
+    el.value = v;
+  });
 }
 
 function renderFieldRows(fields) {
@@ -4251,7 +4323,10 @@ function renderAdminCreateForm(area, entityId, isNewEntity) {
     callServer('sl_getStoreFormOptions', [], function(opts) {
       adminStoreFormOptions = opts;
       if (adminArea === 'STORES') { if (isNewEntity) adminOpenCreateForm(); else selectAdminEntity(entityId); }
-    }, function() {});
+    }, function(msg) {
+      var e = document.getElementById('af_error');
+      if (e) e.textContent = 'Could not load the Brand / Region / Category lists: ' + msg + ' — reopen the form to try again.';
+    });
   }
 
   return '<div class="p-card" style="margin-top:14px"><div class="p-card-hdr">' + (isNewEntity ? '➕ Create New ' + esc(ADMIN_AREAS.filter(function(a){return a.key===area;})[0].label) : '📝 Add New Version') + '</div>'
@@ -4334,7 +4409,7 @@ function adminSubmitCreate(area, isNewEntity) {
         if (r && r.success) {
           adminToast('✅ ' + area + ' saved: ' + (r.versionId || r.storeId || 'new version'));
           loadAdminEntityList(area);
-          var target = entityId || r.storeId;
+          var target = entityId || r.storeId || (isNewEntity ? null : adminSelectedEntity);   // v25: stay on the edited record
           if (target) selectAdminEntity(target); else adminOpenCreateForm();
         } else if (r && r.requiresBackdateConfirmation) {
           confirmBackdate(function(){ doSubmit(Object.assign({}, options, { backdateConfirmed: true })); });
@@ -4378,14 +4453,28 @@ function renderHistActions(area, entityId, v) {
     + '<button class="vm-btn vm-add" style="padding:3px 8px;font-size:10px" onclick="adminRollback(\'' + area + '\',\'' + esc(entityId).replace(/'/g,"\\'") + '\',\'' + v.versionId + '\')">↩ Rollback to this</button>';
 }
 
+// v25: one admin action at a time — a second click while one is still
+// running is ignored instead of starting a second save.
+var adminBusy = false;
+function adminRun(fn, args, onOk, failLabel) {
+  if (adminBusy) { adminToast('⏳ Still working on the previous action…'); return; }
+  adminBusy = true;
+  document.body.classList.add('admin-busy');
+  callServer(fn, args, function(r) {
+    adminBusy = false; document.body.classList.remove('admin-busy');
+    if (r && r.success) onOk(r);
+    else alert((r && r.message) || failLabel);
+  }, function(msg) { adminBusy = false; document.body.classList.remove('admin-busy'); alert(msg); });
+}
+
 function adminToggleEnvStatus(area, versionId, activate) {
+  if (adminBusy) { adminToast('⏳ Still working on the previous action…'); return; }
   var reason = prompt(activate ? 'Reason for activating this version:' : 'Reason for deactivating this version:');
   if (reason === null) return;
   var fn = activate ? 'cfg_activateConfiguration' : 'cfg_deactivateConfiguration';
-  callServer(fn, [area, versionId, reason], function(r) {
-    if (r && r.success) { adminToast('✅ Version status updated.'); selectAdminEntity(adminSelectedEntity); }
-    else { alert((r && r.message) || 'Failed.'); }
-  }, function(msg) { alert(msg); });
+  adminRun(fn, [area, versionId, reason], function() {
+    adminToast('✅ Version status updated.'); selectAdminEntity(adminSelectedEntity);
+  }, 'Failed.');
 }
 
 function adminRollback(area, entityId, targetVersionId) {
@@ -4398,10 +4487,9 @@ function adminRollback(area, entityId, targetVersionId) {
     confirmLabel: 'Rollback'
   }, function() {
     var call = adminBuildRollbackCall(area, entityId, targetVersionId, reason, todayDateStr(), {});
-    callServer(call.fn, call.args, function(r) {
-      if (r && r.success) { adminToast('✅ Rolled back — new version ' + (r.versionId || '')); selectAdminEntity(entityId); loadAdminEntityList(area); }
-      else { alert((r && r.message) || 'Rollback failed.'); }
-    }, function(msg) { alert(msg); });
+    adminRun(call.fn, call.args, function(r) {
+      adminToast('✅ Rolled back — new version ' + (r.versionId || '')); selectAdminEntity(entityId); loadAdminEntityList(area);
+    }, 'Rollback failed.');
   });
 }
 
@@ -4410,10 +4498,9 @@ function adminStoreSetStatus(storeId, activate) {
   if (reason === null) return;
   if (!reason.trim()) { alert('A reason is required.'); return; }
   var fn = activate ? 'store_activate' : 'store_deactivate';
-  callServer(fn, [storeId, reason, todayDateStr(), {}], function(r) {
-    if (r && r.success) { adminToast('✅ Store status updated.'); selectAdminEntity(storeId); loadAdminEntityList('STORES'); }
-    else { alert((r && r.message) || 'Failed.'); }
-  }, function(msg) { alert(msg); });
+  adminRun(fn, [storeId, reason, todayDateStr(), {}], function() {
+    adminToast('✅ Store status updated.'); selectAdminEntity(storeId); loadAdminEntityList('STORES');
+  }, 'Failed.');
 }
 
 // ── AUDIT ─────────────────────────────────────────────────────────────
@@ -4433,7 +4520,7 @@ function loadAuditLog() {
       if (from && ts < from) return false;
       if (to && ts > to) return false;
       return true;
-    }).sort(function(a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
+    }).sort(function(a, b) { return String(b.timestamp || '').localeCompare(String(a.timestamp || '')); });   // newest first (text dates, v25)
     renderAuditTable(filtered);
   }, function(msg) { adminShowError('auditPanel', msg); });
 }
@@ -4442,7 +4529,7 @@ function renderAuditTable(rows) {
   var panel = document.getElementById('auditPanel');
   if (!rows.length) { panel.innerHTML = '<div class="state-msg"><div class="title">No audit entries match those filters.</div></div>'; return; }
   var body = rows.map(function(r) {
-    return '<tr><td>' + fmtDate(r.timestamp) + '</td><td>' + esc(r.actor) + '</td><td>' + esc(r.area) + '</td>'
+    return '<tr><td>' + esc(String(r.timestamp || '—').slice(0, 16)) + '</td><td>' + esc(r.actor) + '</td><td>' + esc(r.area) + '</td>'
       + '<td>' + esc(r.entityId) + '</td><td>' + esc(r.action) + '</td>'
       + '<td>' + esc(truncate(r.previousValue, 40)) + '</td><td>' + esc(truncate(r.newValue, 40)) + '</td>'
       + '<td>' + fmtDate(r.effectiveFrom) + '</td><td>' + esc(truncate(r.reason || '', 60)) + '</td><td>v' + r.version + '</td></tr>';

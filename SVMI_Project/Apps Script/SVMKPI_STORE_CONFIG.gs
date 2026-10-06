@@ -97,9 +97,42 @@ function store_create(fields, effectiveFromStr, reason, options, explicitStoreId
   }
 
   const withDefaults = Object.assign({ status: CFG_STATUS.ACTIVE }, fields || {});
+
+  // v25: a retried save (e.g. after the page gave up waiting) must not make a
+  // second store with the same name + brand. Only an OPEN store blocks it —
+  // a closed one can be reopened, but a new one with its name is allowed.
+  const dup = (options && options.allowSameNameAndBrand) ? null
+    : _store_findOpenByNameAndBrand_(withDefaults.storeName, withDefaults.brand);
+  if (dup) {
+    return {
+      success: false,
+      duplicateStoreId: dup,
+      message: 'An open store named "' + String(withDefaults.storeName).trim().toUpperCase() + '" (' +
+        String(withDefaults.brand || '').trim().toUpperCase() + ') already exists: ' + dup +
+        '. It may have been saved already — check the store list before adding it again.',
+    };
+  }
+
   const result = cfg_createConfiguration(CFG_AREA.STORES, storeId, withDefaults, effectiveFromStr, null, reason, effectiveOptions);
   if (!result.success) return result;
   return Object.assign({}, result, { storeId });
+}
+
+/** v25: Store ID of an OPEN store (today) with this exact name + brand, or null. */
+function _store_findOpenByNameAndBrand_(name, brand) {
+  const n = String(name || '').trim().toUpperCase();
+  const b = String(brand || '').trim().toUpperCase();
+  if (!n) return null;
+  const all = cfg_resolveAllAsOf(CFG_AREA.STORES, null);
+  const ids = Object.keys(all);
+  for (let i = 0; i < ids.length; i++) {
+    const f = all[ids[i]].fields || {};
+    if (String(f.storeName || '').trim().toUpperCase() !== n) continue;
+    if (String(f.brand || '').trim().toUpperCase() !== b) continue;
+    if (String(f.status || CFG_STATUS.ACTIVE).toUpperCase() === CFG_STATUS.INACTIVE) continue;
+    return ids[i];
+  }
+  return null;
 }
 
 /**
@@ -275,10 +308,12 @@ function store_resolveIdByCurrentName(storeName, brand) {
   if (!target) return null;
   const wantBrand = String(brand || '').trim().toUpperCase();
   const todayStr = _store_dateToStr(_store_today());
-  const ids = _store_listEntityIds();
+  // v25: one CONFIG_STORES read for every store (was one read per store).
+  const all = cfg_resolveAllAsOf(CFG_AREA.STORES, todayStr);
+  const ids = Object.keys(all);
   const matches = [];
   for (let i = 0; i < ids.length; i++) {
-    const resolved = resolveStoreAsOf(ids[i], todayStr);
+    const resolved = all[ids[i]];
     if (resolved && String(resolved.fields.storeName || '').trim().toUpperCase() === target) {
       if (wantBrand && String(resolved.fields.brand || '').trim().toUpperCase() !== wantBrand) continue;
       matches.push(ids[i]);
@@ -619,7 +654,7 @@ function store_migrateFromSettings(settingsStores, masterLogRows) {
       // in the first place — there is nothing new to mirror back into
       // it. deferFlush: one flush for the whole batch, below, not one
       // per store.
-      { backdateConfirmed: true, suppressRebuild: true, suppressLegacyMirror: true, deferFlush: true }
+      { backdateConfirmed: true, suppressRebuild: true, suppressLegacyMirror: true, deferFlush: true, allowSameNameAndBrand: true }   // migration already de-duplicates by name + brand
     );
     if (result.success) {
       if (!mapping[name]) mapping[name] = result.storeId;

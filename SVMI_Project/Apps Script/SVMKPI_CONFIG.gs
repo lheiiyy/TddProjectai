@@ -1006,7 +1006,7 @@ function _cfg_writeAudit_(area, entityId, action, previousValue, newValue, effec
  * one area and/or entity. For a future audit-viewer UI.
  * @returns {object[]}
  */
-function cfg_getAuditLog(area, entityId) {
+function cfg_getAuditLog_raw_(area, entityId) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG_AUDIT_SHEET);
   if (!sheet) return [];
   const lastRow = sheet.getLastRow();
@@ -1035,4 +1035,11 @@ function cfg_getAuditLog(area, entityId) {
     });
   });
   return out;
+}
+
+/** Page-facing wrapper (v25): same result as cfg_getAuditLog_raw_(), with dates as
+ * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
+function cfg_getAuditLog(area, entityId) {
+  const r = cfg_getAuditLog_raw_(area, entityId);
+  return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
 }

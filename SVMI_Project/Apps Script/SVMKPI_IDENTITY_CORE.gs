@@ -494,7 +494,7 @@ function _identity_writeAudit_(eventType, actorUserId, targetUserId, details) {
  * audit view. Never returns a secret — no secret is ever written here.
  * @returns {{success:boolean, entries?:object[], message?:string}}
  */
-function identityAudit_list() {
+function identityAudit_list_raw_() {
   const auth = _identity_authorizeCurrentUser_(IDENTITY_PERMISSION.IDENTITY_AUDIT_VIEW);
   if (!auth.authorized) return { success: false, message: auth.reason };
   const sheet = _identity_ensureSheet_(IDENTITY_SHEET.AUDIT, IDENTITY_HEADERS.AUDIT);
@@ -503,4 +503,11 @@ function identityAudit_list() {
     auditId: r[0], timestamp: r[1], eventType: r[2], actorUserId: r[3], targetUserId: r[4], details: r[5],
   })).reverse(); // most recent first
   return { success: true, entries: entries };
+}
+
+/** Page-facing wrapper (v25): same result as identityAudit_list_raw_(), with dates as
+ * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
+function identityAudit_list() {
+  const r = identityAudit_list_raw_();
+  return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
 }

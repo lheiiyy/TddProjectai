@@ -31,7 +31,7 @@
  * deployment has no matching IDENTITY_USERS row (never registered, or
  * registered with a different email — see D-025's disclosed limitation).
  */
-function getCurrentUser() {
+function getCurrentUser_raw_() {
   const googleEmail = sl_getCurrentUser();
   const record = _identity_currentUserRecord_();
   if (!record) {
@@ -49,6 +49,13 @@ function getCurrentUser() {
       createdAt: record.createdAt,
     },
   };
+}
+
+/** Page-facing wrapper (v25): same result as getCurrentUser_raw_(), with dates as
+ * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
+function getCurrentUser() {
+  const r = getCurrentUser_raw_();
+  return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
 }
 
 /**
