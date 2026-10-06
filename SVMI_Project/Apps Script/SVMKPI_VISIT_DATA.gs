@@ -16,7 +16,8 @@
 //   * System Tools → "Compare Reports" runs the old and the new version
 //     side by side and lists every difference, read-only.
 //
-// Reports on the tables so far: Visited This Month (D.1), Unvisited / NAC (D.2).
+// Reports on the tables so far: Visited This Month (D.1), Unvisited / NAC (D.2), Store Insights (D.3),
+// Store Health (D.4 — computed live; the STORE HEALTH sheet is rebuilt from the same rows).
 //
 // Every function except the portal_ entry points ends in "_" (private).
 // ============================================================
@@ -33,7 +34,7 @@ function portal_useVisitTablesForReports() {
   if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
   if (!svd_tablesExist_()) return { success: false, message: 'STORE_VISITS / STORE_VISIT_VISITORS not found — run Rebuild Visit Tables first.' };
   svd_setSource_(SVD_SOURCE.TABLES);
-  return { success: true, message: 'Reports now read the visit tables (by Store ID): Visited This Month, Unvisited / NAC.' };
+  return { success: true, message: 'Reports now read the visit tables (by Store ID): Visited This Month, Unvisited / NAC, Store Insights, Store Health.' };
 }
 
 function portal_useMasterLogForReports() {
@@ -89,6 +90,10 @@ function portal_compareReports() {
         const info = v.storeId ? storeNow(v.storeId) : null;
         return 'row ' + v.sourceRow + ' → ' + (info ? info.name + ' (' + info.brand + ')' : (v.storeId ? v.storeId + ' (no active store)' : 'no Store ID'));
       });
+    // D.3 — Store Insights totals per store.
+    const ins = svd_compareInsights_(data);
+    // D.4 — Store Health: last visit + visits this year per store.
+    const sh = svd_compareStoreHealth_(data);
     const errors = diffs.slice(0, 60).map(d => {
       const rows = where(d.month, d.store);
       return {
@@ -97,6 +102,18 @@ function portal_compareReports() {
           + (rows.length ? ' · ' + rows.slice(0, 6).join('; ') : ''),
       };
     });
+    ins.diffs.slice(0, 60).forEach(d => errors.push({
+      row: 'Insights',
+      message: d.store + ' (' + (d.brand || '—') + '): MASTER_LOG ' + d.oldVisits + ' visit(s) by name, tables ' + d.newVisits + ' by Store ID' + (d.storeId ? '' : ' (no store with this name + brand in CONFIG_STORES)'),
+    }));
+    sh.diffs.slice(0, 60).forEach(d => errors.push({
+      row: 'Health',
+      message: d.store + ' (' + (d.brand || '—') + '): MASTER_LOG by name ' + d.old + ' · tables by Store ID ' + d.now,
+    }));
+    sh.oldOnly.slice(0, 30).forEach(o => errors.push({
+      row: 'Health',
+      message: '"' + o.store + '" (' + (o.brand || '—') + ') was a row of its own in the old Store Health — not an open store in CONFIG_STORES (old spelling, closed store, or the other brand); its visits now count in their store',
+    }));
     gDiffs.slice(0, 60).forEach(d => errors.push({
       row: monthName(d.month) + ' NAC',
       message: d.store + ' (' + (d.brand || '—') + '): MASTER_LOG ' + d.old + ', tables ' + d.now,
@@ -120,10 +137,15 @@ function portal_compareReports() {
       + ' || Unvisited/NAC: ' + gSame + ' store-month(s) identical'
       + (gClosedLater ? ' · ' + gClosedLater + ' store-month(s) of stores closed since then (open at the time, now counted)' : '')
       + (gDiffs.length ? ' · ⚠ ' + gDiffs.length + ' difference(s) (rows marked NAC)' : ' · no other differences ✔')
+      + ' || Store Insights: ' + ins.same + ' store(s) identical'
+      + (ins.diffs.length ? ' · ⚠ ' + ins.diffs.length + ' with a different total (rows marked Insights)' : ' · no differences ✔')
+      + ' || Store Health ' + sh.year + ': ' + sh.same + ' store(s) identical'
+      + (sh.diffs.length ? ' · ' + sh.diffs.length + ' with a different last visit / count (rows marked Health)' : ' · no differences ✔')
+      + (sh.oldOnly.length ? ' · ' + sh.oldOnly.length + ' old row(s) that were not real open stores' : '')
       + (unplaced.length ? ' · ' + unplaced.length + ' visit(s) the tables can\'t place in a store — listed below by MASTER_LOG row' : '')
       + (mismatches.length ? ' · ' + mismatches.length + ' MASTER_LOG row(s) whose Brand (D) is not the brand of their Store ID (I) — listed below by row' : '')
       + ' · reports now read: ' + (svd_useTables_() ? 'visit tables' : 'MASTER_LOG');
-    return { success: diffs.length === 0 && gDiffs.length === 0, message: msg, errors, diffs: diffs.length, gapDiffs: gDiffs.length, mismatches: mismatches.length, unplaced: unplaced.length };
+    return { success: diffs.length === 0 && gDiffs.length === 0 && ins.diffs.length === 0, message: msg, errors, diffs: diffs.length, gapDiffs: gDiffs.length, insightDiffs: ins.diffs.length, healthDiffs: sh.diffs.length, mismatches: mismatches.length, unplaced: unplaced.length };
   } catch (e) {
     if (typeof logError === 'function') logError('portal_compareReports', e);
     return { success: false, message: e.message, errors: [] };
@@ -521,3 +543,300 @@ function svd_compareGaps_(oldGaps, newGaps) {
   return { same, closedLater, diffs };
 }
 
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 6: STORE INSIGHTS (D.3)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Picker list from CONFIG_STORES: every store, open and closed (a closed
+ * store's history is still worth looking at), each with its Store ID.
+ * @returns {null|{storeId, name, brand, region, closed}[]} null = no tables
+ */
+function svd_storeList_() {
+  if (!svd_tablesExist_()) return null;
+  const today = cfg_resolveAllAsOf(CFG_AREA.STORES, null);
+  return Object.keys(today).map(id => {
+    const f = today[id].fields || {};
+    return {
+      storeId: id,
+      name: _normalizeEnum(f.storeName),
+      brand: _normalizeEnum(f.brand),
+      region: _normalizeEnum(f.region),
+      closed: String(f.status || CFG_STATUS.ACTIVE).toUpperCase() === CFG_STATUS.INACTIVE,
+    };
+  }).filter(x => x.name).sort((a, b) => a.name.localeCompare(b.name) || a.brand.localeCompare(b.brand));
+}
+
+/**
+ * Same result shape as _sl_storeDataFromLog_() (SVMKPI_STORE_LOOKUP.gs),
+ * plus meta.storeId / meta.closed, from the visits recorded under the
+ * store's Store ID. Without a Store ID (old page, typed name) the store is
+ * found by name + brand; a shared name with no brand is never guessed.
+ * Health still comes from the shared Store Health engine (D.4 moves it).
+ * @returns {null|object} null = no tables, or no such store (caller falls back)
+ */
+function svd_storeData_(storeId, storeName, brand, preloaded) {
+  let id = String(storeId || '').trim().toUpperCase();
+  if (!id && storeName && typeof store_resolveIdByCurrentName === 'function') {
+    id = store_resolveIdByCurrentName(storeName, brand) || '';
+  }
+  if (!id) return null;
+  const info = svd_storeLookup_(null)(id);
+  if (!info) return null;
+  const visits = preloaded || svd_loadVisits_();
+  if (!visits) return null;
+
+  const meta = { name: info.name, brand: info.brand, region: info.region, storeId: id, closed: info.status === CFG_STATUS.INACTIVE };
+  const rows = visits.filter(v => v.storeId === id)
+    .sort((a, b) => (b.date ? b.date.getTime() : 0) - (a.date ? a.date.getTime() : 0));
+
+  // D.4 (v26): health from the same Store-ID rows as Store Health (one pass
+  // over the visits already loaded) — no MASTER_LOG read, and the score here
+  // always equals the store's Store Health row.
+  const health = svd_storeHealthFor_(id, visits);
+
+  if (!rows.length) {
+    return {
+      meta,
+      summary:      { totalVisits: 0, lastVisitDate: '—', lastVisitor: '—', lastPurpose: '—' },
+      purposes:     APPROVED_PURPOSES.map(label => ({ label, count: 0, pct: '0.0' })),
+      topVisitors:  [],
+      recentVisits: [],
+      health,
+      insight:      'No visit records found for ' + info.name + '. Schedule an initial store visit.',
+    };
+  }
+
+  const who = v => v.visitors.length ? v.visitors.join(' | ') : '—';
+  const totalVisits = rows.length;
+  const last = rows[0];
+  const lastVisitStr = last.date ? _sl_formatDate(last.date) : '—';
+  const lastPurpose = last.purpose || '—';
+
+  const purposeCounts = {};
+  APPROVED_PURPOSES.forEach(p => { purposeCounts[p] = 0; });
+  rows.forEach(v => { if (v.purpose) purposeCounts[v.purpose] = (purposeCounts[v.purpose] || 0) + 1; });
+  const purposes = Object.keys(purposeCounts).map(label => ({
+    label,
+    count: purposeCounts[label],
+    pct: ((purposeCounts[label] / totalVisits) * 100).toFixed(1),
+  }));
+
+  const visitorMap = {};
+  rows.forEach(v => v.visitors.forEach(n => { visitorMap[n] = (visitorMap[n] || 0) + 1; }));
+  const topVisitors = Object.keys(visitorMap)
+    .map(name => ({ name, count: visitorMap[name] }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+    .slice(0, SL_TOP_VISITOR_LIMIT);
+
+  const recentVisits = rows.slice(0, SL_RECENT_LIMIT).map(v => ({
+    date:    v.date ? _sl_formatDate(v.date) : '—',
+    visitor: who(v),
+    purpose: v.purpose || '—',
+    remarks: String(v.remarks || '').trim() || '—',
+  }));
+
+  const insight = _sl_generateInsight({
+    meta, totalVisits, lastVisitStr, lastPurpose,
+    purposes, topVisitors, health,
+    failedCount: purposeCounts['FAILED QA/MS'],
+  });
+
+  return {
+    meta,
+    summary: { totalVisits, lastVisitDate: lastVisitStr, lastVisitor: who(last), lastPurpose },
+    purposes,
+    topVisitors,
+    recentVisits,
+    health,
+    insight,
+  };
+}
+
+/**
+ * Store Insights, old vs new, for every store in SETTINGS (the old picker
+ * list): total visits by name + brand from MASTER_LOG vs by Store ID from
+ * the tables. Cheap — one pass over each, no per-store report run.
+ */
+function svd_compareInsights_(visits) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const settings = ss.getSheetByName(SL_SHEET.SETTINGS);
+  const master = ss.getSheetByName(SL_SHEET.MASTER_LOG);
+  if (!settings || !master || settings.getLastRow() < 2) return { same: 0, diffs: [] };
+  const oldCount = {};
+  if (master.getLastRow() >= 2) {
+    master.getRange(2, 1, master.getLastRow() - 1, 4).getValues().forEach(r => {
+      const k = _normalizeEnum(r[SL_COL.STORE]) + '|' + _normalizeEnum(r[SL_COL.BRAND]);
+      oldCount[k] = (oldCount[k] || 0) + 1;
+    });
+  }
+  const newCount = {};
+  visits.forEach(v => { if (v.storeId) newCount[v.storeId] = (newCount[v.storeId] || 0) + 1; });
+
+  // name|brand → Store ID, from ONE CONFIG_STORES read (not one per store).
+  const idByKey = {};
+  const today = cfg_resolveAllAsOf(CFG_AREA.STORES, null);
+  Object.keys(today).forEach(sid => {
+    const f = today[sid].fields || {};
+    const k = _normalizeEnum(f.storeName) + '|' + _normalizeEnum(f.brand);
+    if (!idByKey[k]) idByKey[k] = sid;
+  });
+
+  let same = 0;
+  const diffs = [];
+  const seen = {};
+  settings.getRange(2, 1, settings.getLastRow() - 1, 2).getValues().forEach(r => {
+    const name = _normalizeEnum(r[0]), brand = _normalizeEnum(r[1]);
+    if (!name || seen[name + '|' + brand]) return;
+    seen[name + '|' + brand] = true;
+    const id = idByKey[name + '|' + brand] || null;
+    const o = oldCount[name + '|' + brand] || 0;
+    const n = id ? (newCount[id] || 0) : 0;
+    if (o === n) same++;
+    else diffs.push({ store: name, brand, oldVisits: o, newVisits: n, storeId: id || '' });
+  });
+  return { same, diffs };
+}
+
+
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 7: STORE HEALTH (D.4, v26)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Store Health rows by Store ID from the visit tables — same scoring rules
+ * as the MASTER_LOG version (_sl_scoreStores_ in SVMKPI_RISK.gs), but:
+ *   - a visit belongs to its Store ID (old spellings, merged stores and
+ *     two brands sharing a name all land on the right store);
+ *   - the roster is every store OPEN today in CONFIG_STORES, with its
+ *     current name / brand / region / category;
+ *   - computed live on every read, so it always matches the other reports
+ *     (the old sheet was a snapshot from the last rebuild).
+ * @param {Date} [today]
+ * @param {number} [year] reporting year; default = latest year with visits
+ * @param {object[]} [preloaded] svd_loadVisits_() result
+ * @returns {null|object[]} null = no tables
+ */
+function svd_storeRisk_(today, year, preloaded) {
+  const visits = preloaded || svd_loadVisits_();
+  if (!visits) return null;
+  today = today || new Date();
+  let evaluationYear = (year != null && !isNaN(Number(year))) ? Number(year) : null;
+  if (evaluationYear === null) {
+    visits.forEach(v => { if (v.date && (evaluationYear === null || v.date.getFullYear() > evaluationYear)) evaluationYear = v.date.getFullYear(); });
+    if (evaluationYear === null) evaluationYear = today.getFullYear();
+  }
+  const monthLimit = today.getFullYear() === evaluationYear ? today.getMonth() : 11;
+
+  const byStore = {};
+  const stores = cfg_resolveAllAsOf(CFG_AREA.STORES, null);
+  Object.keys(stores).forEach(id => {
+    const f = stores[id].fields || {};
+    if (String(f.status || CFG_STATUS.ACTIVE).toUpperCase() === CFG_STATUS.INACTIVE) return;
+    const name = _normalizeEnum(f.storeName);
+    if (!name) return;
+    const s = _sl_freshRiskStore_(name, {
+      brand: _normalizeEnum(f.brand) || '—',
+      region: _normalizeEnum(f.region) || '—',
+      category: _normalizeEnum(f.category) || '—',
+    });
+    s.storeId = id;
+    byStore[id] = s;
+  });
+  visits.forEach(v => {
+    const s = v.storeId ? byStore[v.storeId] : null;
+    if (s) _sl_addRiskVisit_(s, v.date, v.purpose, evaluationYear, monthLimit);
+  });
+
+  const outerMemo = _SL_RISK_MEMO_;
+  if (!outerMemo) _SL_RISK_MEMO_ = {};
+  try {
+    return _sl_scoreStores_(byStore, today, monthLimit);
+  } finally {
+    if (!outerMemo) _SL_RISK_MEMO_ = null;
+  }
+}
+
+/**
+ * The Reports tab's Store Health, live from the tables — same shape as
+ * _getStoreHealthReport_impl() (SVMKPI_REPORTS.gs), which reads the sheet.
+ */
+function svd_storeHealthReport_(preloaded) {
+  const rows = svd_storeRisk_(new Date(), null, preloaded);
+  if (!rows) return null;
+  rows.sort((a, b) => b.riskScore - a.riskScore || a.store.localeCompare(b.store) || a.brand.localeCompare(b.brand));
+  const n = rows.length;
+  const count = f => rows.filter(f).length;
+  const values = [n, count(r => r.riskTier === 'HIGH'), count(r => r.riskTier === 'MEDIUM'), count(r => r.riskTier === 'LOW'),
+    count(r => r.complianceStatus === 'OVERDUE' || r.complianceStatus === 'NO HISTORY')];
+  const labels = (typeof RISK_KPI_CARDS !== 'undefined') ? RISK_KPI_CARDS.map(c => c.label)
+    : ['TOTAL STORES', 'HIGH RISK', 'MEDIUM RISK', 'LOW RISK', 'COVERAGE GAP (OVERDUE)'];
+  const p2 = x => String(x).padStart(2, '0');
+  const ymd = d => (d instanceof Date && !isNaN(d)) ? d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) : '';
+  return {
+    kpis: labels.map((label, i) => ({ label, value: String(values[i]) })),
+    headers: (typeof RISK_HEADERS !== 'undefined') ? RISK_HEADERS : [],
+    live: true,
+    rows: rows.map(r => ({
+      storeId:         r.storeId,
+      store:           r.store,
+      brand:           r.brand,
+      region:          r.region,
+      lastVisitDate:   ymd(r.lastDate),
+      lastPurpose:     r.lastPurpose || '',
+      daysSince:       r.daysSince == null ? null : r.daysSince,
+      totalYtd:        r.totalYTD,
+      storeYtd:        r.storeYTD,
+      failedCount:     r.failedCount,
+      curingCount:     r.curingCount,
+      riskScore:       r.riskScore,
+      riskTier:        r.riskTier,
+      action:          r.action,
+      attentionReason: r.attentionReason,
+    })),
+  };
+}
+
+/** Store Insights' health block for one store, from the same rows as Store Health. */
+function svd_storeHealthFor_(storeId, visits) {
+  const rows = svd_storeRisk_(new Date(), null, visits) || [];
+  const row = rows.filter(r => r.storeId === storeId)[0];
+  if (row) {
+    return { score: row.riskScore, label: row.riskTier, components: { daysSince: row.daysSince != null ? row.daysSince : 999 } };
+  }
+  // A closed store is not on the Store Health roster.
+  let last = null;
+  (visits || []).forEach(v => { if (v.storeId === storeId && v.date && (!last || v.date > last)) last = v.date; });
+  return { score: 0, label: 'LOW', components: { daysSince: last ? Math.floor((new Date() - last) / 86400000) : 999 } };
+}
+
+/**
+ * Store Health, old (MASTER_LOG by name + brand) vs new (tables by Store
+ * ID), matched by store name + brand: last visit date and visits this year.
+ */
+function svd_compareStoreHealth_(visits) {
+  const log = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SL_SHEET.MASTER_LOG);
+  const today = new Date();
+  const newRows = svd_storeRisk_(today, null, visits) || [];
+  let year = null;
+  visits.forEach(v => { if (v.date && (year === null || v.date.getFullYear() > year)) year = v.date.getFullYear(); });
+  const oldRows = log ? _computeStoreRisk(_getData(log), today, year) : [];
+  const key = r => _normalizeEnum(r.store) + '|' + _normalizeEnum(r.brand);
+  const p2 = x => String(x).padStart(2, '0');
+  const ymd = d => (d instanceof Date && !isNaN(d)) ? d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) : '—';
+  const oldBy = {};
+  oldRows.forEach(r => { oldBy[key(r)] = r; });
+  let same = 0;
+  const diffs = [];
+  newRows.forEach(n => {
+    const o = oldBy[key(n)];
+    delete oldBy[key(n)];
+    const nd = ymd(n.lastDate), od = o ? ymd(o.lastDate) : '—';
+    if (o && nd === od && o.totalYTD === n.totalYTD) { same++; return; }
+    diffs.push({ store: n.store, brand: n.brand, storeId: n.storeId, old: o ? od + ', ' + o.totalYTD + ' this year' : 'not listed', now: nd + ', ' + n.totalYTD + ' this year' });
+  });
+  const oldOnly = Object.keys(oldBy).map(k => oldBy[k]).filter(o => o.hasHistory);
+  return { same, diffs, oldOnly, year };
+}

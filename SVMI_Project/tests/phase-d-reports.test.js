@@ -118,12 +118,15 @@ console.log('\n── Compare Reports ──');
   // closed, so it isn't in SETTINGS, and the old report gave its May visit to the open
   // Angel's Pizza URDANETA (same name).
   check('only difference: May URDANETA visit moves from Angel\'s Pizza (old, wrong) to Figaro (tables)',
-    c.diffs === 2 && c.errors.every(x => /^(May|Jun)( NAC)?$/.test(x.row) && /^URDANETA/.test(x.message))
+    c.diffs === 2 && c.errors.filter(x => x.row !== 'Health').every(x => /^(May|Jun)( NAC)?$/.test(x.row) && /^URDANETA/.test(x.message))
     && c.errors.some(x => /URDANETA \(ANGEL'S PIZZA\): MASTER_LOG 1 visit\(s\), tables 0/.test(x.message))
     && c.errors.some(x => /URDANETA \(FIGARO\): MASTER_LOG 0 visit\(s\), tables 1/.test(x.message)), c.errors);
   check('Unvisited/NAC: the same URDANETA visit made Angel\'s Pizza URDANETA look visited in Q2 (old) — tables: not met',
     c.gapDiffs === 2 && c.errors.filter(x => / NAC$/.test(x.row)).every(x => /URDANETA \(ANGEL'S PIZZA\): MASTER_LOG met \/ not listed, tables not met \(0\/1\)/.test(x.message)), c.errors);
   check('Unvisited/NAC: closed-since stores counted separately, not as differences', /store-month\(s\) of stores closed since then/.test(c.message), c.message);
+  // D.4 (v26): Store Health shows the same URDANETA fix (and SHANGRILA, closed) in its own rows.
+  check('Store Health: the same URDANETA visit no longer counts for Angel\'s Pizza URDANETA; SHANGRILA (closed) noted',
+    c.errors.filter(x => x.row === 'Health').every(x => /URDANETA \(ANGEL'S PIZZA\)|SHANGRILA/.test(x.message)), c.errors.filter(x => x.row === 'Health'));
   check('each difference shows the MASTER_LOG rows and where the tables put them', c.errors.some(x => /URDANETA \(FIGARO\).*row 11 → URDANETA \(FIGARO\)/.test(x.message)), c.errors);
   check('message names what reports read now', /reports now read: MASTER_LOG/.test(c.message), c.message);
 
@@ -189,6 +192,32 @@ console.log('\n── D.2 Unvisited / NAC from the visit tables ──');
   check('brand filter', figOnly.every(g => g.brand === 'FIGARO'), figOnly);
   s.portal_useMasterLogForReports();
   check('switch back → MASTER_LOG version', JSON.stringify(s.sl_getComplianceGaps([], 7, 2026)) === JSON.stringify(s._sl_complianceGapsFromLog_([], 7, 2026)));
+}
+
+console.log('\n── D.3 Store Insights from the visit tables ──');
+{
+  const { s, ids } = cleaned();
+  s.portal_useVisitTablesForReports();
+  const list = s.sl_getStoreList();
+  check('picker lists both STA. MARIA stores with Store IDs', list.filter(x => x.name === 'STA. MARIA').map(x => x.storeId).sort().join() === [ids.K, ids.APSM].sort().join(), list);
+  check('...and closed stores, marked closed', list.some(x => x.name === 'SHANGRILA' && x.closed === true), list.filter(x => x.closed));
+
+  const fig = s.sl_getStoreData('STA. MARIA', 'FIGARO', ids.K);
+  check('Figaro STA. MARIA: all 5 visits (merged spellings) by Store ID', fig.summary.totalVisits === 5 && fig.meta.storeId === ids.K && fig.meta.brand === 'FIGARO', fig.summary);
+  check('recent visits newest first, with visitors and remarks', fig.recentVisits.length === 5 && fig.recentVisits[0].date === 'Aug 20, 2026' && fig.recentVisits[0].visitor === 'LEO', fig.recentVisits[0]);
+  check('purposes include the 4 standard ones', ['STORE VISIT', 'TLTC', 'FAILED QA/MS', 'CURING/SUPPORT'].every(p => fig.purposes.some(x => x.label === p)), fig.purposes);
+  check('top visitors counted per person', fig.topVisitors.some(v => v.name === 'LEO' && v.count === 3), fig.topVisitors);
+  check('health present', fig.health && typeof fig.health.score === 'number', fig.health);
+
+  const ap = s.sl_getStoreData('STA. MARIA', "ANGEL'S PIZZA", '');
+  check('no Store ID passed: found by name + brand', ap.meta.storeId === ids.APSM && ap.summary.totalVisits === 1, ap.meta);
+  const sha = s.sl_getStoreData('SHANGRILA', "ANGEL'S PIZZA", list.filter(x => x.name === 'SHANGRILA')[0].storeId);
+  check('closed store: history shown, marked closed', sha.meta.closed === true && sha.summary.totalVisits === 2, sha.meta);
+
+  const c = s.portal_compareReports();
+  check('Compare: Store Insights totals compared per store', /Store Insights: \d+ store\(s\) identical/.test(c.message), c.message);
+  s.portal_useMasterLogForReports();
+  check('switch back → MASTER_LOG version', JSON.stringify(s.sl_getStoreData('SAN PEDRO', "ANGEL'S PIZZA")) === JSON.stringify(s._sl_storeDataFromLog_('SAN PEDRO', "ANGEL'S PIZZA")));
 }
 
 console.log('\n── Admin only ──');

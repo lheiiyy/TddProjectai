@@ -333,6 +333,13 @@ function _getKPI2026Report_impl(year) {
  * }}
  */
 function _getStoreHealthReport_impl() {
+  // D.4 (v26): with reports on the visit tables, Store Health is computed live
+  // by Store ID — the same visits Store Insights / Visited / Unvisited show —
+  // instead of the sheet snapshot from the last rebuild (by name, MASTER_LOG).
+  if (typeof svd_useTables_ === 'function' && svd_useTables_()) {
+    const live = svd_storeHealthReport_();
+    if (live) return live;
+  }
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(RISK_SHEET_NAME);
   if (!sheet) throw new Error('STORE HEALTH sheet not found. Run "Rebuild Store Health" first.');

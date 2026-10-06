@@ -1951,8 +1951,20 @@ node SVMI_Project/tests/store-name-matching.test.js
 node SVMI_Project/tests/store-name-matching-ui.test.js
 
 # Phase D.1: Visited This Month by Store ID from the visit tables, the
-# Report Source switch (default MASTER_LOG) and Compare Reports; D.2 Unvisited/NAC (37 checks)
+# Report Source switch (default MASTER_LOG) and Compare Reports; D.2 Unvisited/NAC; D.3 Store Insights (48 checks)
 node SVMI_Project/tests/phase-d-reports.test.js
+
+# v25 fixes (PLAN.md 🐞 F1 + F2): dates sent to the page as text (admin list/
+# detail, audit, snapshots, identity), no duplicate open store name + brand,
+# MASTER_LOG column I text (leaderboard) never overwritten, Store Health
+# rebuild queued instead of inside Save; in a real browser: 📅 date input,
+# Enter on Date Visited, combinable tier pills, admin edit pre-fill, tool runner (60 checks)
+node SVMI_Project/tests/v25-fixes.test.js
+
+# v26 Store Insights speed: risk config read once per scoring pass (not ~9× per
+# store), identical scores; search shows "loading" until the store list lands;
+# D.4 Store Health live by Store ID from the visit tables (24 checks)
+node SVMI_Project/tests/v26-speed.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a
