@@ -2,10 +2,10 @@
 
 Last updated: 2026-10-07 · Working branch: `svmi/v31-visit-edit`
 
-**🚀 LIVE = version 29 (2026-10-07)** — same Web App URL; reports read the visit tables. `main` = live (PR #26 merged).
-v29 = Input Portal weekly history (🐞 F5) · v28 = System Tools + Audit/Snapshots/Identity (🐞 F3 + F4) ·
-v27 = D.4 Store Health live by Store ID · v26 = Store Insights speed · v25 = Input Portal + Admin fixes (🐞 F1 + F2).
-Rollback sources: `live-backup-20261007-pre-v29/` (= v28), `live-backup-20261006-pre-v28/` (= v27), `-pre-v27/` (= v26).
+**🚀 LIVE = version 30 (2026-10-07)** — same Web App URL; reports read the visit tables. (`main` = v29 until PR #27 is merged.)
+v30 = past years in reports (🐞 F7) · v29 = Input Portal weekly history (🐞 F5) · v28 = System Tools + Audit/Snapshots/Identity
+(🐞 F3 + F4) · v27 = D.4 Store Health live by Store ID · v26 = Store Insights speed · v25 = 🐞 F1 + F2.
+Rollback sources: `live-backup-20261007-pre-v30/` (= v29), `-pre-v29/` (= v28), `live-backup-20261006-pre-v28/` (= v27).
 **Next:** v31 (F8 edit/void) deploy → then D.5 (Executive Summary / KPI by Store ID), Phase E.
 Rule for now: **functionality first.** Security is parked (except admin access).
 Live backups (`live-backup-*`) are the safe fallback — never edited.
