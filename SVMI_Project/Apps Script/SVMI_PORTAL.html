@@ -137,6 +137,25 @@ textarea.fi{resize:vertical;min-height:50px}
 .vm-btn{padding:5px 9px;font-size:11px;font-weight:700;border:none;border-radius:4px;cursor:pointer;white-space:nowrap;font-family:Arial}
 .vm-add{background:#EAF4E1;color:var(--tld-d)}
 
+/* ── Weekly history (v29) ── */
+.wh-nav{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.wh-arrow{border:1px solid #cbd5e0;background:var(--card);border-radius:4px;cursor:pointer;padding:3px 9px;font-size:11px;color:var(--text)}
+.wh-arrow:disabled{opacity:.35;cursor:default}
+.wh-label{flex:1;text-align:center;font-size:12px;font-weight:700;color:var(--navy)}
+.wh-days{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:8px}
+.wh-day{text-align:center;border-radius:4px;background:var(--card);border:1px solid #edf2f7;padding:3px 0;font-size:9px;color:var(--muted)}
+.wh-day b{display:block;font-size:13px;color:var(--text)}
+.wh-day.today{border-color:var(--green);box-shadow:inset 0 0 0 1px var(--green)}
+.wh-day.zero b{color:#cbd5e0}
+.wh-filter{margin-bottom:8px;font-size:11px;min-height:28px}
+.wh-dayhdr{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;margin:8px 0 4px}
+.wh-row{padding:6px 9px;background:var(--card);border-radius:4px;margin-bottom:4px;border-left:3px solid var(--green)}
+.wh-store{font-size:11px;font-weight:700;color:var(--text)}
+.wh-store span{font-weight:400;color:var(--muted)}
+.wh-meta{font-size:10px;color:var(--muted);margin-top:1px}
+.wh-rem{font-size:10px;color:var(--text);margin-top:2px;font-style:italic;white-space:pre-wrap;overflow-wrap:anywhere}
+.wh-total{font-size:10px;color:var(--muted);text-align:right;margin-bottom:4px}
+
 /* ── Queue ── */
 .queue-hdr{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;
   letter-spacing:.4px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
@@ -746,6 +765,22 @@ body.admin-busy .vm-btn,body.admin-busy #content-Admin .btn-navy{opacity:.55;poi
       </div>
       <div id="queueList">
         <div class="queue-empty" id="queueEmpty">No submissions yet this session.</div>
+      </div>
+
+      <!-- v29 (F5): every visit submitted in one Monday–Sunday week (by submission date). -->
+      <div class="wh" id="weekHistory">
+        <div class="queue-hdr" style="margin-top:14px">
+          <span>🗓️ Submitted this week</span>
+          <button class="queue-clr" onclick="whLoad(wh.start)">refresh</button>
+        </div>
+        <div class="wh-nav">
+          <button type="button" class="wh-arrow" id="whPrev" onclick="whMove(-1)" title="Previous week">◀</button>
+          <div class="wh-label" id="whLabel">—</div>
+          <button type="button" class="wh-arrow" id="whNext" onclick="whMove(1)" title="Next week" disabled>▶</button>
+        </div>
+        <div class="wh-days" id="whDays"></div>
+        <select class="fi wh-filter" id="whVisitor" onchange="whRender()"><option value="">All visitors</option></select>
+        <div id="whList"><div class="queue-empty">Open this tab to load the week.</div></div>
       </div>
     </div>
   </div>
@@ -1433,6 +1468,7 @@ function switchTab(name) {
   document.getElementById('currentTabLabel').textContent = target.textContent;
   closeNavDrawer();
   if (name === 'Visits') loadCompliance();
+  if (name === 'Input' && !wh.data && !wh.loading) whLoad('');
   if (name === 'Reports' && !reportsLoadedOnce) { reportsLoadedOnce = true; loadEsYears(); }
   if (name === 'Account') loadAccountPanel();
 }
@@ -2047,9 +2083,101 @@ function execSubmit(p) {
   var id = addQueueItem(p);
   clearForm(true); clearStatus(); pending = null;
   google.script.run
-    .withSuccessHandler(function(r){ updateQueueItem(id, r&&r.success?'done':'failed', r?r.message||'Saved ✓':'Unknown error'); })
+    .withSuccessHandler(function(r){
+      updateQueueItem(id, r&&r.success?'done':'failed', r?r.message||'Saved ✓':'Unknown error');
+      if (r && r.success) whRefreshSoon();   // v29: the new visit shows up in the week list
+    })
     .withFailureHandler(function(e){ updateQueueItem(id,'failed',e.message||'Server error'); })
     .processSubmissionAsync(p);
+}
+
+// ═══════════════════════════════════════
+// INPUT PORTAL — WEEKLY HISTORY (v29, F5)
+// Monday–Sunday, by the day each visit was SUBMITTED (Leo 2026-10-07), with
+// the date visited on each row, from the visit tables (portal_getWeekHistory).
+// ═══════════════════════════════════════
+var wh = { data: null, loading: false, start: '', timer: null };
+
+function whLoad(start) {
+  wh.loading = true;
+  var list = document.getElementById('whList');
+  if (!wh.data) list.innerHTML = '<div class="queue-empty"><div class="spinner"></div>Loading the week…</div>';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      wh.loading = false;
+      if (!r || !r.success) {
+        list.innerHTML = '<div class="queue-empty">' + esc((r && r.message) || 'Could not load the week.') + '</div>';
+        return;
+      }
+      wh.data = r; wh.start = r.weekStart;
+      whRender();
+    })
+    .withFailureHandler(function(err) {
+      wh.loading = false;
+      list.innerHTML = '<div class="queue-empty">' + esc(err.message || String(err)) + '</div>';
+    })
+    .portal_getWeekHistory(start || '');
+}
+
+function whMove(dir) {
+  if (!wh.data || wh.loading) return;
+  var target = dir < 0 ? wh.data.prevStart : wh.data.nextStart;
+  if (target) whLoad(target);
+}
+
+// After a submission: reload once, a moment later (several quick
+// submissions → one reload), only while the current week is showing.
+function whRefreshSoon() {
+  if (!wh.data || !wh.data.isCurrentWeek) return;
+  clearTimeout(wh.timer);
+  wh.timer = setTimeout(function() { whLoad(wh.start); }, 1500);
+}
+
+function whRender() {
+  var d = wh.data;
+  if (!d) return;
+  document.getElementById('whLabel').textContent = (d.isCurrentWeek ? 'This week · ' : '') + d.label;
+  document.getElementById('whNext').disabled = !d.nextStart;
+  var sel = document.getElementById('whVisitor');
+  var keep = sel.value;
+  sel.innerHTML = '<option value="">All visitors</option>' + d.visitors.map(function(v) {
+    return '<option value="' + esc(v) + '"' + (v === keep ? ' selected' : '') + '>' + esc(v) + '</option>';
+  }).join('');
+  if (keep && d.visitors.indexOf(keep) === -1) sel.value = '';
+  var who = sel.value;
+  var rows = d.rows.filter(function(r) { return !who || r.visitors.indexOf(who) !== -1; });
+
+  var counts = {};
+  rows.forEach(function(r) { counts[r.date] = (counts[r.date] || 0) + 1; });
+  var todayStr = todayDateStr();
+  document.getElementById('whDays').innerHTML = d.days.map(function(day) {
+    var n = counts[day.date] || 0;
+    return '<div class="wh-day' + (day.date === todayStr ? ' today' : '') + (n ? '' : ' zero') + '" title="' + esc(day.date) + '">'
+      + esc(day.label.split(' ')[0]) + '<b>' + n + '</b></div>';
+  }).join('');
+
+  var list = document.getElementById('whList');
+  if (!rows.length) {
+    list.innerHTML = '<div class="queue-empty">No visits ' + (who ? 'by ' + esc(who) + ' ' : '') + 'submitted this week yet.</div>';
+    return;
+  }
+  var html = '<div class="wh-total">' + rows.length + ' visit' + (rows.length !== 1 ? 's' : '') + (who ? ' · ' + esc(who) : '') + '</div>';
+  var lastDate = '';
+  rows.forEach(function(r) {
+    if (r.date !== lastDate) {
+      lastDate = r.date;
+      var day = d.days.filter(function(x) { return x.date === r.date; })[0];
+      html += '<div class="wh-dayhdr">' + esc(day ? day.label : r.date) + '</div>';
+    }
+    html += '<div class="wh-row">'
+      + '<div class="wh-store">' + esc(r.store) + (r.brand ? ' <span>· ' + esc(r.brand) + '</span>' : '') + '</div>'
+      + '<div class="wh-meta">' + esc(r.purpose) + ' · ' + esc(r.visitors.join(', ') || '—') + '</div>'
+      + '<div class="wh-meta">Visited ' + esc(r.visited ? r.visited.slice(5).replace('-', '/') : '—')
+      + (r.recordedAt ? ' · submitted ' + esc(r.recordedAt.slice(11)) : '') + '</div>'
+      + (r.remarks ? '<div class="wh-rem">' + esc(r.remarks) + '</div>' : '')
+      + '</div>';
+  });
+  list.innerHTML = html;
 }
 
 function addQueueItem(p) {

@@ -1972,6 +1972,11 @@ node SVMI_Project/tests/v26-speed.test.js
 # identity admin for the admin list; in a browser: Report Source card, admin
 # double-submit guard, tool gating (35 checks)
 node SVMI_Project/tests/v28-tools-audit.test.js
+
+# v29 Input Portal weekly history (PLAN.md 🐞 F5): visits SUBMITTED Monday–Sunday,
+# newest first, count per day, date visited per row, ◀ ▶ weeks, visitor filter;
+# reloads once after submissions (32 checks)
+node SVMI_Project/tests/v29-week-history.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a
