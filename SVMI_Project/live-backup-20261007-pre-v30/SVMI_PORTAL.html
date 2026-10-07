@@ -816,8 +816,6 @@ body.admin-busy .vm-btn,body.admin-busy #content-Admin .btn-navy{opacity:.55;poi
         <option value="9">September</option><option value="10">October</option>
         <option value="11">November</option><option value="12">December</option>
       </select>
-      <!-- v30 (F7): any year with visits, not just the latest. -->
-      <select class="sel-dark rep-year" id="visYearSel" onchange="onYearPicked('vis')" style="min-width:90px;margin-top:6px"></select>
       <span id="visMonthLbl" style="font-size:11px;color:var(--light)"></span>
       <div id="coverageHint" style="font-size:10px;color:var(--light);margin-top:6px"></div>
     </div>
@@ -844,7 +842,6 @@ body.admin-busy .vm-btn,body.admin-busy #content-Admin .btn-navy{opacity:.55;poi
       <option value="9">September</option><option value="10">October</option>
       <option value="11">November</option><option value="12">December</option>
     </select>
-    <select class="sel-dark rep-year" id="yearSel" onchange="onYearPicked('gaps')" style="min-width:90px;width:auto"></select>
     <span id="monthLbl" style="font-size:11px;color:var(--light)"></span>
     <button class="btn-gold" onclick="loadCompliance()" style="width:auto;margin-top:0;padding:5px 12px;margin-left:auto">↻ Refresh</button>
   </div>
@@ -861,7 +858,7 @@ body.admin-busy .vm-btn,body.admin-busy #content-Admin .btn-navy{opacity:.55;poi
   <div class="toolbar">
     <div class="toolbar-title">Reports —</div>
     <button class="rep-btn active" id="repTab-es"     onclick="switchReport('es')">Executive Summary</button>
-    <button class="rep-btn"        id="repTab-kpi"     onclick="switchReport('kpi')">KPI</button>
+    <button class="rep-btn"        id="repTab-kpi"     onclick="switchReport('kpi')">KPI 2026</button>
     <button class="rep-btn"        id="repTab-health"  onclick="switchReport('health')">Store Health</button>
     <select class="sel-dark" id="esYearSel" onchange="loadCurrentReport()" style="min-width:90px;width:auto;margin-top:0"></select>
     <button class="btn-gold" onclick="loadCurrentReport()" style="width:auto;margin-top:0;padding:5px 12px;margin-left:auto">↻ Refresh</button>
@@ -2430,12 +2427,14 @@ function visRenderUnmapped(unmapped) {
 }
 
 function loadVisited() {
-  if (!esYearsLoaded) { loadReportYears(loadVisited); return; }
   var brand = gBrands;
-  var year  = pickedYear('visYearSel');          // v30: any year with visits
-  var mo    = pickedMonth('visMonthSel', year);
+  var moEl  = document.getElementById('visMonthSel');
+  var mo    = moEl ? parseInt(moEl.value) : 0;
   var lblEl = document.getElementById('visMonthLbl');
-  if (lblEl) lblEl.textContent = MONTHS[mo-1]+' '+year;
+  if (lblEl) {
+    var now = new Date();
+    lblEl.textContent = (!mo ? MONTHS[now.getMonth()]+' '+now.getFullYear() : MONTHS[mo-1]+' '+dataYear);
+  }
   document.getElementById('coverageHint').textContent = 'Loading…';
   document.getElementById('siMain').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
   google.script.run
@@ -2474,7 +2473,7 @@ function loadVisited() {
       document.getElementById('coverageHint').textContent = '';
       document.getElementById('siMain').innerHTML = stateMsg('⚠️','Error',esc(err.message||String(err)));
     })
-    .sl_getVisitedThisMonth(brand, mo, year);
+    .sl_getVisitedThisMonth(brand, mo);
 }
 
 // ═══════════════════════════════════════
@@ -2736,11 +2735,10 @@ var COMP_COLS = [
 ];
 
 function loadCompliance() {
-  if (!esYearsLoaded) { loadReportYears(loadCompliance); return; }
-  var year = pickedYear('yearSel');              // v30: any year with visits
-  var mo = pickedMonth('monthSel', year);
+  var mo = parseInt(document.getElementById('monthSel').value);
   var lbl = document.getElementById('monthLbl');
-  lbl.textContent = MONTHS[mo-1]+' '+year;
+  var now = new Date();
+  lbl.textContent = (!mo ? MONTHS[now.getMonth()]+' '+now.getFullYear() : MONTHS[mo-1]+' '+dataYear);
   var brand = gBrands;
   document.getElementById('visitsPanel').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
   google.script.run
@@ -2748,7 +2746,7 @@ function loadCompliance() {
     .withFailureHandler(function(err) {
       document.getElementById('visitsPanel').innerHTML = stateMsg('⚠️','Error',esc(err.message||String(err)));
     })
-    .sl_getComplianceGaps(brand, mo, year);
+    .sl_getComplianceGaps(brand, mo);
 }
 
 function renderCompliance(rows) {
@@ -2856,8 +2854,8 @@ function switchReport(which) {
   ['es','kpi','health'].forEach(function(k) {
     document.getElementById('repTab-' + k).classList.toggle('active', k === which);
   });
-  // v30 (F7): every report has a year now (KPI and Store Health too).
-  if (!esYearsLoaded) { loadEsYears(); return; }
+  document.getElementById('esYearSel').style.display = (which === 'es') ? '' : 'none';
+  if (which === 'es' && !esYearsLoaded) { loadEsYears(); return; }
   loadCurrentReport();
 }
 
@@ -2871,52 +2869,17 @@ function switchReport(which) {
 // it never writes to MASTER_LOG or any other sheet.
 var esYearsLoaded = false;
 
-// v30 (F7): ONE year list (sl_getReportYears — years with visits, from the
-// visit tables, plus this calendar year) fills every Year dropdown: Reports,
-// Visited This Month and Unvisited. Newest first; this year selected.
-var reportYears = [];
-function loadEsYears() { loadReportYears(loadCurrentReport); }
-function loadReportYears(then) {
-  if (esYearsLoaded) { if (then) then(); return; }
-  callServer('sl_getReportYears', [], function(years) {
+function loadEsYears() {
+  callServer('getAvailableReportingYears', [], function(years) {
     esYearsLoaded = true;
-    var cur = new Date().getFullYear();
-    reportYears = (years && years.length ? years.slice() : [cur]);
-    if (reportYears.indexOf(cur) === -1) reportYears.push(cur);
-    reportYears.sort(function(a, b) { return b - a; });
-    ['esYearSel', 'visYearSel', 'yearSel'].forEach(function(id) {
-      var sel = document.getElementById(id);
-      if (!sel) return;
-      var keep = Number(sel.value) || cur;
-      sel.innerHTML = reportYears.map(function(y) { return '<option value="' + y + '"' + (y === keep ? ' selected' : '') + '>' + y + '</option>'; }).join('');
-    });
-    if (then) then();
+    var list = (years && years.length) ? years.slice().reverse() : [];
+    var sel = document.getElementById('esYearSel');
+    sel.innerHTML = list.map(function(y) { return '<option value="' + y + '">' + y + '</option>'; }).join('');
+    loadCurrentReport();
   }, function(msg) {
     esYearsLoaded = true; // don't retry-loop forever on a failed lookup
-    if (then) then();
+    loadCurrentReport();
   });
-}
-
-// The year a report dropdown shows (this calendar year until the list loads).
-function pickedYear(id) {
-  var el = document.getElementById(id);
-  return (el && Number(el.value)) || new Date().getFullYear();
-}
-// The month to ask for: "Current Month" means this month of this year; for a
-// past year it means the last month of that year (December).
-function pickedMonth(monthSelId, year) {
-  var mo = parseInt(document.getElementById(monthSelId).value) || 0;
-  if (mo) return mo;
-  var now = new Date();
-  return year === now.getFullYear() ? now.getMonth() + 1 : 12;
-}
-function onYearPicked(which) {
-  var monthId = which === 'vis' ? 'visMonthSel' : 'monthSel';
-  var yearId  = which === 'vis' ? 'visYearSel' : 'yearSel';
-  var m = document.getElementById(monthId);
-  // A past year with "Current Month" selected → show its December explicitly.
-  if (pickedYear(yearId) !== new Date().getFullYear() && m.value === '0') m.value = '12';
-  if (which === 'vis') loadVisited(); else loadCompliance();
 }
 
 function loadCurrentReport() {
@@ -2929,9 +2892,12 @@ function loadCurrentReport() {
     .withFailureHandler(function(err) {
       panel.innerHTML = stateMsg('⚠️', 'Error', esc(err.message || String(err)));
     });
-  // v30: the selected year goes to every report.
-  var yv = Number(document.getElementById('esYearSel').value) || undefined;
-  runner[fnByReport[currentReport]](yv);
+  if (currentReport === 'es') {
+    var yv = Number(document.getElementById('esYearSel').value) || undefined;
+    runner.getExecutiveSummaryReport(yv);
+  } else {
+    runner[fnByReport[currentReport]]();
+  }
 }
 
 // KPI-card strip shared by all three reports — a row of {label, value} pairs.
@@ -3119,7 +3085,7 @@ function renderStoreHealthReport(data) {
   var h = repKpiRow(data.kpis);
   h += '<div class="p-card" style="margin-bottom:14px">'
     + '<div class="p-card-hdr">Store Health — ' + data.rows.length + ' store' + (data.rows.length !== 1 ? 's' : '')
-    + (data.live ? ' <span style="font-weight:400;font-size:10px;opacity:.8">· live, by Store ID · counts = ' + esc(data.year || 'this year') + (data.year && data.year !== new Date().getFullYear() ? ', as of Dec 31' : '') + '</span>' : '') + '</div>'
+    + (data.live ? ' <span style="font-weight:400;font-size:10px;opacity:.8">· live, by Store ID · counts = this year</span>' : '') + '</div>'
     + '<div class="p-card-body"><div id="healthBody"></div></div></div>';
   document.getElementById('reportsPanel').innerHTML = h;
 
