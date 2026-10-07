@@ -133,15 +133,12 @@ function rebuildSettingsHeaders() {
 
   // ── Row 1 headers ───────────────────────────────────────────
   // A: STORES, B: BRAND, C: REGION, D: N/A (formula helper),
-  // E: category, F: Visited by list, G: admin emails (SVMKPI_ACCESS.gs),
-  // H: Visit Type list, I: guest password (I2), J: REGION LIST
-  // v28: G and I are no longer "spacers" — they hold the admin list and the
-  // guest password (ACCESS_COL). Their headers used to be blanked and the
-  // columns shrunk to 20 px, hiding both.
+  // E: category, F: Visited by list, G: (spacer),
+  // H: Visit Type list, I: (spacer), J: REGION LIST
   const headers = [
     'STORES', 'BRAND', 'REGION (AS MANAGED BY)', 'FORMULA HELPER',
-    'CATEGORY (AS REGION)', 'Visited by list', 'ADMIN EMAILS',
-    'Visit Type list', 'GUEST PASSWORD', 'REGION LIST',
+    'CATEGORY (AS REGION)', 'Visited by list', '',
+    'Visit Type list', '', 'REGION LIST',
   ];
 
   const headerRange = sheet.getRange(1, 1, 1, 10);
@@ -164,7 +161,7 @@ function rebuildSettingsHeaders() {
     .setFontColor(MR.NAVY);
 
   // ── Column widths ────────────────────────────────────────────
-  const widths = [140, 110, 100, 110, 130, 120, 200, 130, 130, 110];
+  const widths = [140, 110, 100, 110, 130, 120, 20, 130, 20, 110];
   widths.forEach((w, i) => sheet.setColumnWidth(i + 1, w));
 
   // ── Col D validation formula (rows 2 to lastRow) ────────────

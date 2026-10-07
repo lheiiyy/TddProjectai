@@ -7,7 +7,7 @@ v27 = D.4 Store Health live by Store ID · v26 = Store Insights speed (risk conf
 v25 = Input Portal + Admin fixes (🐞 F1 + F2) · v24 = D.3 Store Insights by Store ID.
 Rollback sources: `live-backup-20261006-pre-v27/` (= v26), `-pre-v26/` (= v25), `-pre-v25/` (= v24), `live-backup-20261004-pre-v24/` (= v23).
 **Merge:** PR #24 contains #22 + #23 — merging #24 brings `main` up to live (v27); #22/#23 then show as merged.
-**Next:** Leo checks v25–v27 on live → then 🐞 F3 + F4 (System Tools, Audit/Snapshots/Identity), F5 weekly history, F7 past years, F8 edit/void visits, D.5.
+**Next:** v28 (F3 + F4, PR #25) deploy → then F5 weekly history, F7 past years, F8 edit/void visits, D.5.
 Rule for now: **functionality first.** Security is parked (except admin access).
 Live backups (`live-backup-*`) are the safe fallback — never edited.
 
@@ -157,6 +157,23 @@ tables by Store ID (open stores in CONFIG_STORES; counts are this year, as befor
 HEALTH sheet is rebuilt from the same rows, and Store Insights' health score is that store's Store Health row (no
 MASTER_LOG read any more). Compare Reports gained a Store Health section (rows marked Health).
 The old v26 (Tools + Audit) becomes v28, and the rest shift by two.
+
+**v28 — F3 + F4 built 2026-10-06 (branch `svmi/v28-tools-audit`, on top of PR #24), not yet deployed.** Done:
+F3.2 Data Sheet Headers: SETTINGS G1/I1 = ADMIN EMAILS / GUEST PASSWORD, normal widths (were blanked + 20 px); card text
+corrected · F3.3 Validate MASTER_LOG: one config lookup per purpose (was per row), new UNKNOWN_STORE_ID check on column I
+(STR- text only) · F3.4 Store Health / Store Master Insight sheets formatted in a few batched calls (were ~5 per row) ·
+F3.5 Store Health rebuild: one at a time (5-min cache marker — not the script lock, which Store Name Matching already
+holds), rows computed before the sheet is cleared · F3.7 card texts (Store Master Insight / Store Health / Executive
+Summary sheets); Report Source card shows "Now: reports read …"; every button on an admin card follows the admin gate ·
+F3.8 `buildRiskEngineSheet_` private, `store_recordUnmapped` admin-only · F4.5 `handleExternalIdentityDisabled_` private ·
+F4.6 snapshot Executive Summary for the snapshot's own year · F4.7 snapshot store rows from the same source as the
+Reports tab (tables by Store ID) · F4.8 identity admin allowed for the admin list (`sl_isAdmin`), actor recorded as
+`ADMIN:<email>` when no identity is linked · F4.9 SYSTEM audit rows: Report Source switch, Rebuild Visit Tables,
+Store Name Matching changes (visit submissions stay in MASTER_LOG, not duplicated) · F4.10 View Draft no longer rewrites
+the EXECUTIVE SUMMARY sheet; Finalize / Supersede / Regenerate / identity actions can't be sent twice, empty reply =
+error · F4.11 audit log + snapshot reads admin-only.
+Not done: F3.6 (Migrate Legacy SETTINGS stays visible), F2.9 brand/region lists from config, F2.10/F2.11/F2.13/F2.14,
+F4.12 / L7 (deployment setting — Leo's decision).
 
 ### F3 — Admin → System Tools → v26
 
@@ -352,6 +369,6 @@ Known gaps (not configurable yet):
 
 ## Tests
 
-35 files, 1,938 checks, all passing (`node tests/<file>.test.js`) — v25 added `tests/v25-fixes.test.js` (60), v26 `tests/v26-speed.test.js` (24).
+36 files, 1,973 checks, all passing (`node tests/<file>.test.js`) — v25 added `tests/v25-fixes.test.js` (60), v26/27 `tests/v26-speed.test.js` (24), v28 `tests/v28-tools-audit.test.js` (35).
 `store-name-matching-ui.test.js` clicks through the real `SVMI_PORTAL.html` with the real `.gs` code
 behind it (Playwright); the other portal tests use the demo page.

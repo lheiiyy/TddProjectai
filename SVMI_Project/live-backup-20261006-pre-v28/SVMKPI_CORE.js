@@ -452,19 +452,7 @@ function validateMasterLog() {
   }
 
   const dataRows = lastRow - 1;
-  // v28: read column I too (Store ID) — see the I check below.
-  const raw      = log.getRange(2, 1, dataRows, 9).getValues();
-  // v28: one config lookup per distinct purpose (was ~3 CONFIG sheet reads
-  // for EVERY row with a non-legacy purpose — enough to time out).
-  const purposeStatus = {};
-  // v28: every Store ID that has ever existed in CONFIG_STORES, read once.
-  let knownStoreIds = null;
-  if (typeof cfg_getConfiguration === 'function' && typeof CFG_AREA !== 'undefined') {
-    try {
-      knownStoreIds = {};
-      cfg_getConfiguration(CFG_AREA.STORES).forEach(v => { knownStoreIds[String(v.entityId).toUpperCase()] = true; });
-    } catch (e) { knownStoreIds = null; }
-  }
+  const raw      = log.getRange(2, 1, dataRows, 7).getValues();
 
   raw.forEach((row, idx) => {
     const r          = idx + 2;   // sheet row number (1-indexed, header = row 1)
@@ -544,13 +532,8 @@ function validateMasterLog() {
       // already used throughout this project (e.g. SVMKPI_RISK.gs's
       // risk_resolvePurposeWeight() call sites).
       let status = null;
-      if (normPurpose in purposeStatus) {
-        status = purposeStatus[normPurpose];
-      } else {
-        if (typeof purpose_getConfigurationStatus === 'function') {
-          try { status = purpose_getConfigurationStatus(normPurpose); } catch (e) { status = null; }
-        }
-        purposeStatus[normPurpose] = status;
+      if (typeof purpose_getConfigurationStatus === 'function') {
+        try { status = purpose_getConfigurationStatus(normPurpose); } catch (e) { status = null; }
       }
       if (!status || !status.exists) {
         err('G', 'Purpose', purpose, 'INVALID_PURPOSE',
@@ -562,15 +545,6 @@ function validateMasterLog() {
           message: 'Purpose value "' + normPurpose + '" is recognized via configuration but its KPI/Risk analytics configuration is incomplete.',
         });
       }
-    }
-
-    // I — Store ID (v28). Only text starting with STR- is a Store ID (rows
-    // 2–13 hold Leo's leaderboard names there). A Store ID that no store
-    // has ever had is an error; a blank one is fine (the visit tables place
-    // the visit by name + brand).
-    const colI = String(row[8] == null ? '' : row[8]).trim().toUpperCase();
-    if (knownStoreIds && /^STR-/.test(colI) && !knownStoreIds[colI]) {
-      err('I', 'Store ID', colI, 'UNKNOWN_STORE_ID', 'Store ID "' + colI + '" is not a store in CONFIG_STORES.');
     }
   });
 

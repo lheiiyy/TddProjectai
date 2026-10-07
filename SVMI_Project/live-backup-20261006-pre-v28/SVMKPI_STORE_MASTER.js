@@ -217,7 +217,11 @@ function rebuildStoreMasterInsight() {
   dataRange.setFontFamily('Arial').setFontSize(9).setVerticalAlignment('middle')
     .setBorder(true,true,true,true,true,true, SMI_C.BORDER_GRID, SpreadsheetApp.BorderStyle.SOLID);
 
-  sheet.setRowHeights(DATA_START, storeCount, 20);   // v28: one call (was one per row)
+  for (let r=0; r<storeCount; r++) {
+    const bg = r%2===0 ? SMI_C.BG_ODD : SMI_C.BG_EVEN;
+    sheet.getRange(DATA_START+r, 1, 1, SMI_TOTAL_COLS).setBackground(bg);
+    sheet.setRowHeight(DATA_START+r, 20);
+  }
 
   // Column alignments
   sheet.getRange(DATA_START, SMI_COL.NUM,          storeCount,1).setHorizontalAlignment('center');
@@ -236,27 +240,29 @@ function rebuildStoreMasterInsight() {
   sheet.getRange(DATA_START, SMI_COL.RISK,         storeCount,1).setHorizontalAlignment('center').setFontWeight('bold');
   sheet.getRange(DATA_START, SMI_COL.STATUS,       storeCount,1).setHorizontalAlignment('center').setFontWeight('bold');
 
-  // ── Row bands + Brand / Risk Tier / Visit Status colors ─────────
-  // v28: built as arrays and written in two calls (was 2–4 calls per row).
-  const bgs = [], fcs = [];
-  const defaultFc = dataRange.getFontColor() || '#000000';
-  dataRows.forEach((row, r) => {
-    const band = r % 2 === 0 ? SMI_C.BG_ODD : SMI_C.BG_EVEN;
-    const bg = new Array(SMI_TOTAL_COLS).fill(band);
-    const fc = new Array(SMI_TOTAL_COLS).fill(defaultFc);
-    const brandBg = SMI_C.BRAND[row[SMI_COL.BRAND - 1]];
-    if (brandBg) bg[SMI_COL.BRAND - 1] = brandBg;
-    const tier = row[SMI_COL.RISK - 1];
-    if      (tier === 'HIGH')   { bg[SMI_COL.RISK - 1] = SMI_C.HIGH_L;   fc[SMI_COL.RISK - 1] = SMI_C.HIGH; }
-    else if (tier === 'MEDIUM') { bg[SMI_COL.RISK - 1] = SMI_C.MEDIUM_L; fc[SMI_COL.RISK - 1] = SMI_C.MEDIUM; }
-    else if (tier === 'LOW')    { bg[SMI_COL.RISK - 1] = SMI_C.LOW_L;    fc[SMI_COL.RISK - 1] = SMI_C.LOW; }
-    const status = row[SMI_COL.STATUS - 1];
-    if      (status === '✅ COMPLIANT')       { bg[SMI_COL.STATUS - 1] = SMI_C.COMPLIANT_L;   fc[SMI_COL.STATUS - 1] = SMI_C.COMPLIANT; }
-    else if (status === '⚠️ NOT YET VISITED') { bg[SMI_COL.STATUS - 1] = SMI_C.NOT_VISITED_L; fc[SMI_COL.STATUS - 1] = SMI_C.NOT_VISITED; }
-    else                                      { bg[SMI_COL.STATUS - 1] = SMI_C.NEVER_L;       fc[SMI_COL.STATUS - 1] = SMI_C.NEVER; }
-    bgs.push(bg); fcs.push(fc);
+  // ── Brand colors ──────────────────────────────────────────────
+  dataRows.forEach((row,i) => {
+    const bg = SMI_C.BRAND[row[SMI_COL.BRAND-1]];
+    if (bg) sheet.getRange(DATA_START+i, SMI_COL.BRAND).setBackground(bg);
   });
-  if (storeCount > 0) dataRange.setBackgrounds(bgs).setFontColors(fcs);
+
+  // ── Risk Tier colors ──────────────────────────────────────────
+  dataRows.forEach((row,i) => {
+    const tier = row[SMI_COL.RISK-1];
+    const cell = sheet.getRange(DATA_START+i, SMI_COL.RISK);
+    if      (tier==='HIGH')   cell.setBackground(SMI_C.HIGH_L).setFontColor(SMI_C.HIGH);
+    else if (tier==='MEDIUM') cell.setBackground(SMI_C.MEDIUM_L).setFontColor(SMI_C.MEDIUM);
+    else if (tier==='LOW')    cell.setBackground(SMI_C.LOW_L).setFontColor(SMI_C.LOW);
+  });
+
+  // ── Visit Status colors ───────────────────────────────────────
+  dataRows.forEach((row,i) => {
+    const status = row[SMI_COL.STATUS-1];
+    const cell   = sheet.getRange(DATA_START+i, SMI_COL.STATUS);
+    if      (status==='✅ COMPLIANT')       cell.setBackground(SMI_C.COMPLIANT_L).setFontColor(SMI_C.COMPLIANT);
+    else if (status==='⚠️ NOT YET VISITED') cell.setBackground(SMI_C.NOT_VISITED_L).setFontColor(SMI_C.NOT_VISITED);
+    else                                    cell.setBackground(SMI_C.NEVER_L).setFontColor(SMI_C.NEVER);
+  });
 
   // ── Freeze + Autofilter ───────────────────────────────────────
   sheet.setFrozenRows(2);

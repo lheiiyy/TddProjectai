@@ -426,8 +426,6 @@ function _store_ensureUnmappedSheet() {
  * Never invents a Store ID and never discards the original name.
  */
 function store_recordUnmapped(originalStoreName, firstSeen, lastSeen, occurrenceCount) {
-  // v28: callable from the page, and it writes CONFIG_UNMAPPED_STORES — admin only.
-  if (typeof sl_isAdmin === 'function' && !sl_isAdmin()) return { success: false, message: 'Admin access required.' };
   const sheet = _store_ensureUnmappedSheet();
   const name = String(originalStoreName || '').trim().toUpperCase();
   const lastRow = sheet.getLastRow();

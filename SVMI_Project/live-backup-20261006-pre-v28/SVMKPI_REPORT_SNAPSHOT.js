@@ -314,14 +314,10 @@ function _snap_setStatusInPlace(sheet, snapshotId, newStatus) {
  * @param {Date} evaluationDate
  * @returns {{storeRisk:object[], complianceGaps:object[], executiveSummary:(object|null), kpi:(object|null), totals:object}}
  */
-function _snap_captureCalculatedResult(year, evaluationDate, draftOnly) {
-  // v28: the same Store Health rows the Reports tab shows — from the visit
-  // tables by Store ID when reports read them (compliance gaps already
-  // follow that switch), MASTER_LOG by name otherwise. Frozen numbers used
-  // to mix the two sources.
-  const fromTables = (typeof svd_useTables_ === 'function' && svd_useTables_() && typeof svd_storeRisk_ === 'function')
-    ? svd_storeRisk_(evaluationDate, year) : null;
-  const storeRisk = fromTables || _computeStoreRisk(_getData(_getSheet(SHEET.MASTER_LOG)), evaluationDate, year);
+function _snap_captureCalculatedResult(year, evaluationDate) {
+  const masterLog = _getSheet(SHEET.MASTER_LOG);
+  const data = _getData(masterLog);
+  const storeRisk = _computeStoreRisk(data, evaluationDate, year);
 
   // Empty-year short-circuit: the caller (finalizeReport()/
   // supersedeReportSnapshot()) rejects an empty storeRisk result before
@@ -345,12 +341,8 @@ function _snap_captureCalculatedResult(year, evaluationDate, draftOnly) {
   if (typeof buildExecutiveSummaryLayout !== 'function' || typeof getExecutiveSummaryReport !== 'function') {
     throw new Error('Executive Summary engine (SVMKPI_LAYOUT.gs / SVMKPI_REPORTS.gs) is not loaded — cannot capture a complete report.');
   }
-  // v28: View Draft no longer rewrites the shared EXECUTIVE SUMMARY sheet —
-  // the report below is computed straight from MASTER_LOG and doesn't need it.
-  if (!draftOnly) buildExecutiveSummaryLayout(year);
-  // v28: the snapshot's own year — without it a 2025 snapshot froze the
-  // LATEST year's Executive Summary.
-  const executiveSummary = getExecutiveSummaryReport(year);
+  buildExecutiveSummaryLayout(year);
+  const executiveSummary = getExecutiveSummaryReport();
 
   if (typeof getKPI2026Report !== 'function') {
     throw new Error('KPI report engine (SVMKPI_KPI_REBUILD.gs / SVMKPI_REPORTS.gs) is not loaded — cannot capture a complete report.');
@@ -690,7 +682,6 @@ function getReportSnapshot_raw_(snapshotId) {
 /** Page-facing wrapper (v25): same result as getReportSnapshot_raw_(), with dates as
  * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
 function getReportSnapshot(snapshotId) {
-  if (typeof sl_isAdmin === 'function' && !sl_isAdmin()) throw new Error('Admin access required.');   // v28
   const r = getReportSnapshot_raw_(snapshotId);
   return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
 }
@@ -708,7 +699,6 @@ function getReportSnapshotByVersion_raw_(year, version) {
 /** Page-facing wrapper (v25): same result as getReportSnapshotByVersion_raw_(), with dates as
  * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
 function getReportSnapshotByVersion(year, version) {
-  if (typeof sl_isAdmin === 'function' && !sl_isAdmin()) throw new Error('Admin access required.');   // v28
   const r = getReportSnapshotByVersion_raw_(year, version);
   return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
 }
@@ -734,7 +724,6 @@ function getLatestFinalizedReportSnapshot_raw_(year) {
 /** Page-facing wrapper (v25): same result as getLatestFinalizedReportSnapshot_raw_(), with dates as
  * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
 function getLatestFinalizedReportSnapshot(year) {
-  if (typeof sl_isAdmin === 'function' && !sl_isAdmin()) throw new Error('Admin access required.');   // v28
   const r = getLatestFinalizedReportSnapshot_raw_(year);
   return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
 }
@@ -758,7 +747,6 @@ function listReportSnapshots_raw_(year) {
 /** Page-facing wrapper (v25): same result as listReportSnapshots_raw_(), with dates as
  * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
 function listReportSnapshots(year) {
-  if (typeof sl_isAdmin === 'function' && !sl_isAdmin()) throw new Error('Admin access required.');   // v28
   const r = listReportSnapshots_raw_(year);
   return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
 }
@@ -782,14 +770,13 @@ function getDraftReport_raw_(year, evaluationDateStr) {
   const evaluationDate = evaluationDateStr ? _parseDateCell(evaluationDateStr) : new Date();
   if (!evaluationDate) return null;
 
-  const result = _snap_captureCalculatedResult(y, evaluationDate, true);   // draft: no sheet rewrite (v28)
+  const result = _snap_captureCalculatedResult(y, evaluationDate);
   return { mode: 'DRAFT', reportingYear: y, evaluationDate, calculatedAt: new Date(), result };
 }
 
 /** Page-facing wrapper (v25): same result as getDraftReport_raw_(), with dates as
  * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
 function getDraftReport(year, evaluationDateStr) {
-  if (typeof sl_isAdmin === 'function' && !sl_isAdmin()) throw new Error('Admin access required.');   // v28
   const r = getDraftReport_raw_(year, evaluationDateStr);
   return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
 }

@@ -644,7 +644,7 @@ function _sl_scoreStores_(byStore, today, monthLimit) {
  * sheet exists — no scoring, sorting, or data logic here.
  * @returns {GoogleAppsScript.Spreadsheet.Sheet}
  */
-function buildRiskEngineSheet_() {   // v28: private — it wipes STORE HEALTH; only refreshRiskEngine() (admin/trigger-checked) calls it
+function buildRiskEngineSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(RISK_SHEET_NAME);
 
@@ -660,16 +660,6 @@ function buildRiskEngineSheet_() {   // v28: private — it wipes STORE HEALTH; 
 }
 
 /**
- * The rows the STORE HEALTH sheet shows. D.4 (v26): from the visit tables
- * by Store ID when reports read them, so the sheet and the Reports tab agree;
- * MASTER_LOG by name otherwise.
- */
-function _sl_storeHealthRows_(data, today, year) {
-  const fromTables = (typeof svd_useTables_ === 'function' && svd_useTables_()) ? svd_storeRisk_(today, year) : null;
-  return fromTables || _computeStoreRisk(data, today, year);
-}
-
-/**
  * populateRiskEngine(sheet, data, year)
  * Computes per-store risk rows and writes them to the STORE HEALTH
  * sheet, sorted by Risk Score descending (highest risk first).
@@ -677,9 +667,12 @@ function _sl_storeHealthRows_(data, today, year) {
  * @param {object} data - Parsed data object from CORE.gs _getData()
  * @param {number} [year] - Reporting year (Phase 1C); see _computeStoreRisk()
  */
-function populateRiskEngine(sheet, data, year, precomputed) {
+function populateRiskEngine(sheet, data, year) {
   const today = new Date();
-  const rows  = (precomputed || _sl_storeHealthRows_(data, today, year))
+  // D.4 (v26): the STORE HEALTH sheet is built from the visit tables by Store
+  // ID when reports read them, so the sheet and the Reports tab agree.
+  const fromTables = (typeof svd_useTables_ === 'function' && svd_useTables_()) ? svd_storeRisk_(today, year) : null;
+  const rows  = (fromTables || _computeStoreRisk(data, today, year))
     .sort((a, b) => b.riskScore - a.riskScore || a.store.localeCompare(b.store));
 
   if (rows.length === 0) return;
@@ -762,30 +755,12 @@ function refreshRiskEngine(year, __systemToken) {
   if (!isSystemTrigger && typeof sl_isAdmin === 'function' && !sl_isAdmin()) {
     return { success: false, rows: 0, message: 'Admin access required.' };
   }
-  // v28: one rebuild at a time (the daily trigger, the queued rebuild after an
-  // admin save and the System Tools button could overlap and clear the same
-  // sheet), and the rows are computed BEFORE the sheet is cleared, so a slow
-  // or failed computation never leaves STORE HEALTH empty.
-  // A marker (CacheService, 5 min) rather than the script lock: callers such
-  // as Store Name Matching already hold the script lock when they rebuild.
-  const cache = (typeof CacheService !== 'undefined' && CacheService.getScriptCache) ? CacheService.getScriptCache() : null;
-  const MARK = 'SVMI_STORE_HEALTH_REBUILDING';
-  if (cache && cache.get(MARK)) {
-    return { success: false, rows: 0, message: 'Store Health is already being rebuilt — try again in a minute.' };
-  }
-  if (cache) cache.put(MARK, '1', 300);
-  const lock = cache ? { releaseLock: () => cache.remove(MARK) } : null;
-  let data;
-  try {
-    const masterLog = _getSheet(SHEET.MASTER_LOG);
-    data            = _getData(masterLog);
-    const rows      = _sl_storeHealthRows_(data, new Date(), year);
-    const sheet     = buildRiskEngineSheet_();
-    populateRiskEngine(sheet, data, year, rows);
-    SpreadsheetApp.flush();
-  } finally {
-    if (lock) lock.releaseLock();
-  }
+  const masterLog = _getSheet(SHEET.MASTER_LOG);
+  const data      = _getData(masterLog);
+  const sheet     = buildRiskEngineSheet();
+
+  populateRiskEngine(sheet, data, year);
+  SpreadsheetApp.flush();
 
   const scannedRows = (data && typeof data.totalRows === 'number')
     ? data.totalRows

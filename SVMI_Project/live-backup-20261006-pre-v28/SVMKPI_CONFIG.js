@@ -1006,21 +1006,6 @@ function _cfg_writeAudit_(area, entityId, action, previousValue, newValue, effec
  * one area and/or entity. For a future audit-viewer UI.
  * @returns {object[]}
  */
-/**
- * v28: one CONFIG_AUDIT row (area SYSTEM) for an admin action that isn't a
- * configuration version — report source switch, visit tables rebuild,
- * Store Name Matching changes — so the Audit tab shows them too. Never
- * throws: an audit write must not undo or block the action itself.
- */
-function svmiAuditSystem_(entityId, action, detail, reason) {
-  try {
-    const actor = (typeof sl_getCurrentUser === 'function') ? String(sl_getCurrentUser() || '') : '';
-    _cfg_writeAudit_('SYSTEM', String(entityId || ''), String(action || ''), '', String(detail || ''), '', '', reason || '', '', actor);
-  } catch (e) {
-    if (typeof logError === 'function') logError('svmiAuditSystem_', e);
-  }
-}
-
 function cfg_getAuditLog_raw_(area, entityId) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG_AUDIT_SHEET);
   if (!sheet) return [];
@@ -1055,7 +1040,6 @@ function cfg_getAuditLog_raw_(area, entityId) {
 /** Page-facing wrapper (v25): same result as cfg_getAuditLog_raw_(), with dates as
  * text so google.script.run can deliver it (see svmiPlain_ in SVMKPI_CORE.gs). */
 function cfg_getAuditLog(area, entityId) {
-  if (typeof sl_isAdmin === 'function' && !sl_isAdmin()) throw new Error('Admin access required.');   // v28
   const r = cfg_getAuditLog_raw_(area, entityId);
   return typeof svmiPlain_ === 'function' ? svmiPlain_(r) : r;
 }

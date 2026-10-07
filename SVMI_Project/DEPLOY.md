@@ -1965,6 +1965,13 @@ node SVMI_Project/tests/v25-fixes.test.js
 # store), identical scores; search shows "loading" until the store list lands;
 # D.4 Store Health live by Store ID from the visit tables (24 checks)
 node SVMI_Project/tests/v26-speed.test.js
+
+# v28 System Tools + Audit/Snapshots/Identity (PLAN.md 🐞 F3 + F4): SETTINGS G/I kept
+# visible, Validate MASTER_LOG fast + Store ID check, Store Health rebuild one at a
+# time, private/admin-checked functions, SYSTEM audit rows, snapshot year/source,
+# identity admin for the admin list; in a browser: Report Source card, admin
+# double-submit guard, tool gating (35 checks)
+node SVMI_Project/tests/v28-tools-audit.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a

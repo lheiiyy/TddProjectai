@@ -70,9 +70,7 @@ const SVT_CHUNK = 5000; // rows per setValues call on rebuild
 function portal_rebuildVisitTables() {
   if (!sl_isAdmin()) return { success: false, message: 'Admin access required.' };
   try {
-    const r = svt_rebuildVisitTables_();
-    if (r && r.success && typeof svmiAuditSystem_ === 'function') svmiAuditSystem_('VISIT_TABLES', 'REBUILD', r.message || '');
-    return r;
+    return svt_rebuildVisitTables_();
   } catch (e) {
     return { success: false, message: e.message };
   }
