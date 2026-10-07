@@ -629,9 +629,7 @@ function _sl_getVisitedThisMonth_impl(brandFilter, monthNumber, reportingYear) {
 function _sl_visitedThisMonthFromLog_(brandFilter, monthNumber, reportingYear) {
   const ss   = SpreadsheetApp.getActiveSpreadsheet();
   const now  = new Date();
-  const year = (reportingYear != null && !isNaN(Number(reportingYear)))
-    ? Number(reportingYear)
-    : getDefaultReportingYear();
+  const year = (reportingYear != null && !isNaN(Number(reportingYear))) ? Number(reportingYear) : (monthNumber ? getDefaultReportingYear() : new Date().getFullYear());   // v30: "Current Month" = this month of THIS year
   const refMonthIdx = (monthNumber && monthNumber >= 1 && monthNumber <= 12)
     ? monthNumber - 1          // convert to 0-based
     : now.getMonth();          // current month
@@ -919,9 +917,7 @@ function _sl_getComplianceGaps_impl(brandFilter, monthNumber, reportingYear, eva
 function _sl_complianceGapsFromLog_(brandFilter, monthNumber, reportingYear, evaluationDateStr) {
   const ss       = SpreadsheetApp.getActiveSpreadsheet();
   const now      = new Date();
-  const year     = (reportingYear != null && !isNaN(Number(reportingYear)))
-    ? Number(reportingYear)
-    : getDefaultReportingYear();
+  const year     = (reportingYear != null && !isNaN(Number(reportingYear))) ? Number(reportingYear) : (monthNumber ? getDefaultReportingYear() : new Date().getFullYear());   // v30: "Current Month" = this month of THIS year
 
   // ── Determine reference month ─────────────────────────────
   const specificPeriodRequested = !!(monthNumber || reportingYear != null);
@@ -941,7 +937,9 @@ function _sl_complianceGapsFromLog_(brandFilter, monthNumber, reportingYear, eva
   if (evaluationDateStr) {
     evaluationDate = _parseDateCell(evaluationDateStr) || now;
   } else if (specificPeriodRequested) {
-    evaluationDate = monthPeriod.periodEnd;
+    // v30: a month that hasn't ended yet is evaluated as of now (the page
+    // now always sends month + year), not as of its future last day.
+    evaluationDate = (monthPeriod.periodStart.getTime() <= now.getTime() && monthPeriod.periodEnd.getTime() > now.getTime()) ? now : monthPeriod.periodEnd;
   } else {
     evaluationDate = now;
   }

@@ -246,8 +246,14 @@ function _getExecutiveSummaryReport_impl(year) {
 function _getKPI2026Report_impl(year) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const reportYear = (year != null && !isNaN(Number(year))) ? Number(year) : getDefaultReportingYear();
-  const sheet = ss.getSheetByName(_kpiSheetName(reportYear));
-  if (!sheet) throw new Error('"' + _kpiSheetName(reportYear) + '" sheet not found. Run "Rebuild KPI 2026" first.');
+  let sheet = ss.getSheetByName(_kpiSheetName(reportYear));
+  // v30: picking another year on the Reports tab — an admin's first look
+  // builds that year's KPI sheet; anyone else is told to ask an admin.
+  if (!sheet && typeof sl_isAdmin === 'function' && sl_isAdmin() && typeof buildKPI2026 === 'function') {
+    buildKPI2026(reportYear);
+    sheet = ss.getSheetByName(_kpiSheetName(reportYear));
+  }
+  if (!sheet) throw new Error('"' + _kpiSheetName(reportYear) + '" has not been built yet — an admin opening this year on the Reports tab builds it.');
 
   const DATA_ROW_START = 6; // matches buildKPI2026() in SVMKPI_KPI_REBUILD.gs
   const monthTotCols = KPI_MONTHS.map((_, mi) => KPI_MON_START + mi * KPI_BLOCK + 5); // W1-W5,TOT,spacer — offset 5 = TOT
@@ -332,12 +338,12 @@ function _getKPI2026Report_impl(year) {
  *          action:string, attentionReason:string}[]
  * }}
  */
-function _getStoreHealthReport_impl() {
+function _getStoreHealthReport_impl(year) {
   // D.4 (v26): with reports on the visit tables, Store Health is computed live
   // by Store ID — the same visits Store Insights / Visited / Unvisited show —
   // instead of the sheet snapshot from the last rebuild (by name, MASTER_LOG).
   if (typeof svd_useTables_ === 'function' && svd_useTables_()) {
-    const live = svd_storeHealthReport_();
+    const live = svd_storeHealthReport_(null, year);
     if (live) return live;
   }
   const ss = SpreadsheetApp.getActiveSpreadsheet();
