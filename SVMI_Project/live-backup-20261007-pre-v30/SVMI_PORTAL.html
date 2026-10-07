@@ -90,7 +90,6 @@ textarea.fi{resize:vertical;min-height:50px}
 .status-line{border-radius:4px;padding:5px 10px;font-size:11px;margin-top:5px;display:none}
 .status-line.loading{background:#ebf8ff;border:1px solid #90cdf4;color:#2b6cb0;display:block}
 .status-line.error{background:#fff5f5;border:1px solid #fc8181;color:#c53030;display:block}
-.status-line.success{background:#f0fff4;border:1px solid #9ae6b4;color:#276749;display:block}
 
 /* ── Type-to-search ── */
 .ss-wrap{position:relative;margin-bottom:4px}
@@ -156,18 +155,6 @@ textarea.fi{resize:vertical;min-height:50px}
 .wh-meta{font-size:10px;color:var(--muted);margin-top:1px}
 .wh-rem{font-size:10px;color:var(--text);margin-top:2px;font-style:italic;white-space:pre-wrap;overflow-wrap:anywhere}
 .wh-total{font-size:10px;color:var(--muted);text-align:right;margin-bottom:4px}
-
-/* ── Edit / void visits (v31, admin) ── */
-.wh-row{position:relative}
-.wh-acts{position:absolute;top:4px;right:4px;display:flex;gap:2px}
-.wh-acts button{border:none;background:none;cursor:pointer;font-size:12px;padding:2px 4px;border-radius:3px}
-.wh-acts button:hover{background:#edf2f7}
-.ve-card{width:360px;max-width:calc(100vw - 32px);max-height:calc(100vh - 32px);overflow-y:auto}
-.ve-l{display:block;font-size:10px;font-weight:700;color:var(--muted);margin:7px 0 2px;text-transform:uppercase}
-.ve-vis{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;max-height:110px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:4px;padding:5px}
-.ve-vis label{display:flex;align-items:center;gap:3px;cursor:pointer}
-.ve-save{background:var(--green,#2f855a)}
-.wh-void{border-left-color:#c53030;opacity:.9}
 
 /* ── Queue ── */
 .queue-hdr{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;
@@ -784,10 +771,7 @@ body.admin-busy .vm-btn,body.admin-busy #content-Admin .btn-navy{opacity:.55;poi
       <div class="wh" id="weekHistory">
         <div class="queue-hdr" style="margin-top:14px">
           <span>🗓️ Submitted this week</span>
-          <span>
-            <button class="queue-clr" id="whVoidedBtn" onclick="veShowVoided()" hidden>voided visits</button>
-            <button class="queue-clr" onclick="whLoad(wh.start)">refresh</button>
-          </span>
+          <button class="queue-clr" onclick="whLoad(wh.start)">refresh</button>
         </div>
         <div class="wh-nav">
           <button type="button" class="wh-arrow" id="whPrev" onclick="whMove(-1)" title="Previous week">◀</button>
@@ -832,8 +816,6 @@ body.admin-busy .vm-btn,body.admin-busy #content-Admin .btn-navy{opacity:.55;poi
         <option value="9">September</option><option value="10">October</option>
         <option value="11">November</option><option value="12">December</option>
       </select>
-      <!-- v30 (F7): any year with visits, not just the latest. -->
-      <select class="sel-dark rep-year" id="visYearSel" onchange="onYearPicked('vis')" style="min-width:90px;margin-top:6px"></select>
       <span id="visMonthLbl" style="font-size:11px;color:var(--light)"></span>
       <div id="coverageHint" style="font-size:10px;color:var(--light);margin-top:6px"></div>
     </div>
@@ -860,7 +842,6 @@ body.admin-busy .vm-btn,body.admin-busy #content-Admin .btn-navy{opacity:.55;poi
       <option value="9">September</option><option value="10">October</option>
       <option value="11">November</option><option value="12">December</option>
     </select>
-    <select class="sel-dark rep-year" id="yearSel" onchange="onYearPicked('gaps')" style="min-width:90px;width:auto"></select>
     <span id="monthLbl" style="font-size:11px;color:var(--light)"></span>
     <button class="btn-gold" onclick="loadCompliance()" style="width:auto;margin-top:0;padding:5px 12px;margin-left:auto">↻ Refresh</button>
   </div>
@@ -877,7 +858,7 @@ body.admin-busy .vm-btn,body.admin-busy #content-Admin .btn-navy{opacity:.55;poi
   <div class="toolbar">
     <div class="toolbar-title">Reports —</div>
     <button class="rep-btn active" id="repTab-es"     onclick="switchReport('es')">Executive Summary</button>
-    <button class="rep-btn"        id="repTab-kpi"     onclick="switchReport('kpi')">KPI</button>
+    <button class="rep-btn"        id="repTab-kpi"     onclick="switchReport('kpi')">KPI 2026</button>
     <button class="rep-btn"        id="repTab-health"  onclick="switchReport('health')">Store Health</button>
     <select class="sel-dark" id="esYearSel" onchange="loadCurrentReport()" style="min-width:90px;width:auto;margin-top:0"></select>
     <button class="btn-gold" onclick="loadCurrentReport()" style="width:auto;margin-top:0;padding:5px 12px;margin-left:auto">↻ Refresh</button>
@@ -1225,25 +1206,6 @@ body.admin-busy .vm-btn,body.admin-busy #content-Admin .btn-navy{opacity:.55;poi
 <!-- Column filter popover (Unvisited This Month) -->
 <div class="colf" id="colFilterPop" hidden onclick="event.stopPropagation()"></div>
 
-<!-- v31 (F8): edit a logged visit — admin only -->
-<div class="dup-ov" id="veOv">
-  <div class="dup-card ve-card">
-    <div class="dup-title">✏️ Edit visit</div>
-    <div class="dup-body" id="veSub"></div>
-    <label class="ve-l">Date visited</label><input type="date" class="fi" id="veDate">
-    <label class="ve-l">Store</label><select class="fi" id="veStore"></select>
-    <label class="ve-l">Visited by</label><div class="ve-vis" id="veVisitors"></div>
-    <label class="ve-l">Purpose</label><select class="fi" id="vePurpose"></select>
-    <label class="ve-l">Remarks</label><textarea class="fi" id="veRemarks" rows="2"></textarea>
-    <label class="ve-l">Reason for the change <span class="req">*</span></label><input type="text" class="fi" id="veReason" placeholder="e.g. wrong store picked">
-    <div id="veErr" style="font-size:11px;color:#c53030;min-height:14px;margin:6px 0"></div>
-    <div class="dup-acts">
-      <button class="dup-cancel" onclick="veClose()">Cancel</button>
-      <button class="dup-submit ve-save" id="veSave" onclick="veSave()">Save</button>
-    </div>
-  </div>
-</div>
-
 <!-- System Tools confirmation -->
 <div class="dup-ov" id="confirmOv">
   <div class="dup-card">
@@ -1323,12 +1285,7 @@ function loadDataYear() {
 // Google account is on the SETTINGS!G admin list. Convenience only — the
 // portal_rebuild*() handlers for those three tools check sl_isAdmin()
 // again themselves, since hiding a button here can't stop a direct call.
-var svmiIsAdmin = false;   // v31: shows ✏️ / 🗑 on the weekly history (server re-checks every action)
 function applyAdminGating(isAdmin) {
-  svmiIsAdmin = !!isAdmin;
-  var vb = document.getElementById('whVoidedBtn');
-  if (vb) vb.hidden = !svmiIsAdmin;
-  if (typeof whRender === 'function' && wh && wh.data) whRender();
   document.querySelectorAll('.tool-card[data-admin-only]').forEach(function(card) {
     // v28: every button on the card (Report Source has two).
     card.querySelectorAll('.tool-run').forEach(function(btn) { btn.hidden = !isAdmin; });
@@ -2206,16 +2163,13 @@ function whRender() {
   }
   var html = '<div class="wh-total">' + rows.length + ' visit' + (rows.length !== 1 ? 's' : '') + (who ? ' · ' + esc(who) : '') + '</div>';
   var lastDate = '';
-  wh.shown = rows;
-  rows.forEach(function(r, i) {
+  rows.forEach(function(r) {
     if (r.date !== lastDate) {
       lastDate = r.date;
       var day = d.days.filter(function(x) { return x.date === r.date; })[0];
       html += '<div class="wh-dayhdr">' + esc(day ? day.label : r.date) + '</div>';
     }
     html += '<div class="wh-row">'
-      + (svmiIsAdmin && r.row ? '<span class="wh-acts"><button type="button" title="Edit" onclick="veEdit(' + i + ')">✏️</button>'
-          + '<button type="button" title="Void (remove from every report — can be restored)" onclick="veVoid(' + i + ')">🗑</button></span>' : '')
       + '<div class="wh-store">' + esc(r.store) + (r.brand ? ' <span>· ' + esc(r.brand) + '</span>' : '') + '</div>'
       + '<div class="wh-meta">' + esc(r.purpose) + ' · ' + esc(r.visitors.join(', ') || '—') + '</div>'
       + '<div class="wh-meta">Visited ' + esc(r.visited ? r.visited.slice(5).replace('-', '/') : '—')
@@ -2224,132 +2178,6 @@ function whRender() {
       + '</div>';
   });
   list.innerHTML = html;
-}
-
-// ═══════════════════════════════════════
-// EDIT / VOID / RESTORE A VISIT (v31, F8) — admin only; every server call
-// re-checks admin and needs a reason (Leo 2026-10-07: void, reason required).
-// ═══════════════════════════════════════
-var ve = { row: null, tsKey: '' };
-
-function veEdit(i) {
-  var r = wh.shown && wh.shown[i];
-  if (!r) return;
-  ve.row = r.row; ve.tsKey = r.tsKey;
-  document.getElementById('veErr').textContent = 'Loading…';
-  document.getElementById('veOv').classList.add('show');
-  google.script.run
-    .withSuccessHandler(function(v) {
-      if (!v || !v.success) { document.getElementById('veErr').textContent = (v && v.message) || 'Could not load the visit.'; return; }
-      document.getElementById('veErr').textContent = '';
-      document.getElementById('veSub').textContent = 'Submitted ' + v.tsKey + ' · MASTER_LOG row ' + v.row;
-      document.getElementById('veDate').value = v.dateVisited;
-      var stores = allStores.slice();
-      if (v.storeId && !stores.some(function(s) { return s.storeId === v.storeId; })) stores.unshift({ storeId: v.storeId, store: v.store, brand: v.brand });
-      document.getElementById('veStore').innerHTML = (v.storeId ? '' : '<option value="">— pick the store —</option>') + stores.map(function(s) {
-        var name = s.store || s.name || '';
-        return '<option value="' + esc(s.storeId || '') + '"' + (s.storeId === v.storeId ? ' selected' : '') + '>' + esc(name + (s.brand ? ' · ' + s.brand : '')) + '</option>';
-      }).join('');
-      var names = allVisitors.map(function(x) { return x.name; });
-      v.visitors.forEach(function(n) { if (names.indexOf(n) === -1) names.push(n); });
-      document.getElementById('veVisitors').innerHTML = names.map(function(n) {
-        return '<label><input type="checkbox" value="' + esc(n) + '"' + (v.visitors.indexOf(n) !== -1 ? ' checked' : '') + '>' + esc(n) + '</label>';
-      }).join('');
-      var purposes = allPurposes.slice();
-      if (v.purpose && purposes.indexOf(v.purpose) === -1) purposes.unshift(v.purpose);
-      document.getElementById('vePurpose').innerHTML = purposes.map(function(p) {
-        return '<option value="' + esc(p) + '"' + (p === v.purpose ? ' selected' : '') + '>' + esc(p) + '</option>';
-      }).join('');
-      document.getElementById('veRemarks').value = v.remarks;
-      document.getElementById('veReason').value = '';
-    })
-    .withFailureHandler(function(err) { document.getElementById('veErr').textContent = err.message || String(err); })
-    .portal_getVisitForEdit(r.row, r.tsKey);
-}
-
-function veClose() { document.getElementById('veOv').classList.remove('show'); }
-
-function veSave() {
-  var reason = document.getElementById('veReason').value.trim();
-  var err = document.getElementById('veErr');
-  if (!reason) { err.textContent = 'Please give a reason for the change.'; return; }
-  var visitors = Array.prototype.map.call(document.querySelectorAll('#veVisitors input:checked'), function(c) { return c.value; });
-  var changes = {
-    dateVisited: document.getElementById('veDate').value,
-    storeId: document.getElementById('veStore').value,
-    visitors: visitors,
-    purpose: document.getElementById('vePurpose').value,
-    remarks: document.getElementById('veRemarks').value
-  };
-  var btn = document.getElementById('veSave');
-  withButtonLoading(btn, '⏳ Saving…', function(restore) {
-    google.script.run
-      .withSuccessHandler(function(r) {
-        restore();
-        if (!r || !r.success) { err.textContent = (r && r.message) || 'Save failed.'; return; }
-        veClose();
-        showStatus('✅ ' + esc(r.message || 'Visit updated.'), 'success');
-        whLoad(wh.start);
-      })
-      .withFailureHandler(function(e) { restore(); err.textContent = e.message || String(e); })
-      .portal_editVisit(ve.row, ve.tsKey, changes, reason);
-  });
-}
-
-function veVoid(i) {
-  var r = wh.shown && wh.shown[i];
-  if (!r) return;
-  var reason = prompt('Void this visit?\n\n' + r.store + ' · ' + r.purpose + ' · ' + r.visitors.join(', ') + '\nVisited ' + r.visited
-    + '\n\nIt will no longer count in any report (it can be restored later).\nReason (required):');
-  if (reason === null) return;
-  if (!reason.trim()) { alert('A reason is required.'); return; }
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (!res || !res.success) { alert((res && res.message) || 'Void failed.'); return; }
-      showStatus('🗑 ' + esc(res.message), 'success');
-      whLoad(wh.start);
-    })
-    .withFailureHandler(function(e) { alert(e.message || String(e)); })
-    .portal_voidVisit(r.row, r.tsKey, reason.trim());
-}
-
-function veShowVoided() {
-  var list = document.getElementById('whList');
-  list.innerHTML = '<div class="queue-empty"><div class="spinner"></div>Loading voided visits…</div>';
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (!res || !res.success) { list.innerHTML = '<div class="queue-empty">' + esc((res && res.message) || 'Could not load.') + '</div>'; return; }
-      ve.voided = res.rows;
-      var html = '<div class="wh-total"><a href="#" onclick="whRender();return false">← back to the week</a> · ' + res.rows.length + ' voided</div>';
-      if (!res.rows.length) html += '<div class="queue-empty">No voided visits.</div>';
-      res.rows.forEach(function(v, i) {
-        html += '<div class="wh-row wh-void">'
-          + '<span class="wh-acts"><button type="button" title="Restore" onclick="veRestore(' + i + ')">↩</button></span>'
-          + '<div class="wh-store">' + esc(v.store) + (v.brand ? ' <span>· ' + esc(v.brand) + '</span>' : '') + '</div>'
-          + '<div class="wh-meta">' + esc(v.purpose) + ' · ' + esc(v.visitors.join(', ')) + ' · visited ' + esc(v.visited) + '</div>'
-          + '<div class="wh-meta">Voided ' + esc(v.at) + (v.by ? ' by ' + esc(v.by) : '') + '</div>'
-          + '<div class="wh-rem">' + esc(v.reason) + '</div></div>';
-      });
-      list.innerHTML = html;
-    })
-    .withFailureHandler(function(e) { list.innerHTML = '<div class="queue-empty">' + esc(e.message || String(e)) + '</div>'; })
-    .portal_listVoidedVisits();
-}
-
-function veRestore(i) {
-  var v = ve.voided && ve.voided[i];
-  if (!v) return;
-  var reason = prompt('Restore this visit?\n\n' + v.store + ' · ' + v.purpose + ' · visited ' + v.visited + '\n\nReason (required):');
-  if (reason === null) return;
-  if (!reason.trim()) { alert('A reason is required.'); return; }
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (!res || !res.success) { alert((res && res.message) || 'Restore failed.'); return; }
-      showStatus('↩ ' + esc(res.message), 'success');
-      veShowVoided();
-    })
-    .withFailureHandler(function(e) { alert(e.message || String(e)); })
-    .portal_restoreVisit(v.correctionId, reason.trim());
 }
 
 function addQueueItem(p) {
@@ -2599,12 +2427,14 @@ function visRenderUnmapped(unmapped) {
 }
 
 function loadVisited() {
-  if (!esYearsLoaded) { loadReportYears(loadVisited); return; }
   var brand = gBrands;
-  var year  = pickedYear('visYearSel');          // v30: any year with visits
-  var mo    = pickedMonth('visMonthSel', year);
+  var moEl  = document.getElementById('visMonthSel');
+  var mo    = moEl ? parseInt(moEl.value) : 0;
   var lblEl = document.getElementById('visMonthLbl');
-  if (lblEl) lblEl.textContent = MONTHS[mo-1]+' '+year;
+  if (lblEl) {
+    var now = new Date();
+    lblEl.textContent = (!mo ? MONTHS[now.getMonth()]+' '+now.getFullYear() : MONTHS[mo-1]+' '+dataYear);
+  }
   document.getElementById('coverageHint').textContent = 'Loading…';
   document.getElementById('siMain').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
   google.script.run
@@ -2643,7 +2473,7 @@ function loadVisited() {
       document.getElementById('coverageHint').textContent = '';
       document.getElementById('siMain').innerHTML = stateMsg('⚠️','Error',esc(err.message||String(err)));
     })
-    .sl_getVisitedThisMonth(brand, mo, year);
+    .sl_getVisitedThisMonth(brand, mo);
 }
 
 // ═══════════════════════════════════════
@@ -2905,11 +2735,10 @@ var COMP_COLS = [
 ];
 
 function loadCompliance() {
-  if (!esYearsLoaded) { loadReportYears(loadCompliance); return; }
-  var year = pickedYear('yearSel');              // v30: any year with visits
-  var mo = pickedMonth('monthSel', year);
+  var mo = parseInt(document.getElementById('monthSel').value);
   var lbl = document.getElementById('monthLbl');
-  lbl.textContent = MONTHS[mo-1]+' '+year;
+  var now = new Date();
+  lbl.textContent = (!mo ? MONTHS[now.getMonth()]+' '+now.getFullYear() : MONTHS[mo-1]+' '+dataYear);
   var brand = gBrands;
   document.getElementById('visitsPanel').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
   google.script.run
@@ -2917,7 +2746,7 @@ function loadCompliance() {
     .withFailureHandler(function(err) {
       document.getElementById('visitsPanel').innerHTML = stateMsg('⚠️','Error',esc(err.message||String(err)));
     })
-    .sl_getComplianceGaps(brand, mo, year);
+    .sl_getComplianceGaps(brand, mo);
 }
 
 function renderCompliance(rows) {
@@ -3025,8 +2854,8 @@ function switchReport(which) {
   ['es','kpi','health'].forEach(function(k) {
     document.getElementById('repTab-' + k).classList.toggle('active', k === which);
   });
-  // v30 (F7): every report has a year now (KPI and Store Health too).
-  if (!esYearsLoaded) { loadEsYears(); return; }
+  document.getElementById('esYearSel').style.display = (which === 'es') ? '' : 'none';
+  if (which === 'es' && !esYearsLoaded) { loadEsYears(); return; }
   loadCurrentReport();
 }
 
@@ -3040,52 +2869,17 @@ function switchReport(which) {
 // it never writes to MASTER_LOG or any other sheet.
 var esYearsLoaded = false;
 
-// v30 (F7): ONE year list (sl_getReportYears — years with visits, from the
-// visit tables, plus this calendar year) fills every Year dropdown: Reports,
-// Visited This Month and Unvisited. Newest first; this year selected.
-var reportYears = [];
-function loadEsYears() { loadReportYears(loadCurrentReport); }
-function loadReportYears(then) {
-  if (esYearsLoaded) { if (then) then(); return; }
-  callServer('sl_getReportYears', [], function(years) {
+function loadEsYears() {
+  callServer('getAvailableReportingYears', [], function(years) {
     esYearsLoaded = true;
-    var cur = new Date().getFullYear();
-    reportYears = (years && years.length ? years.slice() : [cur]);
-    if (reportYears.indexOf(cur) === -1) reportYears.push(cur);
-    reportYears.sort(function(a, b) { return b - a; });
-    ['esYearSel', 'visYearSel', 'yearSel'].forEach(function(id) {
-      var sel = document.getElementById(id);
-      if (!sel) return;
-      var keep = Number(sel.value) || cur;
-      sel.innerHTML = reportYears.map(function(y) { return '<option value="' + y + '"' + (y === keep ? ' selected' : '') + '>' + y + '</option>'; }).join('');
-    });
-    if (then) then();
+    var list = (years && years.length) ? years.slice().reverse() : [];
+    var sel = document.getElementById('esYearSel');
+    sel.innerHTML = list.map(function(y) { return '<option value="' + y + '">' + y + '</option>'; }).join('');
+    loadCurrentReport();
   }, function(msg) {
     esYearsLoaded = true; // don't retry-loop forever on a failed lookup
-    if (then) then();
+    loadCurrentReport();
   });
-}
-
-// The year a report dropdown shows (this calendar year until the list loads).
-function pickedYear(id) {
-  var el = document.getElementById(id);
-  return (el && Number(el.value)) || new Date().getFullYear();
-}
-// The month to ask for: "Current Month" means this month of this year; for a
-// past year it means the last month of that year (December).
-function pickedMonth(monthSelId, year) {
-  var mo = parseInt(document.getElementById(monthSelId).value) || 0;
-  if (mo) return mo;
-  var now = new Date();
-  return year === now.getFullYear() ? now.getMonth() + 1 : 12;
-}
-function onYearPicked(which) {
-  var monthId = which === 'vis' ? 'visMonthSel' : 'monthSel';
-  var yearId  = which === 'vis' ? 'visYearSel' : 'yearSel';
-  var m = document.getElementById(monthId);
-  // A past year with "Current Month" selected → show its December explicitly.
-  if (pickedYear(yearId) !== new Date().getFullYear() && m.value === '0') m.value = '12';
-  if (which === 'vis') loadVisited(); else loadCompliance();
 }
 
 function loadCurrentReport() {
@@ -3098,9 +2892,12 @@ function loadCurrentReport() {
     .withFailureHandler(function(err) {
       panel.innerHTML = stateMsg('⚠️', 'Error', esc(err.message || String(err)));
     });
-  // v30: the selected year goes to every report.
-  var yv = Number(document.getElementById('esYearSel').value) || undefined;
-  runner[fnByReport[currentReport]](yv);
+  if (currentReport === 'es') {
+    var yv = Number(document.getElementById('esYearSel').value) || undefined;
+    runner.getExecutiveSummaryReport(yv);
+  } else {
+    runner[fnByReport[currentReport]]();
+  }
 }
 
 // KPI-card strip shared by all three reports — a row of {label, value} pairs.
@@ -3288,7 +3085,7 @@ function renderStoreHealthReport(data) {
   var h = repKpiRow(data.kpis);
   h += '<div class="p-card" style="margin-bottom:14px">'
     + '<div class="p-card-hdr">Store Health — ' + data.rows.length + ' store' + (data.rows.length !== 1 ? 's' : '')
-    + (data.live ? ' <span style="font-weight:400;font-size:10px;opacity:.8">· live, by Store ID · counts = ' + esc(data.year || 'this year') + (data.year && data.year !== new Date().getFullYear() ? ', as of Dec 31' : '') + '</span>' : '') + '</div>'
+    + (data.live ? ' <span style="font-weight:400;font-size:10px;opacity:.8">· live, by Store ID · counts = this year</span>' : '') + '</div>'
     + '<div class="p-card-body"><div id="healthBody"></div></div></div>';
   document.getElementById('reportsPanel').innerHTML = h;
 

@@ -219,9 +219,6 @@ function svd_loadVisits_() {
       recordedName: _normalizeEnum(r[SVT_V.STORE_NAME]),
       sourceRow: Number(r[SVT_V.SOURCE_ROW]) || 0,
       recordedAt: r[SVT_V.RECORDED_AT] instanceof Date ? r[SVT_V.RECORDED_AT] : (_parseDateCell(r[SVT_V.RECORDED_AT]) || null),
-      // v31: the submission timestamp exactly as MASTER_LOG column A holds it —
-      // edit / void (SVMKPI_VISIT_EDIT.gs) use it to make sure the row is still that visit.
-      recordedKey: typeof ve_tsKey_ === 'function' ? ve_tsKey_(r[SVT_V.RECORDED_AT]) : String(r[SVT_V.RECORDED_AT] || ''),
       visitors: visitorsById[id] || [],
     });
   });
@@ -273,7 +270,7 @@ function svd_visitedThisMonth_(brandFilter, monthNumber, reportingYear, preloade
   if (!visits) return null;
 
   const now  = new Date();
-  const year = (reportingYear != null && !isNaN(Number(reportingYear))) ? Number(reportingYear) : (monthNumber ? getDefaultReportingYear() : new Date().getFullYear());   // v30: "Current Month" = this month of THIS year
+  const year = (reportingYear != null && !isNaN(Number(reportingYear))) ? Number(reportingYear) : getDefaultReportingYear();
   const refMonthIdx = (monthNumber && monthNumber >= 1 && monthNumber <= 12) ? monthNumber - 1 : now.getMonth();
   const monthStart = new Date(year, refMonthIdx, 1, 0, 0, 0, 0);
   const monthEnd   = new Date(year, refMonthIdx + 1, 0, 23, 59, 59, 999);
@@ -435,7 +432,7 @@ function svd_complianceGaps_(brandFilter, monthNumber, reportingYear, evaluation
   if (!visits) return null;
 
   const now  = new Date();
-  const year = (reportingYear != null && !isNaN(Number(reportingYear))) ? Number(reportingYear) : (monthNumber ? getDefaultReportingYear() : new Date().getFullYear());   // v30: "Current Month" = this month of THIS year
+  const year = (reportingYear != null && !isNaN(Number(reportingYear))) ? Number(reportingYear) : getDefaultReportingYear();
   const specificPeriodRequested = !!(monthNumber || reportingYear != null);
   const refMonthIdx = (monthNumber && monthNumber >= 1 && monthNumber <= 12) ? monthNumber - 1 : now.getMonth();
   const periodRefDate = new Date(year, refMonthIdx, 1);
@@ -446,9 +443,7 @@ function svd_complianceGaps_(brandFilter, monthNumber, reportingYear, evaluation
 
   let evaluationDate;
   if (evaluationDateStr) evaluationDate = _parseDateCell(evaluationDateStr) || now;
-  // v30: a month that hasn't ended yet (the page now always sends month + year)
-  // is evaluated as of now, not as of its future last day.
-  else if (specificPeriodRequested) evaluationDate = (monthPeriod.periodStart.getTime() <= now.getTime() && monthPeriod.periodEnd.getTime() > now.getTime()) ? now : monthPeriod.periodEnd;
+  else if (specificPeriodRequested) evaluationDate = monthPeriod.periodEnd;
   else evaluationDate = now;
 
   const clip = (periodEnd) => (periodEnd.getTime() < evaluationDate.getTime() ? periodEnd : evaluationDate);
@@ -759,13 +754,9 @@ function svd_storeRisk_(today, year, preloaded) {
     s.storeId = id;
     byStore[id] = s;
   });
-  // v30: a past year is scored as of its end — later visits don't count yet.
-  const cutoff = today.getFullYear() < new Date().getFullYear() ? today : null;
   visits.forEach(v => {
     const s = v.storeId ? byStore[v.storeId] : null;
-    if (!s) return;
-    if (cutoff && v.date && v.date > cutoff) return;
-    _sl_addRiskVisit_(s, v.date, v.purpose, evaluationYear, monthLimit);
+    if (s) _sl_addRiskVisit_(s, v.date, v.purpose, evaluationYear, monthLimit);
   });
 
   const outerMemo = _SL_RISK_MEMO_;
@@ -781,13 +772,8 @@ function svd_storeRisk_(today, year, preloaded) {
  * The Reports tab's Store Health, live from the tables — same shape as
  * _getStoreHealthReport_impl() (SVMKPI_REPORTS.gs), which reads the sheet.
  */
-function svd_storeHealthReport_(preloaded, year) {
-  // v30: a past year is evaluated as of its last day (31 Dec); the current
-  // year (or no year) as of now.
-  const now = new Date();
-  const y = (year != null && !isNaN(Number(year))) ? Number(year) : null;
-  const asOf = (y !== null && y < now.getFullYear()) ? new Date(y, 11, 31, 23, 59, 59) : now;
-  const rows = svd_storeRisk_(asOf, y, preloaded);
+function svd_storeHealthReport_(preloaded) {
+  const rows = svd_storeRisk_(new Date(), null, preloaded);
   if (!rows) return null;
   rows.sort((a, b) => b.riskScore - a.riskScore || a.store.localeCompare(b.store) || a.brand.localeCompare(b.brand));
   const n = rows.length;
@@ -802,7 +788,6 @@ function svd_storeHealthReport_(preloaded, year) {
     kpis: labels.map((label, i) => ({ label, value: String(values[i]) })),
     headers: (typeof RISK_HEADERS !== 'undefined') ? RISK_HEADERS : [],
     live: true,
-    year: y !== null ? y : now.getFullYear(),
     rows: rows.map(r => ({
       storeId:         r.storeId,
       store:           r.store,
@@ -924,8 +909,6 @@ function portal_getWeekHistory(anyDateStr) {
         purpose: v.purpose || '—',
         remarks: String(v.remarks || '').trim(),
         recordedAt: hm(v.recordedAt),
-        row: v.sourceRow,                            // v31: for ✏️ / 🗑 (admin)
-        tsKey: v.recordedKey,
       };
     });
     const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
@@ -949,39 +932,5 @@ function portal_getWeekHistory(anyDateStr) {
     return { success: false, message: e.message };
   } finally {
     if (typeof _perfLog === 'function') _perfLog('portal_getWeekHistory', t0);
-  }
-}
-
-
-// ═══════════════════════════════════════════════════════════════
-// SECTION 9: REPORT YEARS (F7, v30)
-// ═══════════════════════════════════════════════════════════════
-
-/**
- * sl_getReportYears()
- * Years that have visits, oldest first, plus the current calendar year
- * (so January works before the first visit is logged). From the visit
- * tables' Date Visited column only — one column read, not MASTER_LOG —
- * falling back to getAvailableReportingYears() when the tables don't exist.
- * Every report's Year dropdown is filled from this.
- */
-function sl_getReportYears() {
-  const t0 = Date.now();
-  try {
-    const seen = {};
-    seen[new Date().getFullYear()] = true;
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const vs = ss.getSheetByName(SVT_SHEET.VISITS);
-    if (vs && vs.getLastRow() >= 2) {
-      vs.getRange(2, SVT_V.DATE + 1, vs.getLastRow() - 1, 1).getValues().forEach(r => {
-        const d = _parseDateCell(r[0]);
-        if (d) seen[d.getFullYear()] = true;
-      });
-    } else if (typeof getAvailableReportingYears === 'function') {
-      getAvailableReportingYears().forEach(y => { seen[y] = true; });
-    }
-    return Object.keys(seen).map(Number).sort((a, b) => a - b);
-  } finally {
-    if (typeof _perfLog === 'function') _perfLog('sl_getReportYears', t0);
   }
 }

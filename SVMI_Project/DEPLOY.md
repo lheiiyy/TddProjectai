@@ -1977,6 +1977,17 @@ node SVMI_Project/tests/v28-tools-audit.test.js
 # newest first, count per day, date visited per row, ◀ ▶ weeks, visitor filter;
 # reloads once after submissions (32 checks)
 node SVMI_Project/tests/v29-week-history.test.js
+
+# v30 past years (PLAN.md 🐞 F7): one year list from the visit tables fills every Year
+# dropdown; "Current Month" = this month of this year; past-year Visited / Unvisited /
+# Store Health (as of Dec 31) / KPI (admin builds a missing year's sheet) (26 checks)
+node SVMI_Project/tests/v30-past-years.test.js
+
+# v31 edit / void / restore a visit, admin only (PLAN.md 🐞 F8): reason required,
+# VOID moves the row to VISIT_CORRECTIONS (gone from every report), RESTORE puts it
+# back; visit tables stay in sync (Check Visit Tables) after every change;
+# leaderboard rows 2–13 editable but not voidable; browser: ✏️ / 🗑 / ↩ (49 checks)
+node SVMI_Project/tests/v31-visit-edit.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a
