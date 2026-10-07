@@ -1,13 +1,12 @@
 # SVMI — Fix & Improve Plan
 
-Last updated: 2026-10-06 · Working branch: `svmi/v26-insights-speed` (PR #24, stacked on #23 → #22)
+Last updated: 2026-10-07 · Working branch: `svmi/v29-week-history`
 
-**🚀 LIVE = version 27 (2026-10-06)** — same Web App URL; reports read the visit tables.
-v27 = D.4 Store Health live by Store ID · v26 = Store Insights speed (risk config read once per pass) ·
-v25 = Input Portal + Admin fixes (🐞 F1 + F2) · v24 = D.3 Store Insights by Store ID.
-Rollback sources: `live-backup-20261006-pre-v27/` (= v26), `-pre-v26/` (= v25), `-pre-v25/` (= v24), `live-backup-20261004-pre-v24/` (= v23).
-**Merge:** PR #24 contains #22 + #23 — merging #24 brings `main` up to live (v27); #22/#23 then show as merged.
-**Next:** v28 (F3 + F4, PR #25) deploy → then F5 weekly history, F7 past years, F8 edit/void visits, D.5.
+**🚀 LIVE = version 28 (2026-10-06)** — same Web App URL; reports read the visit tables. `main` = live (PR #25 merged 2026-10-07).
+v28 = System Tools + Audit/Snapshots/Identity (🐞 F3 + F4) · v27 = D.4 Store Health live by Store ID ·
+v26 = Store Insights speed · v25 = Input Portal + Admin fixes (🐞 F1 + F2) · v24 = D.3 Store Insights by Store ID.
+Rollback sources: `live-backup-20261006-pre-v28/` (= v27), `-pre-v27/` (= v26), `-pre-v26/` (= v25), `-pre-v25/` (= v24).
+**Next:** v29 (F5 weekly history) deploy → then F6 speed, F7 past years, F8 edit/void visits, D.5.
 Rule for now: **functionality first.** Security is parked (except admin access).
 Live backups (`live-backup-*`) are the safe fallback — never edited.
 
@@ -220,6 +219,13 @@ Leo (2026-10-05): a history list in the Input Portal covering **one week, Monday
 - Admins see ✏️ / 🗑 on each row (F8); others read-only.
 - Read from STORE_VISITS by Store ID (one week only → fast).
 
+**v29 — F5 built 2026-10-07 (branch `svmi/v29-week-history`).** Leo's decisions (2026-10-07): L6a **by submission
+date** (MASTER_LOG timestamp = Recorded At in STORE_VISITS); L6b **◀ ▶ to earlier weeks** allowed. Input Portal, under
+the Submission Queue: "Submitted this week" — Mon–Sun (Asia/Manila), count per day (today outlined), filter by visitor,
+rows grouped by submission day, newest first, each with store + brand (CONFIG_STORES), purpose, visitors, **date visited**
+and submission time, remarks. ▶ stops at the current week. Loads when the Input tab is first opened and once again
+~1.5 s after submissions. `portal_getWeekHistory(anyDate)` (read-only, dates as text). ✏️/🗑 per row comes with F8.
+
 ### F6 — Speed → v28
 
 After F0's numbers:
@@ -260,8 +266,8 @@ Leo: existing records editable, ✏️ beside each record, **admin only**.
 | L3 | KPI 2026: year dropdown, or fixed to 2026? | Year dropdown |
 | L4 | Store Health refresh after an admin save: background (a minute later) or on next Store Health open? | Background |
 | L5 | Order F1+F2 → F3+F4 → F5 → F6 → F7 → F8, then D.4/D.5 | As listed |
-| L6a | Weekly history: by **date visited** or by **date submitted**? | Date visited, with submitted time shown |
-| L6b | Weekly history: this week only, or ◀ ▶ to older weeks? | ◀ ▶ allowed |
+| L6a | Weekly history: by **date visited** or by **date submitted**? | ✅ Leo 2026-10-07: **date submitted** (date visited shown per row) |
+| L6b | Weekly history: this week only, or ◀ ▶ to older weeks? | ✅ Leo 2026-10-07: ◀ ▶ allowed |
 | L7 | Deployment: keep "anyone, runs as deployer" (only you are recognised) or require Google sign-in so admins/visitors are known? | Decide before F4.8 |
 
 ## 🧱 Phase C — visit tables in Google Sheets (live in v14)
@@ -369,6 +375,6 @@ Known gaps (not configurable yet):
 
 ## Tests
 
-36 files, 1,973 checks, all passing (`node tests/<file>.test.js`) — v25 added `tests/v25-fixes.test.js` (60), v26/27 `tests/v26-speed.test.js` (24), v28 `tests/v28-tools-audit.test.js` (35).
+37 files, 2,005 checks, all passing (`node tests/<file>.test.js`) — v25 added `tests/v25-fixes.test.js` (60), v26/27 `tests/v26-speed.test.js` (24), v28 `tests/v28-tools-audit.test.js` (35), v29 `tests/v29-week-history.test.js` (32).
 `store-name-matching-ui.test.js` clicks through the real `SVMI_PORTAL.html` with the real `.gs` code
 behind it (Playwright); the other portal tests use the demo page.

@@ -218,7 +218,6 @@ function svd_loadVisits_() {
       remarks: String(r[SVT_V.REMARKS] == null ? '' : r[SVT_V.REMARKS]),
       recordedName: _normalizeEnum(r[SVT_V.STORE_NAME]),
       sourceRow: Number(r[SVT_V.SOURCE_ROW]) || 0,
-      recordedAt: r[SVT_V.RECORDED_AT] instanceof Date ? r[SVT_V.RECORDED_AT] : (_parseDateCell(r[SVT_V.RECORDED_AT]) || null),
       visitors: visitorsById[id] || [],
     });
   });
@@ -848,89 +847,4 @@ function svd_compareStoreHealth_(visits) {
   });
   const oldOnly = Object.keys(oldBy).map(k => oldBy[k]).filter(o => o.hasHistory);
   return { same, diffs, oldOnly, year };
-}
-
-
-
-// ═══════════════════════════════════════════════════════════════
-// SECTION 8: INPUT PORTAL — WEEKLY HISTORY (F5, v29)
-// ═══════════════════════════════════════════════════════════════
-
-/**
- * portal_getWeekHistory(anyDateStr)
- * Every visit SUBMITTED (MASTER_LOG timestamp = the tables' Recorded At) in
- * the Monday–Sunday week that contains `anyDateStr` ('yyyy-MM-dd'; default
- * today, Asia/Manila) — Leo's choice 2026-10-07 — from the visit tables by
- * Store ID, newest first, with a count per day. Each row also carries the
- * date visited (a visit can be logged days later).
- * Read-only; the Input Portal's history panel. Dates go out as text.
- */
-function portal_getWeekHistory(anyDateStr) {
-  const t0 = Date.now();
-  try {
-    if (!svd_tablesExist_()) return { success: false, message: 'Visit tables not found — an admin needs to run Rebuild Visit Tables.' };
-    const ref = (anyDateStr && _parseDateCell(anyDateStr)) || new Date();
-    const monday = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - ((ref.getDay() + 6) % 7));
-    const nextMonday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 7);
-    const today = new Date();
-    const thisMonday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7));
-
-    const p2 = n => String(n).padStart(2, '0');
-    const ymd = d => d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
-    const hm = d => (d instanceof Date && !isNaN(d)) ? ymd(d) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) : '';
-    const DAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-    const days = [];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
-      days.push({ date: ymd(d), label: DAY[d.getDay()] + ' ' + p2(d.getMonth() + 1) + '/' + p2(d.getDate()), count: 0 });
-    }
-    const dayIdx = {};
-    days.forEach((d, i) => { dayIdx[d.date] = i; });
-
-    const storeOf = svd_storeLookup_(null);
-    const visits = (svd_loadVisits_() || []).filter(v => v.recordedAt && v.recordedAt >= monday && v.recordedAt < nextMonday);
-    visits.sort((a, b) => (b.recordedAt - a.recordedAt) || ((b.date ? b.date.getTime() : 0) - (a.date ? a.date.getTime() : 0)));
-    const visitorSet = {};
-    const rows = visits.map(v => {
-      const info = v.storeId ? storeOf(v.storeId) : null;
-      const key = ymd(v.recordedAt);
-      if (key in dayIdx) days[dayIdx[key]].count++;
-      v.visitors.forEach(n => { visitorSet[n] = true; });
-      return {
-        date: key,                                   // day it was submitted (the list groups by this)
-        day: DAY[v.recordedAt.getDay()],
-        visited: v.date ? ymd(v.date) : '',          // date visited
-        storeId: v.storeId || '',
-        store: info ? info.name : (v.recordedName || '—'),
-        brand: info ? info.brand : '',
-        visitors: v.visitors.slice(),
-        purpose: v.purpose || '—',
-        remarks: String(v.remarks || '').trim(),
-        recordedAt: hm(v.recordedAt),
-      };
-    });
-    const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
-    const label = MON[monday.getMonth()] + ' ' + monday.getDate() + ' – '
-      + (sunday.getMonth() !== monday.getMonth() ? MON[sunday.getMonth()] + ' ' : '') + sunday.getDate() + ', ' + sunday.getFullYear();
-    return {
-      success: true,
-      weekStart: ymd(monday),
-      weekEnd: ymd(sunday),
-      label,
-      isCurrentWeek: monday.getTime() === thisMonday.getTime(),
-      prevStart: ymd(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() - 7)),
-      nextStart: monday.getTime() < thisMonday.getTime() ? ymd(nextMonday) : '',
-      days,
-      total: rows.length,
-      visitors: Object.keys(visitorSet).sort(),
-      rows,
-    };
-  } catch (e) {
-    if (typeof logError === 'function') logError('portal_getWeekHistory', e);
-    return { success: false, message: e.message };
-  } finally {
-    if (typeof _perfLog === 'function') _perfLog('portal_getWeekHistory', t0);
-  }
 }
