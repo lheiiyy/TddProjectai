@@ -1,12 +1,12 @@
 # SVMI — Fix & Improve Plan
 
-Last updated: 2026-10-07 · Working branch: `svmi/v30-past-years`
+Last updated: 2026-10-07 · Working branch: `svmi/v31-visit-edit`
 
 **🚀 LIVE = version 29 (2026-10-07)** — same Web App URL; reports read the visit tables. `main` = live (PR #26 merged).
 v29 = Input Portal weekly history (🐞 F5) · v28 = System Tools + Audit/Snapshots/Identity (🐞 F3 + F4) ·
 v27 = D.4 Store Health live by Store ID · v26 = Store Insights speed · v25 = Input Portal + Admin fixes (🐞 F1 + F2).
 Rollback sources: `live-backup-20261007-pre-v29/` (= v28), `live-backup-20261006-pre-v28/` (= v27), `-pre-v27/` (= v26).
-**Next:** v30 (F7 past years) deploy → then F8 edit/void visits (admin), D.5.
+**Next:** v31 (F8 edit/void) deploy → then D.5 (Executive Summary / KPI by Store ID), Phase E.
 Rule for now: **functionality first.** Security is parked (except admin access).
 Live backups (`live-backup-*`) are the safe fallback — never edited.
 
@@ -268,12 +268,28 @@ Leo: existing records editable, ✏️ beside each record, **admin only**.
 - Duplicate check on edit; Rebuild Visit Tables re-applies voids; Check Visit Tables lists voided visits separately.
 - Never touches MASTER_LOG rows 2–13 column I (leaderboard).
 
+**v31 — F8 built 2026-10-07 (branch `svmi/v31-visit-edit`, on top of v30).** Leo's decisions (2026-10-07): **L1 void**
+(restorable), **L2 a reason on every change**. New file `SVMKPI_VISIT_EDIT.gs`, new sheet **VISIT_CORRECTIONS**
+(Correction ID, At, By, Action EDIT/VOID/RESTORE, MASTER_LOG Row, Reason, Before A:I, After A:I, Refers To).
+- **Edit** (✏️ on each row of "Submitted this week", admins only): date visited, store (Store ID picker), visitors,
+  purpose, remarks → MASTER_LOG B:I rewritten in place (submission timestamp in A never changes; column I only where it
+  is blank or a Store ID); that visit replaced in the visit tables.
+- **Void** (🗑): the whole MASTER_LOG row moves into VISIT_CORRECTIONS and is deleted from MASTER_LOG and the visit tables
+  (Source Rows below shifted) — so it is gone from **every** report, incl. the KPI sheet formulas and the duplicate check.
+  Design change vs. the first plan ("row stays in MASTER_LOG"): keeping the row would have needed every MASTER_LOG reader
+  and the KPI formulas to skip it.
+- **Restore** (↩ in "voided visits"): the row goes back at the end of MASTER_LOG, same values and timestamp (same Visit ID).
+- Safety: admin check + reason on every server call; the page sends the row's timestamp and nothing is changed if that
+  row is no longer that visit; same script lock as submissions; MASTER_LOG rows 2–13 (leaderboard in I2:J13) can be
+  edited but not voided. Every action also writes a SYSTEM audit row (VISIT / EDIT|VOID|RESTORE).
+- Not yet: ✏️ in Store Insights' visit list (weekly history ◀ ▶ reaches any week).
+
 ### Decisions needed from Leo
 
 | # | Question | Recommendation |
 |---|----------|----------------|
-| L1 | Delete a visit: void (hidden, restorable) or permanent? | Void |
-| L2 | Reason required on every edit/void? | Yes, one line |
+| L1 | Delete a visit: void (hidden, restorable) or permanent? | ✅ Leo 2026-10-07: void |
+| L2 | Reason required on every edit/void? | ✅ Leo 2026-10-07: yes |
 | L3 | KPI 2026: year dropdown, or fixed to 2026? | ✅ year dropdown (v30, recommended default) |
 | L4 | Store Health refresh after an admin save: background (a minute later) or on next Store Health open? | Background |
 | L5 | Order F1+F2 → F3+F4 → F5 → F6 → F7 → F8, then D.4/D.5 | As listed |
@@ -386,6 +402,6 @@ Known gaps (not configurable yet):
 
 ## Tests
 
-38 files, 2,031 checks, all passing (`node tests/<file>.test.js`) — v25 added `tests/v25-fixes.test.js` (60), v26/27 `tests/v26-speed.test.js` (24), v28 `tests/v28-tools-audit.test.js` (35), v29 `tests/v29-week-history.test.js` (32), v30 `tests/v30-past-years.test.js` (26).
+39 files, 2,080 checks, all passing (`node tests/<file>.test.js`) — v25 added `tests/v25-fixes.test.js` (60), v26/27 `tests/v26-speed.test.js` (24), v28 `tests/v28-tools-audit.test.js` (35), v29 `tests/v29-week-history.test.js` (32), v30 `tests/v30-past-years.test.js` (26), v31 `tests/v31-visit-edit.test.js` (49).
 `store-name-matching-ui.test.js` clicks through the real `SVMI_PORTAL.html` with the real `.gs` code
 behind it (Playwright); the other portal tests use the demo page.
