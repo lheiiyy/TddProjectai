@@ -1,6 +1,6 @@
 # SVMI — Fix & Improve Plan
 
-Last updated: 2026-10-07 · Working branch: `svmi/v31-visit-edit`
+Last updated: 2026-11-23 · Working branch: `svmi/v31-visit-edit`
 
 **🚀 LIVE = version 30 (2026-10-07)** — same Web App URL; reports read the visit tables. (`main` = v29 until PR #27 is merged.)
 v30 = past years in reports (🐞 F7) · v29 = Input Portal weekly history (🐞 F5) · v28 = System Tools + Audit/Snapshots/Identity
@@ -283,6 +283,8 @@ Leo: existing records editable, ✏️ beside each record, **admin only**.
   row is no longer that visit; same script lock as submissions; MASTER_LOG rows 2–13 (leaderboard in I2:J13) can be
   edited but not voided. Every action also writes a SYSTEM audit row (VISIT / EDIT|VOID|RESTORE).
 - Not yet: ✏️ in Store Insights' visit list (weekly history ◀ ▶ reaches any week).
+- Added 2026-11-23 before deploy: the Unvisited tab ignores an older reply that arrives after a newer one (ticking two
+  brands quickly could paint the first, stale result). Same guard in the demo page; it made `portal-ui` flaky.
 
 ### Decisions needed from Leo
 
