@@ -219,6 +219,9 @@ function svd_loadVisits_() {
       recordedName: _normalizeEnum(r[SVT_V.STORE_NAME]),
       sourceRow: Number(r[SVT_V.SOURCE_ROW]) || 0,
       recordedAt: r[SVT_V.RECORDED_AT] instanceof Date ? r[SVT_V.RECORDED_AT] : (_parseDateCell(r[SVT_V.RECORDED_AT]) || null),
+      // v31: the submission timestamp exactly as MASTER_LOG column A holds it —
+      // edit / void (SVMKPI_VISIT_EDIT.gs) use it to make sure the row is still that visit.
+      recordedKey: typeof ve_tsKey_ === 'function' ? ve_tsKey_(r[SVT_V.RECORDED_AT]) : String(r[SVT_V.RECORDED_AT] || ''),
       visitors: visitorsById[id] || [],
     });
   });
@@ -921,6 +924,8 @@ function portal_getWeekHistory(anyDateStr) {
         purpose: v.purpose || '—',
         remarks: String(v.remarks || '').trim(),
         recordedAt: hm(v.recordedAt),
+        row: v.sourceRow,                            // v31: for ✏️ / 🗑 (admin)
+        tsKey: v.recordedKey,
       };
     });
     const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);

@@ -3076,7 +3076,9 @@ var COMP_COLS = [
   { key:'daysSince',     label:'Days Since', type:'num',  sortable:true, center:true }
 ];
 
+var _compSeq = 0;   // only the newest request may paint (out-of-order replies)
 function loadCompliance() {
+  var mySeq = ++_compSeq;
   var mo = parseInt(document.getElementById('monthSel').value);
   var lbl = document.getElementById('monthLbl');
   var now = new Date();
@@ -3084,8 +3086,9 @@ function loadCompliance() {
   var brand = gBrands;
   document.getElementById('visitsPanel').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
   google.script.run
-    .withSuccessHandler(renderCompliance)
+    .withSuccessHandler(function(rows) { if (mySeq === _compSeq) renderCompliance(rows); })
     .withFailureHandler(function(err) {
+      if (mySeq !== _compSeq) return;
       document.getElementById('visitsPanel').innerHTML = stateMsg('⚠️','Error',esc(err.message||String(err)));
     })
     .sl_getComplianceGaps(brand, mo);

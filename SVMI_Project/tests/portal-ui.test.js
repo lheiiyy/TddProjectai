@@ -849,6 +849,12 @@ async function goToTab(p, name) {
   await page.check('.brandBox >> nth=1');
   await page.waitForTimeout(800);   // loadCompliance() re-fetches from the mock backend's simulated 260-680ms delay
   const pickedBrands = brandBoxes.slice(0, 2);
+  // Each tick triggers its own reload, so wait until the table has rows again
+  // and holds only the picked brands (a fixed sleep was flaky).
+  await page.waitForFunction(brands => {
+    const cells = [...document.querySelectorAll('#ftTbl-comp tbody tr td:nth-child(3)')];
+    return cells.length > 0 && cells.every(c => brands.indexOf(c.textContent.trim()) !== -1);
+  }, pickedBrands, { timeout: 6000 }).catch(() => {});
   check('"All Brands" unticks itself once a specific brand is picked',
     !(await page.isChecked('#brandOptAll')));
   check('brand button label shows the selection count',
