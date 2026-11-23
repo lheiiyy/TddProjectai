@@ -132,6 +132,18 @@ function _visitorWeekFormula(ref, year, month, s, e) {
   )`;
 }
 
+/**
+ * v33 — the formula fragment for a visitor's name. A roster member follows
+ * their SETTINGS!F cell (a rename shows up live), but if that cell is later
+ * cleared (visitor removed in the web app) it falls back to the name at build
+ * time, so their visit history keeps counting in the KPI totals.
+ */
+function _kpiNameRef_(settingsRow, name) {
+  if (!settingsRow) return JSON.stringify(name);
+  const live = `TRIM(SETTINGS!F${settingsRow})`;
+  return `IF(${live}="",${JSON.stringify(name)},${live})`;
+}
+
 function _visitorRangeFormula(ref, a, b) {
   const maxRow = MASTER_LOG_MAX_ROW;
   const visitedBy = `REGEXREPLACE(TRIM(MASTER_LOG!F$2:F$${maxRow}),"\\s*\\|\\s*","|")`;
@@ -164,7 +176,7 @@ function _kpiWritePeriodBlock_(sheet, year, visitors, firstRow, totalRow) {
     .setFontSize(8).setFontWeight('bold').setHorizontalAlignment('center').setVerticalAlignment('middle');
 
   const formulas = visitors.map(({ name, settingsRow }) => {
-    const ref = settingsRow ? `TRIM(SETTINGS!F${settingsRow})` : JSON.stringify(name);
+    const ref = _kpiNameRef_(settingsRow, name);
     return ranges.map(r => _visitorRangeFormula(ref, r.start, r.end));
   });
   if (formulas.length) {
@@ -439,7 +451,7 @@ function buildKPI2026(year, __systemToken) {
     // roster has no live cell to point to anymore, so their name is
     // written as a plain literal instead — their numbers still come from
     // MASTER_LOG either way.
-    const nameRef = settingsRow ? `TRIM(SETTINGS!F${settingsRow})` : JSON.stringify(name);
+    const nameRef = _kpiNameRef_(settingsRow, name);   // v33: falls back to the build-time name
 
     sheet.setRowHeight(row, 18);
 

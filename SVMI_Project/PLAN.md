@@ -328,6 +328,12 @@ Cause: KPI 2026 row 9 has a blank name (a roster name cleared in SETTINGS!F afte
 reader stopped at the first blank name, so it never reached TEAM TOTAL; the page then failed on the missing total
 and stayed on "Loading…". Old bug, not from v32. Fix: blank rows are skipped (scan ends at TEAM TOTAL or after 3 blank
 rows); the page renders without a missing row instead of failing. Test: `kpi-roster-history.test.js` (+2).
+The blank row was **JOSH**, removed from the roster in the web app (SETTINGS!F5 cleared) — his KPI row pointed at
+that cell, so his name and every count went to 0. Leo (2026-11-23): a removed visitor's visits must still count in the
+year's KPI. Fix: KPI name/count formulas (weekly, P1–P13) and the Executive Summary leaderboard now read
+`IF(TRIM(SETTINGS!Fn)="","<name at build time>",TRIM(SETTINGS!Fn))` — a rename still shows live, a removal keeps the
+history. Existing sheets: run **Rebuild KPI** once after deploy (JOSH comes back as a history row). Tests: +2 in
+`kpi-roster-history.test.js`, `roster-auto-refresh.test.js` mock updated.
 Leo confirmed the v32 business calendar table (P1–P13, W53 in P13) on 2026-11-23.
 
 ### Decisions needed from Leo

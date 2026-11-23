@@ -862,15 +862,19 @@ function _buildLeaderboardFormulas(sheet, ML, offset) {
   const sorted = roster.sort((a, b) => (visitorCounts[b.name] || 0) - (visitorCounts[a.name] || 0));
 
   // Write up to 12 leaderboard rows (rows 35-46, shifted by `offset`)
-  sorted.slice(0, 12).forEach(({ row: settingsRow }, i) => {
+  sorted.slice(0, 12).forEach(({ row: settingsRow, name }, i) => {
     const sheetRow = 35 + offset + i;
+    // v33: if the visitor is later removed (SETTINGS!F cleared), keep their
+    // name and count instead of a blank row with 0.
+    const live = `TRIM(SETTINGS!F${settingsRow})`;
+    const nameRef = name ? `IF(${live}="",${JSON.stringify(name)},${live})` : live;
     sheet.getRange(sheetRow, 7).setValue(i + 1);
-    sheet.getRange(sheetRow, 8).setFormula(`=SETTINGS!F${settingsRow}`);
+    sheet.getRange(sheetRow, 8).setFormula(`=${nameRef}`);
 
     // Fixed match logic:
     // Normalize MASTER_LOG!F by removing spaces around pipes before matching.
     sheet.getRange(sheetRow, 9).setFormula(
-      `=SUMPRODUCT(--ISNUMBER(SEARCH("|"&TRIM(SETTINGS!F${settingsRow})&"|","|"&REGEXREPLACE(TRIM(${ML}!F$2:F$${MASTER_LOG_MAX_ROW}),"\\s*\\|\\s*","|")&"|")))`
+      `=SUMPRODUCT(--ISNUMBER(SEARCH("|"&${nameRef}&"|","|"&REGEXREPLACE(TRIM(${ML}!F$2:F$${MASTER_LOG_MAX_ROW}),"\\s*\\|\\s*","|")&"|")))`
     );
   });
 }
