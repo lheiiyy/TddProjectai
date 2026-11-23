@@ -74,6 +74,12 @@ const KPI_QLABELS = ['Q1 · JAN–MAR','Q2 · APR–JUN','Q3 · JUL–SEP','Q4 �
 const KPI_QCOLORS = [KPI_C.Q1, KPI_C.Q2, KPI_C.Q3, KPI_C.Q4];
 const SUMCOLS     = [KPI_Q1_COL, KPI_Q2_COL, KPI_Q3_COL, KPI_Q4_COL, KPI_YTD_COL];
 
+// v32: business periods block (P1–P13, 4 business weeks each — SVMKPI_CALENDAR.gs)
+// after the summary: a thin spacer, then one column per period.
+const KPI_P_SPACER  = KPI_YTD_COL + 1;   // 92
+const KPI_P1_COL    = KPI_YTD_COL + 2;   // 93
+const KPI_P_COUNT   = 13;
+
 function _monStartCol(mi) {
   return KPI_MON_START + mi * KPI_BLOCK;
 }
@@ -124,6 +130,56 @@ function _visitorWeekFormula(ref, year, month, s, e) {
     --(MASTER_LOG!B$2:B$${maxRow}>=DATE(${year},${month},${s})),
     --(MASTER_LOG!B$2:B$${maxRow}<=DATE(${year},${month},${e}))
   )`;
+}
+
+function _visitorRangeFormula(ref, a, b) {
+  const maxRow = MASTER_LOG_MAX_ROW;
+  const visitedBy = `REGEXREPLACE(TRIM(MASTER_LOG!F$2:F$${maxRow}),"\\s*\\|\\s*","|")`;
+  const dt = d => `DATE(${d.getFullYear()},${d.getMonth() + 1},${d.getDate()})`;
+  return `=SUMPRODUCT(
+    --ISNUMBER(SEARCH("|"&${ref}&"|","|"&${visitedBy}&"|")),
+    --(MASTER_LOG!B$2:B$${maxRow}>=${dt(a)}),
+    --(MASTER_LOG!B$2:B$${maxRow}<=${dt(b)})
+  )`;
+}
+
+/**
+ * v32 — visits per business period (P1–P13) for each visitor, plus the team
+ * total. Same counting rule as the weekly cells (one visit per named visitor).
+ */
+function _kpiWritePeriodBlock_(sheet, year, visitors, firstRow, totalRow) {
+  const p2 = n => String(n).padStart(2, '0');
+  const md = d => p2(d.getMonth() + 1) + '/' + p2(d.getDate());
+  const ranges = [];
+  for (let p = 1; p <= KPI_P_COUNT; p++) ranges.push(cal_businessRange_(year, p, 0));
+  const c1 = KPI_P1_COL, cN = KPI_P1_COL + KPI_P_COUNT - 1;
+
+  sheet.getRange(3, KPI_P_SPACER, totalRow - 2, 1).setBackground(KPI_C.WHITE);
+  sheet.getRange(3, c1, 1, KPI_P_COUNT).merge();
+  sheet.getRange(3, c1).setValue('BUSINESS PERIODS · 4 WEEKS EACH (W1 = JAN 1 → FIRST SUNDAY, THEN MON–SUN)');
+  sheet.getRange(4, c1, 1, KPI_P_COUNT).setValues([ranges.map((_, i) => 'P' + (i + 1))]);
+  sheet.getRange(5, c1, 1, KPI_P_COUNT).setValues([ranges.map(r => md(r.start) + '–' + md(r.end))]);
+  sheet.getRange(3, c1, 3, KPI_P_COUNT)
+    .setBackground(KPI_C.NAVY).setFontColor(KPI_C.WHITE).setFontFamily('Arial')
+    .setFontSize(8).setFontWeight('bold').setHorizontalAlignment('center').setVerticalAlignment('middle');
+
+  const formulas = visitors.map(({ name, settingsRow }) => {
+    const ref = settingsRow ? `TRIM(SETTINGS!F${settingsRow})` : JSON.stringify(name);
+    return ranges.map(r => _visitorRangeFormula(ref, r.start, r.end));
+  });
+  if (formulas.length) {
+    sheet.getRange(firstRow, c1, formulas.length, KPI_P_COUNT).setFormulas(formulas)
+      .setBackground(KPI_C.DATA_BG).setFontColor(KPI_C.DATA_FG).setFontFamily('Arial')
+      .setFontSize(9).setHorizontalAlignment('center').setVerticalAlignment('middle');
+  }
+  const last = totalRow - 1;
+  sheet.getRange(totalRow, c1, 1, KPI_P_COUNT).setFormulas([ranges.map((_, i) => {
+    const L = _colLetter(c1 + i);
+    return `=SUM(${L}${firstRow}:${L}${last})`;
+  })]).setBackground(KPI_C.NAVY).setFontColor(KPI_C.GOLD).setFontFamily('Arial')
+    .setFontSize(9).setFontWeight('bold').setHorizontalAlignment('center');
+  for (let c = c1; c <= cN; c++) sheet.setColumnWidth(c, 70);
+  sheet.setColumnWidth(KPI_P_SPACER, 6);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -207,7 +263,7 @@ function buildKPI2026(year, __systemToken) {
   const DATA_ROW_START = 6;
   const TEAM_TOTAL_ROW = DATA_ROW_START + visitors.length;
   const neededRows = TEAM_TOTAL_ROW + 2;
-  const neededCols = KPI_YTD_COL + 2;
+  const neededCols = KPI_P1_COL + KPI_P_COUNT;
 
   if (sheet.getMaxRows() < neededRows) {
     sheet.insertRowsAfter(sheet.getMaxRows(), neededRows - sheet.getMaxRows());
@@ -534,6 +590,9 @@ function buildKPI2026(year, __systemToken) {
   sheet.getRange(TEAM_TOTAL_ROW, KPI_YTD_COL)
     .setBackground(KPI_C.GOLD)
     .setFontColor(KPI_C.NAVY);
+
+  // ── v32: Business periods P1–P13 ─────────────────────────────
+  if (typeof cal_businessRange_ === 'function') _kpiWritePeriodBlock_(sheet, KPI_YEAR, visitors, DATA_ROW_START, TEAM_TOTAL_ROW);
 
   // ── Column widths ────────────────────────────────────────────
   sheet.setColumnWidth(1, 16);   // A margin

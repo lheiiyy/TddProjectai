@@ -115,6 +115,7 @@ function portal_editVisit(row, tsKey, changes, reason) {
     if (beforeTxt === afterTxt) return { success: true, unchanged: true, message: 'Nothing changed.' };
 
     master.getRange(row, 2, 1, SVT_ML_WIDTH - 1).setValues([after.slice(1, SVT_ML_WIDTH)]);
+    if (typeof svt_writeBusinessWeek_ === 'function') svt_writeBusinessWeek_(master, row, after[SVT_ML.DATE]);
     SpreadsheetApp.flush();
     ve_tablesReplaceRow_(row);
     const id = ve_log_(VE_ACTION.EDIT, row, why, beforeTxt, afterTxt, '');
@@ -189,8 +190,9 @@ function portal_restoreVisit(correctionId, reason) {
     const values = ve_parseRowText_(target[VE_COL.BEFORE]);
     const master = ve_master_();
     master.appendRow(values);
-    SpreadsheetApp.flush();
     const newRow = master.getLastRow();
+    if (typeof svt_writeBusinessWeek_ === 'function') svt_writeBusinessWeek_(master, newRow, values[SVT_ML.DATE]);
+    SpreadsheetApp.flush();
     if (typeof svt_recordVisitFromRow_ === 'function') svt_recordVisitFromRow_(newRow);
     const id = ve_log_(VE_ACTION.RESTORE, newRow, why, '', ve_rowText_(values), correctionId);
     if (typeof svmiAuditSystem_ === 'function') svmiAuditSystem_('VISIT', 'RESTORE', 'MASTER_LOG row ' + newRow + ' · ' + id + ' (undoes ' + correctionId + ')', why);

@@ -112,3 +112,119 @@ function resolveCalendarPeriod(date, periodFamily) {
     year: y,
   };
 }
+
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 3: BUSINESS CALENDAR — P#W# (v32, Leo 2026-11-23)
+// ═══════════════════════════════════════════════════════════════
+// W1 = Jan 1 up to the first Sunday; every later week is Monday–Sunday.
+// A week never crosses into the next year (the last one stops on Dec 31),
+// so most years end with a short W53.
+// P = every 4 weeks: P1 = W1–W4 … P13 = W49–W52, and W53 joins P13 (P13W5).
+// The label's W restarts each period: P1W1 … P1W4, P2W1 … P2W4, …
+
+const CAL_BW_PERIODS = 13;
+
+function _cal_day_(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+
+/** Monday of W2 for a year (the day after the first Sunday). */
+function _cal_w2Start_(year) {
+  const jan1 = new Date(year, 0, 1);
+  const toSunday = (7 - jan1.getDay()) % 7;          // Sunday → 0
+  return new Date(year, 0, 1 + toSunday + 1);
+}
+
+/** Number of business weeks in a year (52 or 53). */
+function cal_businessWeekCount_(year) {
+  const w2 = _cal_w2Start_(year);
+  const dec31 = new Date(year, 11, 31);
+  return 2 + Math.floor((dec31 - w2) / (7 * 86400000) + 1e-9);
+}
+
+/** Period (1–13) and week-in-period for a year-week number. */
+function _cal_periodOf_(yearWeek) {
+  const period = Math.min(CAL_BW_PERIODS, Math.ceil(yearWeek / 4));
+  return { period, weekInPeriod: yearWeek - (period - 1) * 4 };
+}
+
+/** First and last day of a year-week. */
+function cal_businessWeekRange_(year, yearWeek) {
+  const n = cal_businessWeekCount_(year);
+  const wk = Math.max(1, Math.min(n, Math.floor(Number(yearWeek) || 1)));
+  if (wk === 1) {
+    const w2 = _cal_w2Start_(year);
+    return { start: new Date(year, 0, 1), end: new Date(w2.getFullYear(), w2.getMonth(), w2.getDate() - 1), yearWeek: 1 };
+  }
+  const w2 = _cal_w2Start_(year);
+  const start = new Date(w2.getFullYear(), w2.getMonth(), w2.getDate() + (wk - 2) * 7);
+  let end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+  const dec31 = new Date(year, 11, 31);
+  if (end > dec31) end = dec31;
+  return { start, end, yearWeek: wk };
+}
+
+function _cal_bwInfo_(year, yearWeek) {
+  const r = cal_businessWeekRange_(year, yearWeek);
+  const p = _cal_periodOf_(r.yearWeek);
+  return {
+    year: year,
+    yearWeek: r.yearWeek,
+    weeksInYear: cal_businessWeekCount_(year),
+    period: p.period,
+    weekInPeriod: p.weekInPeriod,
+    label: 'P' + p.period + 'W' + p.weekInPeriod,
+    start: r.start,
+    end: r.end,
+  };
+}
+
+/**
+ * cal_businessWeek_(date) → { year, yearWeek, weeksInYear, period, weekInPeriod,
+ *   label ('P12W4'), start, end } or null for a missing/invalid date.
+ */
+function cal_businessWeek_(date) {
+  if (!(date instanceof Date) || isNaN(date.getTime())) {
+    if (date && typeof date === 'object' && typeof date.getTime === 'function' && !isNaN(date.getTime())) {
+      date = new Date(date.getTime());                // a Date from another realm (tests)
+    } else return null;
+  }
+  const d = _cal_day_(date);
+  const year = d.getFullYear();
+  const w2 = _cal_w2Start_(year);
+  const yearWeek = d < w2 ? 1 : 2 + Math.floor((d - w2) / (7 * 86400000) + 1e-9);
+  return _cal_bwInfo_(year, yearWeek);
+}
+
+/** The year-weeks that make up a period (P13 includes W53 when the year has one). */
+function cal_periodWeeks_(year, period) {
+  const p = Math.max(1, Math.min(CAL_BW_PERIODS, Math.floor(Number(period) || 1)));
+  const last = p === CAL_BW_PERIODS ? cal_businessWeekCount_(year) : p * 4;
+  const out = [];
+  for (let w = (p - 1) * 4 + 1; w <= last; w++) out.push(w);
+  return out;
+}
+
+/**
+ * cal_businessRange_(year, period, weekInPeriod) — date range for a period
+ * (weekInPeriod empty/0 = the whole period) or one week of it. null if invalid.
+ */
+function cal_businessRange_(year, period, weekInPeriod) {
+  year = Number(year); period = Number(period);
+  if (!year || !period || period < 1 || period > CAL_BW_PERIODS) return null;
+  const weeks = cal_periodWeeks_(year, period);
+  const wip = Number(weekInPeriod) || 0;
+  if (wip) {
+    if (wip < 1 || wip > weeks.length) return null;
+    const info = _cal_bwInfo_(year, weeks[wip - 1]);
+    return { start: info.start, end: info.end, label: info.label };
+  }
+  const a = cal_businessWeekRange_(year, weeks[0]);
+  const b = cal_businessWeekRange_(year, weeks[weeks.length - 1]);
+  return { start: a.start, end: b.end, label: 'P' + period };
+}
+
+/** 'P12W4' for a date, '' when the date is missing. */
+function cal_businessWeekLabel_(date) {
+  const bw = cal_businessWeek_(date);
+  return bw ? bw.label : '';
+}

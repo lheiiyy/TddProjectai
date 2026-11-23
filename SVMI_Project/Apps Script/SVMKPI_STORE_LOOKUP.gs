@@ -614,12 +614,12 @@ function _slBrandAllowed(brand, brandFilter) {
  * }} `resolved` sorted most-recently-visited first (same-day ties by
  *   name); `unmapped` sorted by visit count descending, then name.
  */
-function _sl_getVisitedThisMonth_impl(brandFilter, monthNumber, reportingYear) {
+function _sl_getVisitedThisMonth_impl(brandFilter, monthNumber, reportingYear, businessPeriod) {
   // Phase D (SVMKPI_VISIT_DATA.gs): by Store ID from the visit tables when an
   // admin has switched reports to them; MASTER_LOG otherwise, or if the tables
   // are missing.
   if (typeof svd_useTables_ === 'function' && svd_useTables_()) {
-    const fromTables = svd_visitedThisMonth_(brandFilter, monthNumber, reportingYear);
+    const fromTables = svd_visitedThisMonth_(brandFilter, monthNumber, reportingYear, null, businessPeriod);   // v32: P#/P#W#
     if (fromTables) return fromTables;
   }
   return _sl_visitedThisMonthFromLog_(brandFilter, monthNumber, reportingYear);
