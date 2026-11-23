@@ -6,7 +6,7 @@ Last updated: 2026-11-23 · Working branch: `svmi/v31-visit-edit`
 v30 = past years in reports (🐞 F7) · v29 = Input Portal weekly history (🐞 F5) · v28 = System Tools + Audit/Snapshots/Identity
 (🐞 F3 + F4) · v27 = D.4 Store Health live by Store ID · v26 = Store Insights speed · v25 = 🐞 F1 + F2.
 Rollback sources: `live-backup-20261007-pre-v30/` (= v29), `-pre-v29/` (= v28), `live-backup-20261006-pre-v28/` (= v27).
-**Next:** v31 (F8 edit/void) deploy → then D.5 (Executive Summary / KPI by Store ID), Phase E.
+**Next:** v31 (F8 edit/void) deploy → v32 (F9 business calendar + F10 colour pills, planned) → then D.5 (Executive Summary / KPI by Store ID), Phase E.
 Rule for now: **functionality first.** Security is parked (except admin access).
 Live backups (`live-backup-*`) are the safe fallback — never edited.
 
@@ -285,6 +285,35 @@ Leo: existing records editable, ✏️ beside each record, **admin only**.
 - Not yet: ✏️ in Store Insights' visit list (weekly history ◀ ▶ reaches any week).
 - Added 2026-11-23 before deploy: the Unvisited tab ignores an older reply that arrives after a newer one (ticking two
   brands quickly could paint the first, stale result). Same guard in the demo page; it made `portal-ui` flaky.
+
+### F9 — Business calendar (P#W#) → v32 · PLAN, not built (Leo, 2026-11-23)
+Rule (Leo): **W1 = Jan 1 up to the first Sunday**; after that every week is **Monday–Sunday** (Jan 4–10, 2027 = W2).
+**P = every 4 weeks** (P1 = W1–W4, P2 = W5–W8 … P13 = W49–W52).
+- A year never borrows days from the next year: the last week stops on Dec 31. So almost every year has a short
+  **W53** (2026: Dec 28–31; 2027: Dec 27–31) → proposed **P13 = W49–W53** (P13 can be 5 weeks).
+- Examples — 2026: W1 Jan 1–4 (Thu–Sun), W2 Jan 5–11, today Nov 23 = W48. 2027: W1 Jan 1–3 (Fri–Sun), W2 Jan 4–10.
+- Label: **P1W2** = period 1, week 2 *of that period* (W restarts 1–4 each period); the year-week number (Wk 2 of 53)
+  is shown beside it. ⚠ Leo to confirm (his example wrote "P2W2" for Jan 4–10).
+- Code: one helper in `SVMKPI_CALENDAR.gs` — `cal_businessWeek_(date)` → year, yearWeek, period, weekInPeriod, label,
+  start, end — used by everything below; the page uses the same rule (a copy tested against the server version).
+- **Weekly History header**: "P12W4 · Nov 23–29, 2026". The year-end week splits at Dec 31/Jan 1 (◀ ▶ still work).
+- **Report filters**: a Period (P1–P13) and Week picker beside Year/Month on Visited and Store Insights' visit list
+  (and the Store Health "visits" counts). **Unvisited stays by month/quarter/semester** — its rules are calendar
+  months; it only shows the P#W# of each store's last visit. ⚠ Leo to confirm.
+- **MASTER_LOG**: new column **K "BUSINESS WEEK"** (I–J stay Leo's leaderboard), written on every submit / edit /
+  restore; an Admin Tool "Fill business weeks" fills the old rows once. Visit tables get the same field.
+- **Export / KPI**: P#W# column in every export; the KPI sheet gets a "visits per period P1–P13" block per visitor.
+
+### F10 — Colour pills on store names and brands → v32 (Leo, 2026-11-23)
+Same pills as the Unvisited "Required" column (screenshot): **Monthly** blue, **Quarterly** orange, **Semi-Annual**
+violet — from the store's Category (NCR / Near Provincial → Monthly, Far → Quarterly, Flight → Semi-Annual; no
+category → no pill). **Brands get their own colour pill too** (proposed: Angel's Pizza red, Figaro green, APEX
+amber, Tien Ma's teal, Koobideh brown — ⚠ Leo to confirm/replace with brand colours).
+- Where: Store Insights (search list + details), Weekly History rows, Input Portal store dropdown, and every report
+  table (Visited, Unvisited, Store Health, Executive Summary, KPI view in the portal).
+- Code: one `storePills(row)` / `brandPill(brand)` in the page; the server adds `cadence` to any row that lacks it;
+  brand colours read from config so a new brand gets a neutral grey pill until set.
+- Tests: pill class per category/brand, no pill without a category, dropdown still keyboard-usable.
 
 ### Decisions needed from Leo
 
