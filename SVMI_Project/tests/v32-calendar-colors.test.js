@@ -123,6 +123,31 @@ console.log('\n── Weekly History header ──');
   check('◀ from a normal week = the Monday before', mid.prevStart === '2026-02-23' && mid.businessWeek === 'P3W2', [mid.prevStart, mid.businessWeek]);
 }
 
+console.log('\n── v33: KPI by business week (from the visit tables) ──');
+{
+  const e = env(); const s = e.sandbox;
+  const b = s.svd_kpiBusinessWeeks_(2026, ['LEO', 'NOBODY']);
+  check('53 weeks, labels P1W1 … P13W5', b.weeks.length === 53 && b.weeks[0].label === 'P1W1' && b.weeks[52].label === 'P13W5', [b.weeks.length, b.weeks[52] && b.weeks[52].label]);
+  check('sheet order first (LEO, NOBODY), then others with visits A–Z', b.visitors[0].name === 'LEO' && b.visitors[1].name === 'NOBODY' && b.visitors.slice(2).map(v => v.name).join(',') === b.visitors.slice(2).map(v => v.name).sort().join(','), b.visitors.map(v => v.name));
+  const leo = b.visitors[0];
+  check('LEO\'s May 11 visit is in W20 (P5W4)', leo.weekly[19] >= 1 && b.weeks[19].label === 'P5W4', leo.weekly[19]);
+  check('a visitor not on the roster still counts (ANN)', b.visitors.some(v => v.name === 'ANN' && v.ytd > 0));
+  const links = s.svd_loadVisits_().filter(v => v.date && v.date.getFullYear() === 2026).reduce((n, v) => n + v.visitors.length, 0);
+  check('team YTD = every visitor on every 2026 visit', b.team.ytd === links && b.team.periods.reduce((x, y) => x + y, 0) === links, [b.team.ytd, links]);
+  check('period totals = sum of their weeks', b.visitors.every(v => v.periods.every((n, p) => n === v.weekly.filter((_, i) => b.weeks[i].period === p + 1).reduce((x, y) => x + y, 0))));
+}
+
+console.log('\n── v33: KPI sheet month weeks are Mon–Sun ──');
+{
+  const c = { console, MASTER_LOG_MAX_ROW: 5000 };
+  vm.createContext(c);
+  vm.runInContext(src('SVMKPI_KPI_REBUILD.gs').replace(/^const KPI_C = /m, 'var KPI_C = ') + ';this.wr=_weekRanges;', c);
+  const nov = c.wr(2026, 11), mar = c.wr(2026, 3), apr = c.wr(2026, 4);
+  check('Nov 2026 (starts Sunday): W1 = 1, W2 = 2–8', nov[0].s === 1 && nov[0].e === 1 && nov[1].s === 2 && nov[1].e === 8, nov);
+  check('Apr 2026 (starts Wednesday): W1 = 1–5 (Wed–Sun), W2 = 6–12', apr[0].e === 5 && apr[1].s === 6 && apr[1].e === 12, apr);
+  check('every week ends on a Sunday (or the month end)', [nov, mar, apr].every((ws, k) => ws.every((w, i) => i === ws.length - 1 || new Date(2026, [10, 2, 3][k], w.e).getDay() === 0)));
+}
+
 console.log('\n── KPI sheet: P1–P13 block ──');
 {
   const c = { console, MASTER_LOG_MAX_ROW: 5000 };
@@ -272,6 +297,20 @@ window.google = { script: { get run() {
   const wh = await page.evaluate(() => ({ label: (document.getElementById('whLabel') || {}).textContent, list: (document.getElementById('whList') || {}).innerHTML }));
   check('Weekly History header shows P3W2', String(wh.label).indexOf('P3W2 · Mar 2 – 8') !== -1, wh.label);
   check('Weekly History rows: Quarterly store pill + Figaro pill', String(wh.list).indexOf('wb-Quarterly') !== -1 && String(wh.list).indexOf('bp-FIGARO') !== -1);
+  console.log('\n── v33: KPI tab by business calendar ──');
+  await page.evaluate(() => {
+    const weeks = [];
+    for (let i = 1; i <= 53; i++) { const p = Math.min(13, Math.ceil(i / 4)); weeks.push({ yearWeek: i, label: 'P' + p + 'W' + (i - (p - 1) * 4), period: p, weekInPeriod: i - (p - 1) * 4, start: 'a', end: 'b' }); }
+    const z = () => new Array(53).fill(0);
+    const leo = z(); leo[0] = 2; leo[52] = 1;
+    const per = w => { const p = new Array(13).fill(0); w.forEach((n, i) => { p[weeks[i].period - 1] += n; }); return p; };
+    renderKPI2026Report({ year: 2026, months: [], weekLabels: [], visitors: [], team: {},
+      business: { year: 2026, weeks, visitors: [{ name: 'LEO', weekly: leo, periods: per(leo), ytd: 3 }, { name: 'JOSH', weekly: z(), periods: per(z()), ytd: 0 }], team: { weekly: leo, periods: per(leo), ytd: 3 } } });
+  });
+  const kpi = await page.evaluate(() => document.getElementById('reportsPanel').innerHTML);
+  check('KPI tab: per-period table and P#W# weekly table', kpi.indexOf('Visits per Period') !== -1 && kpi.indexOf('Weekly Summary per Roster — P#W#') !== -1, kpi.slice(0, 200));
+  check('P13 spans 5 weeks + TOT; W5 shown', kpi.indexOf('colspan="6"') !== -1 && kpi.indexOf('>W5<') !== -1);
+  check('removed visitor (JOSH) still listed', kpi.indexOf('>JOSH<') !== -1);
   check('no page errors', errors.length === 0, errors);
 
   await browser.close();

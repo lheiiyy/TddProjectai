@@ -334,6 +334,13 @@ year's KPI. Fix: KPI name/count formulas (weekly, P1–P13) and the Executive Su
 `IF(TRIM(SETTINGS!Fn)="","<name at build time>",TRIM(SETTINGS!Fn))` — a rename still shows live, a removal keeps the
 history. Existing sheets: run **Rebuild KPI** once after deploy (JOSH comes back as a history row). Tests: +2 in
 `kpi-roster-history.test.js`, `roster-auto-refresh.test.js` mock updated.
+**KPI on the business calendar (Leo 2026-11-23: "YES SUNDIN ANG BAGONG BUSINESS CALENDAR", "MONDAY TILL SUNDAY"):**
+- KPI tab: the old "P{month}W{n}" weekly table (Sun–Sat) is replaced by **Visits per Period P1–P13** and **Weekly
+  Summary P#W#** (P1–P13 × W1–W4, P13 with W5, a TOT per period), counted from the visit tables
+  (`svd_kpiBusinessWeeks_`): sheet's visitor order first, then anyone else with visits that year (removed visitors
+  included). Monthly Totals / Q1–Q4 / YTD still come from the KPI sheet.
+- KPI sheet: the month blocks' W1–W5 are now **Mon–Sun** (W1 = day 1 → first Sunday); takes effect on Rebuild KPI.
+- Tests: `v32-calendar-colors.test.js` +12.
 Leo confirmed the v32 business calendar table (P1–P13, W53 in P13) on 2026-11-23.
 
 ### Decisions needed from Leo

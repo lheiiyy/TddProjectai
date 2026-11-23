@@ -95,7 +95,8 @@ function _colLetter(col) {
 }
 
 // ── Week date-range calculator ──────────────────────────────
-// Weeks are Sun–Sat. W1 = day 1 → next Saturday. W5 = remaining days.
+// v33 (Leo 2026-11-23): weeks are Mon–Sun, same as the business calendar.
+// W1 = day 1 → first Sunday. W5 = remaining days.
 function _weekRanges(year, month) {
   const lastDay = new Date(year, month, 0).getDate();
   const weeks = [];
@@ -103,8 +104,8 @@ function _weekRanges(year, month) {
 
   while (day <= lastDay && weeks.length < 5) {
     const dow = new Date(year, month - 1, day).getDay(); // 0=Sun,6=Sat
-    const toSat = (6 - dow + 7) % 7;
-    const endDay = weeks.length === 4 ? lastDay : Math.min(day + toSat, lastDay);
+    const toSun = (7 - dow) % 7;
+    const endDay = weeks.length === 4 ? lastDay : Math.min(day + toSun, lastDay);
     weeks.push({ s: day, e: endDay });
     day = endDay + 1;
   }

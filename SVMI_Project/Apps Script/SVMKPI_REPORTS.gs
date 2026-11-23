@@ -226,7 +226,7 @@ function _getExecutiveSummaryReport_impl(year) {
  * January), week = a continuous count across the whole year (P1W1 is the
  * year's first week, not "January's first week" restarting every month;
  * so e.g. if January has 5 weeks, February's first real week is P2W6).
- * Reuses the same Sun–Sat week boundaries the sheet's own W1–W5 columns
+ * Reuses the same Mon–Sun (v33) week boundaries the sheet's own W1–W5 columns
  * are built from (_weekRanges(), SVMKPI_KPI_REBUILD.gs) — a short
  * month's unused W5 slot (a disabled, static 0 in the sheet, not a real
  * formula) is skipped rather than given a fake label.
@@ -318,7 +318,18 @@ function _getKPI2026Report_impl(year) {
     visitors.push(r);
   }
 
-  return { year: reportYear, months: KPI_MONTHS, weekLabels: weekCols.map(w => w.label), visitors, team };
+  const out = { year: reportYear, months: KPI_MONTHS, weekLabels: weekCols.map(w => w.label), visitors, team };
+  // v33: the weekly section follows the business calendar (P1–P13, W1–W4,
+  // W53 in P13), counted from the visit tables when reports read them.
+  try {
+    if (typeof svd_useTables_ === 'function' && svd_useTables_() && typeof svd_kpiBusinessWeeks_ === 'function') {
+      const bw = svd_kpiBusinessWeeks_(reportYear, visitors.map(v => v.name));
+      if (bw) out.business = bw;
+    }
+  } catch (e) {
+    if (typeof logError === 'function') logError('getKPI2026Report.business', e);
+  }
+  return out;
 }
 
 
