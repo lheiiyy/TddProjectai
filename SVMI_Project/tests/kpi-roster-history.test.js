@@ -284,6 +284,17 @@ console.log('\n── getKPI2026Report(): reads the visitor data block ONCE, not
   );
 }
 
+console.log('\n── v33: a blank name row (cleared in SETTINGS!F) no longer ends the report ──');
+{
+  // YANA's row (7) loses its name, as when a roster name is deleted after a build.
+  kpiSheet.getRange(DATA_ROW_START + 1, 2).setFormula(null);
+  kpiSheet.getRange(DATA_ROW_START + 1, 2).setValue('');
+  const r3 = sandbox.getKPI2026Report();
+  const names3 = r3.visitors.map(v => v.name);
+  check('rows after the blank one still read (LEO, BEA)', JSON.stringify(names3) === JSON.stringify(['LEO', 'BEA']), JSON.stringify(names3));
+  check('TEAM TOTAL still found after a blank row', r3.team && Array.isArray(r3.team.monthly), JSON.stringify(r3.team));
+}
+
 console.log('\n══════════════════════════════════');
 console.log('  PASS ' + pass + '   FAIL ' + fail);
 console.log('══════════════════════════════════');

@@ -3300,7 +3300,12 @@ function renderKPI2026Report(data) {
     { label: 'Visitors Tracked', value: data.visitors.length },
   ]);
 
+  // v33: never let one missing row leave the tab on "Loading…".
+  data.visitors = data.visitors || [];
+  data.months = data.months || [];
+  data.weekLabels = data.weekLabels || [];
   function monthRow(label, r, bold) {
+    if (!r || !r.monthly) return '';
     return '<tr' + (bold ? ' style="font-weight:700"' : '') + '><td>' + esc(label) + '</td>'
       + r.monthly.map(function(v){ return '<td class="c">' + esc(v) + '</td>'; }).join('')
       + '<td class="c">' + esc(r.q1) + '</td><td class="c">' + esc(r.q2) + '</td>'
@@ -3318,6 +3323,7 @@ function renderKPI2026Report(data) {
     + '</tbody></table></div>');
 
   function weekRow(label, r, bold) {
+    if (!r || !r.weekly) return '';
     return '<tr' + (bold ? ' style="font-weight:700"' : '') + '><td>' + esc(label) + '</td>'
       + r.weekly.map(function(v){ return '<td class="c">' + esc(v) + '</td>'; }).join('')
       + '</tr>';

@@ -323,6 +323,13 @@ amber, Tien Ma's teal, Koobideh brown — ⚠ Leo to confirm/replace with brand 
   History, both store dropdowns, the store profile banner.
 - Tests: pill class per category/brand, no pill without a category, dropdown still keyboard-usable.
 
+### v33 — KPI tab stuck on "Loading…" (Leo, 2026-11-23, after v32 went live)
+Cause: KPI 2026 row 9 has a blank name (a roster name cleared in SETTINGS!F after the sheet was built). The report
+reader stopped at the first blank name, so it never reached TEAM TOTAL; the page then failed on the missing total
+and stayed on "Loading…". Old bug, not from v32. Fix: blank rows are skipped (scan ends at TEAM TOTAL or after 3 blank
+rows); the page renders without a missing row instead of failing. Test: `kpi-roster-history.test.js` (+2).
+Leo confirmed the v32 business calendar table (P1–P13, W53 in P13) on 2026-11-23.
+
 ### Decisions needed from Leo
 
 | # | Question | Recommendation |

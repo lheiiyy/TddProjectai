@@ -305,9 +305,15 @@ function _getKPI2026Report_impl(year) {
   const block = blockRows > 0
     ? sheet.getRange(DATA_ROW_START, rowStartCol, blockRows, rowWidth).getDisplayValues()
     : [];
+  // v33: a blank name (a roster name later cleared in SETTINGS!F) is skipped,
+  // not treated as the end — stopping there lost every row after it and the
+  // TEAM TOTAL, and the page then stayed on "Loading…". The scan ends at
+  // TEAM TOTAL, or after 3 blank rows in a row (past the written block).
+  let blanks = 0;
   for (let i = 0; i < block.length; i++) {
     const r = readRow(block[i]);
-    if (!r.name) break;               // ran past the last written row
+    if (!r.name) { if (++blanks >= 3) break; continue; }
+    blanks = 0;
     if (r.name === 'TEAM TOTAL') { team = r; break; }
     visitors.push(r);
   }
