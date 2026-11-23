@@ -1,12 +1,12 @@
 # SVMI — Fix & Improve Plan
 
-Last updated: 2026-10-07 · Working branch: `svmi/v29-week-history`
+Last updated: 2026-10-07 · Working branch: `svmi/v30-past-years`
 
-**🚀 LIVE = version 28 (2026-10-06)** — same Web App URL; reports read the visit tables. `main` = live (PR #25 merged 2026-10-07).
-v28 = System Tools + Audit/Snapshots/Identity (🐞 F3 + F4) · v27 = D.4 Store Health live by Store ID ·
-v26 = Store Insights speed · v25 = Input Portal + Admin fixes (🐞 F1 + F2) · v24 = D.3 Store Insights by Store ID.
-Rollback sources: `live-backup-20261006-pre-v28/` (= v27), `-pre-v27/` (= v26), `-pre-v26/` (= v25), `-pre-v25/` (= v24).
-**Next:** v29 (F5 weekly history) deploy → then F6 speed, F7 past years, F8 edit/void visits, D.5.
+**🚀 LIVE = version 29 (2026-10-07)** — same Web App URL; reports read the visit tables. `main` = live (PR #26 merged).
+v29 = Input Portal weekly history (🐞 F5) · v28 = System Tools + Audit/Snapshots/Identity (🐞 F3 + F4) ·
+v27 = D.4 Store Health live by Store ID · v26 = Store Insights speed · v25 = Input Portal + Admin fixes (🐞 F1 + F2).
+Rollback sources: `live-backup-20261007-pre-v29/` (= v28), `live-backup-20261006-pre-v28/` (= v27), `-pre-v27/` (= v26).
+**Next:** v30 (F7 past years) deploy → then F8 edit/void visits (admin), D.5.
 Rule for now: **functionality first.** Security is parked (except admin access).
 Live backups (`live-backup-*`) are the safe fallback — never edited.
 
@@ -244,6 +244,17 @@ Health and KPI 2026 have no year. Side bug (C): in January before any visit, "Cu
 - Year dropdown (years with visits, from STORE_VISITS) beside Month for Visited, Unvisited, Store Insights ("All years"
   default), Store Health; KPI 2026 per L3. "Current Month" always = the real current month/year. Snapshots use it (F4.6).
 
+**v30 — F7 built 2026-10-07 (branch `svmi/v30-past-years`).** Done: one year list (`sl_getReportYears` — years with
+visits from STORE_VISITS' date column, plus this calendar year; replaces the MASTER_LOG read) fills a Year dropdown on
+Reports (now for Executive Summary, KPI **and** Store Health), Visited This Month and Unvisited. The page always sends
+month + year. "Current Month" = this month of THIS year (side bug fixed — it used to take the latest year with data);
+picking a past year with "Current Month" shows its December. A month still in progress is evaluated as of now (not its
+future last day). Store Health for a past year is scored as of Dec 31 of that year (later visits not counted; header says
+so). KPI: L3 taken as "year dropdown" — tab renamed "KPI"; a year without its "KPI <year>" sheet is built when an admin
+opens it, others get a clear message. Store Insights stays all-time (its visit list already spans years).
+F6 left: short cache of the visit tables and one combined page-start call — not done (measured gain small; v26 removed the
+big cost).
+
 ### F8 — Edit / void visit records, admin only → v30
 
 Leo: existing records editable, ✏️ beside each record, **admin only**.
@@ -263,7 +274,7 @@ Leo: existing records editable, ✏️ beside each record, **admin only**.
 |---|----------|----------------|
 | L1 | Delete a visit: void (hidden, restorable) or permanent? | Void |
 | L2 | Reason required on every edit/void? | Yes, one line |
-| L3 | KPI 2026: year dropdown, or fixed to 2026? | Year dropdown |
+| L3 | KPI 2026: year dropdown, or fixed to 2026? | ✅ year dropdown (v30, recommended default) |
 | L4 | Store Health refresh after an admin save: background (a minute later) or on next Store Health open? | Background |
 | L5 | Order F1+F2 → F3+F4 → F5 → F6 → F7 → F8, then D.4/D.5 | As listed |
 | L6a | Weekly history: by **date visited** or by **date submitted**? | ✅ Leo 2026-10-07: **date submitted** (date visited shown per row) |
@@ -375,6 +386,6 @@ Known gaps (not configurable yet):
 
 ## Tests
 
-37 files, 2,005 checks, all passing (`node tests/<file>.test.js`) — v25 added `tests/v25-fixes.test.js` (60), v26/27 `tests/v26-speed.test.js` (24), v28 `tests/v28-tools-audit.test.js` (35), v29 `tests/v29-week-history.test.js` (32).
+38 files, 2,031 checks, all passing (`node tests/<file>.test.js`) — v25 added `tests/v25-fixes.test.js` (60), v26/27 `tests/v26-speed.test.js` (24), v28 `tests/v28-tools-audit.test.js` (35), v29 `tests/v29-week-history.test.js` (32), v30 `tests/v30-past-years.test.js` (26).
 `store-name-matching-ui.test.js` clicks through the real `SVMI_PORTAL.html` with the real `.gs` code
 behind it (Playwright); the other portal tests use the demo page.
