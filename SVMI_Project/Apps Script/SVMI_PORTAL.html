@@ -300,6 +300,14 @@ textarea.fi{resize:vertical;min-height:50px}
 .wb-Monthly{background:#DEEAF1;color:#1A5276}
 .wb-Quarterly{background:var(--orange-l);color:var(--orange)}
 .wb-Semi-Annual{background:var(--purple-l);color:var(--purple)}
+/* v32 (F10): store names coloured by visit cadence, brands by brand */
+.wb.sn{font-size:10.5px;padding:2px 8px;line-height:1.35;white-space:normal}
+.bp{display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:10px;background:#ECEFF3;color:#4A5563;white-space:nowrap}
+.bp-ANGELSPIZZA{background:#FDE2E1;color:#B42318}
+.bp-FIGARO{background:#DCF2E3;color:#1E6B3A}
+.bp-APEX{background:#FEF0C7;color:#93590B}
+.bp-TIENMAS{background:#D5F2EF;color:#0E6E66}
+.bp-KOOBIDEH{background:#EFE3D6;color:#7A4A1F}
 .pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700}
 .pill-critical{background:var(--red-l);color:var(--red)}
 .pill-warning{background:var(--orange-l);color:var(--orange)}
@@ -834,6 +842,15 @@ body.admin-busy .vm-btn,body.admin-busy #content-Admin .btn-navy{opacity:.55;poi
       </select>
       <!-- v30 (F7): any year with visits, not just the latest. -->
       <select class="sel-dark rep-year" id="visYearSel" onchange="onYearPicked('vis')" style="min-width:90px;margin-top:6px"></select>
+      <!-- v32 (F9): business calendar — a period (4 weeks) or one week of it replaces the month. -->
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <select class="sel-dark" id="visPeriodSel" onchange="onVisPeriodPicked()" style="min-width:110px" title="Business period (4 weeks)">
+          <option value="">By month</option>
+        </select>
+        <select class="sel-dark" id="visWeekSel" onchange="loadVisited()" style="min-width:90px;display:none" title="Week of the period">
+          <option value="">All weeks</option>
+        </select>
+      </div>
       <span id="visMonthLbl" style="font-size:11px;color:var(--light)"></span>
       <div id="coverageHint" style="font-size:10px;color:var(--light);margin-top:6px"></div>
     </div>
@@ -1274,6 +1291,43 @@ var reportsLoadedOnce  = false;  // lazy-load the Reports tab on first visit onl
 var dataYear = new Date().getFullYear();   // replaced by the real DATA_YEAR once loadDataYear() resolves
 var allStores    = [];
 var storeData    = {};
+// ── v32 (F10): colour pills ────────────────────────────────────
+// Cadence from the store's Category (same rule as the Unvisited tab):
+// NCR / Near Provincial → Monthly, Far → Quarterly, Flight → Semi-Annual.
+function cadenceOfCategory(cat) {
+  var c = String(cat || '').toUpperCase();
+  if (c === 'NCR' || c === 'NEAR PROVINCIAL') return 'Monthly';
+  if (c === 'FAR PROVINCIAL') return 'Quarterly';
+  if (c === 'FLIGHT PROVINCIAL') return 'Semi-Annual';
+  return '';
+}
+var _cadByName = null;
+function storeCadence(storeId, name, brand) {
+  var info = storeId && storeData[storeId];
+  if (info) return cadenceOfCategory(info.category);
+  if (!_cadByName) {
+    if (!allStores || !allStores.length) return '';
+    _cadByName = {};
+    allStores.forEach(function(s) {
+      var k = String(s.store || '').toUpperCase();
+      _cadByName[k + '|' + String(s.brand || '').toUpperCase()] = s.category || '';
+      if (!(k in _cadByName)) _cadByName[k] = s.category || '';
+    });
+  }
+  var n = String(name || '').toUpperCase(), b = String(brand || '').toUpperCase();
+  var cat = (n + '|' + b) in _cadByName ? _cadByName[n + '|' + b] : _cadByName[n];
+  return cadenceOfCategory(cat);
+}
+// Store name as a cadence-coloured pill (plain text when the cadence is unknown).
+function storeNameHtml(name, storeId, brand, cadence) {
+  var cad = cadence || storeCadence(storeId, name, brand);
+  return cad ? '<span class="wb sn wb-' + esc(cad) + '" title="' + esc(cad) + ' visits">' + esc(name) + '</span>' : esc(name);
+}
+function brandKey(brand) { return String(brand || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+function brandPill(brand) {
+  if (!brand) return '—';
+  return '<span class="bp bp-' + brandKey(brand) + '">' + esc(brand) + '</span>';
+}
 var allVisitors  = [];
 var allPurposes  = [];
 var selVisitors  = [];
@@ -1633,6 +1687,7 @@ function loadPortalData() {
   google.script.run
     .withSuccessHandler(function(data) {
       allStores = data.stores || [];
+      _cadByName = null;
       storeData = {};
       allStores.forEach(function(s) {
         // Keyed by Store ID, so two stores of different brands can share a name.
@@ -1676,8 +1731,8 @@ function filterStores() {
   }
   drop.innerHTML = list.map(function(s) {
     return '<div class="ss-opt" data-v="'+esc(s.store)+'" data-id="'+esc(s.storeId||'')+'" data-m="'+esc(s.store+' '+(s.brand||''))+'" onmousedown="pickStore(this)">'
-      +'<span class="opt-name">'+esc(s.store)+'</span>'
-      +(s.brand ? '<span class="opt-brand">'+esc(s.brand)+'</span>' : '')
+      +'<span class="opt-name">'+storeNameHtml(s.store, s.storeId, s.brand, cadenceOfCategory(s.category))+'</span>'
+      +(s.brand ? '<span class="opt-brand">'+brandPill(s.brand)+'</span>' : '')
       +'</div>';
   }).join('');
   setActiveOpt('storeDrop', -1);
@@ -2216,7 +2271,7 @@ function whRender() {
     html += '<div class="wh-row">'
       + (svmiIsAdmin && r.row ? '<span class="wh-acts"><button type="button" title="Edit" onclick="veEdit(' + i + ')">✏️</button>'
           + '<button type="button" title="Void (remove from every report — can be restored)" onclick="veVoid(' + i + ')">🗑</button></span>' : '')
-      + '<div class="wh-store">' + esc(r.store) + (r.brand ? ' <span>· ' + esc(r.brand) + '</span>' : '') + '</div>'
+      + '<div class="wh-store">' + storeNameHtml(r.store, r.storeId, r.brand) + (r.brand ? ' ' + brandPill(r.brand) : '') + '</div>'
       + '<div class="wh-meta">' + esc(r.purpose) + ' · ' + esc(r.visitors.join(', ') || '—') + '</div>'
       + '<div class="wh-meta">Visited ' + esc(r.visited ? r.visited.slice(5).replace('-', '/') : '—')
       + (r.recordedAt ? ' · submitted ' + esc(r.recordedAt.slice(11)) : '') + '</div>'
@@ -2458,8 +2513,8 @@ function filterSIStores() {
   if (!list.length) { drop.classList.remove('open'); return; }
   drop.innerHTML = list.map(function(s) {
     return '<div class="ss-opt" data-v="'+esc(s.name)+'" data-b="'+esc(s.brand||'')+'" data-id="'+esc(s.storeId||'')+'" data-m="'+esc(s.name+' '+(s.brand||''))+'" onmousedown="pickSIStore(this)">'
-      +'<span class="opt-name">'+esc(s.name)+'</span>'
-      +(s.brand ? '<span class="opt-brand">'+esc(s.brand)+(s.closed ? ' · closed' : '')+'</span>' : '')
+      +'<span class="opt-name">'+storeNameHtml(s.name, s.storeId, s.brand, cadenceOfCategory(s.category))+'</span>'
+      +(s.brand ? '<span class="opt-brand">'+brandPill(s.brand)+(s.closed ? ' · closed' : '')+'</span>' : '')
       +'</div>';
   }).join('');
   setActiveOpt('siDrop', -1);
@@ -2524,7 +2579,8 @@ function jumpToStore(name, brand, storeId) {
 
 function renderProfile(d) {
   var html = '<div class="store-banner"><div class="banner-name">'+esc(d.meta.name||'—')+'</div>'
-    +'<div class="banner-tags"><span class="tag tag-brand">'+esc(d.meta.brand||'—')+'</span>'
+    +'<div class="banner-tags">'+(function(){ var c = storeCadence(d.meta.storeId, d.meta.name, d.meta.brand); return c ? '<span class="wb wb-'+esc(c)+'" style="margin-right:4px">'+esc(c)+'</span>' : ''; })()
+    +'<span class="tag tag-brand">'+esc(d.meta.brand||'—')+'</span>'
     +'<span class="tag tag-region">'+esc(d.meta.region||'—')+'</span>'
     +(d.meta.closed ? '<span class="tag tag-region">CLOSED</span>' : '')+'</div></div>';
   html += '<div class="profile-grid">';
@@ -2556,8 +2612,8 @@ var VIS_COLS = [
 function visRenderRow(r, i) {
   return '<tr>'
     +'<td class="crn">'+(i+1)+'</td>'
-    +'<td><span class="store-link" data-store="'+esc(r.name)+'" data-brand="'+esc(r.brand||'')+'" data-id="'+esc(r.storeId||'')+'" onclick="jumpToStore(this.dataset.store, this.dataset.brand, this.dataset.id)">'+esc(r.name)+'</span></td>'
-    +'<td>'+esc(r.brand)+'</td>'
+    +'<td><span class="store-link" data-store="'+esc(r.name)+'" data-brand="'+esc(r.brand||'')+'" data-id="'+esc(r.storeId||'')+'" onclick="jumpToStore(this.dataset.store, this.dataset.brand, this.dataset.id)">'+storeNameHtml(r.name, r.storeId, r.brand)+'</span></td>'
+    +'<td>'+brandPill(r.brand)+'</td>'
     +'<td>'+esc(r.region)+'</td>'
     +'<td class="c" style="font-weight:700;color:var(--navy)">'+(r.visits||0)+'</td>'
     +'<td>'+esc(r.lastVisitDate)+'</td>'
@@ -2598,18 +2654,47 @@ function visRenderUnmapped(unmapped) {
     +'<tbody>'+rowsHtml+'</tbody></table></div>';
 }
 
+// v32 (F9): business period picker for Visited — 'P3' or 'P3W2', '' = by month.
+function fillVisPeriods() {
+  var sel = document.getElementById('visPeriodSel');
+  if (!sel || sel.options.length > 1) return;
+  var html = '<option value="">By month</option>';
+  for (var p = 1; p <= 13; p++) html += '<option value="P' + p + '">P' + p + '</option>';
+  sel.innerHTML = html;
+}
+function onVisPeriodPicked() {
+  var p = document.getElementById('visPeriodSel').value;
+  var wk = document.getElementById('visWeekSel');
+  var n = p === 'P13' ? 5 : 4;                         // W53 joins P13
+  var html = '<option value="">All weeks</option>';
+  for (var w = 1; w <= n; w++) html += '<option value="' + p + 'W' + w + '">' + p + 'W' + w + '</option>';
+  wk.innerHTML = html;
+  wk.style.display = p ? '' : 'none';
+  document.getElementById('visMonthSel').disabled = !!p;
+  loadVisited();
+}
+function pickedVisPeriod() {
+  var w = document.getElementById('visWeekSel');
+  var p = document.getElementById('visPeriodSel');
+  return (w && w.style.display !== 'none' && w.value) || (p && p.value) || '';
+}
+
 function loadVisited() {
   if (!esYearsLoaded) { loadReportYears(loadVisited); return; }
+  fillVisPeriods();
   var brand = gBrands;
   var year  = pickedYear('visYearSel');          // v30: any year with visits
   var mo    = pickedMonth('visMonthSel', year);
+  var bp    = pickedVisPeriod();                 // v32
   var lblEl = document.getElementById('visMonthLbl');
-  if (lblEl) lblEl.textContent = MONTHS[mo-1]+' '+year;
+  if (lblEl) lblEl.textContent = bp ? bp + ' ' + year : MONTHS[mo-1]+' '+year;
+  var periodWord = bp ? 'in ' + bp : 'This Month';
   document.getElementById('coverageHint').textContent = 'Loading…';
   document.getElementById('siMain').innerHTML = '<div class="state-msg"><div class="spinner"></div><div class="title">Loading…</div></div>';
   google.script.run
     .withSuccessHandler(function(data) {
       data = data || {};
+      if (bp && data.rangeStart && lblEl) lblEl.textContent = bp + ' · ' + data.rangeStart + ' – ' + data.rangeEnd;
       var rows     = data.resolved || [];
       var unmapped = data.unmapped || [];
       var totalVisits = rows.reduce(function(n, r){ return n + (r.visits||0); }, 0)
@@ -2619,12 +2704,12 @@ function loadVisited() {
         + (unmapped.length ? ', '+unmapped.length+' unmatched name'+(unmapped.length!==1?'s':'') : '')
         + ' ('+totalVisits+' total visit'+(totalVisits!==1?'s':'')+')';
       if (!rows.length && !unmapped.length) {
-        document.getElementById('siMain').innerHTML = stateMsg('📭','No Visits Logged','No stores have been visited yet this month.');
+        document.getElementById('siMain').innerHTML = stateMsg('📭','No Visits Logged','No stores have been visited yet '+(bp ? 'in '+bp : 'this month')+'.');
         return;
       }
       document.getElementById('siMain').innerHTML =
         '<div style="padding:12px 14px 20px">'
-        +'<h3 style="margin-bottom:3px;color:var(--navy);font-size:13px">Stores Visited This Month ('+rows.length+')</h3>'
+        +'<h3 style="margin-bottom:3px;color:var(--navy);font-size:13px">Stores Visited '+periodWord+' ('+rows.length+')</h3>'
         +'<div id="visSummary" style="font-size:10px;color:var(--muted);margin-bottom:10px"></div>'
         +'<div id="visBody"></div>'
         +'<div id="visUnmapped">'+visRenderUnmapped(unmapped)+'</div>'
@@ -2643,7 +2728,7 @@ function loadVisited() {
       document.getElementById('coverageHint').textContent = '';
       document.getElementById('siMain').innerHTML = stateMsg('⚠️','Error',esc(err.message||String(err)));
     })
-    .sl_getVisitedThisMonth(brand, mo, year);
+    .sl_getVisitedThisMonth(brand, mo, year, bp);
 }
 
 // ═══════════════════════════════════════
@@ -2957,8 +3042,8 @@ function renderCompliance(rows) {
 function compRenderRow(r, i) {
   return '<tr class="cr" data-w="'+esc(r.windowLabel)+'">'
     +'<td class="crn">'+(i+1)+'</td>'
-    +'<td><span class="store-link" data-store="'+esc(r.store)+'" data-brand="'+esc(r.brand||'')+'" data-id="'+esc(r.storeId||'')+'" onclick="jumpToStore(this.dataset.store, this.dataset.brand, this.dataset.id)">'+esc(r.store)+'</span></td>'
-    +'<td>'+esc(r.brand)+'</td>'
+    +'<td><span class="store-link" data-store="'+esc(r.store)+'" data-brand="'+esc(r.brand||'')+'" data-id="'+esc(r.storeId||'')+'" onclick="jumpToStore(this.dataset.store, this.dataset.brand, this.dataset.id)">'+storeNameHtml(r.store, r.storeId, r.brand, r.windowLabel)+'</span></td>'
+    +'<td>'+brandPill(r.brand)+'</td>'
     +'<td>'+esc(r.region)+'</td>'
     +'<td class="c" style="font-weight:700;color:var(--navy)">'+(r.ytdVisits||0)+'</td>'
     +'<td><span class="wb wb-'+esc(r.windowLabel)+'">'+esc(r.windowLabel)+'</span></td>'
@@ -3167,7 +3252,7 @@ function renderExecutiveSummaryReport(data) {
   h += repCard('Brand Performance Summary',
     '<div class="tbl-scroll"><table class="data-tbl"><thead><tr><th>Brand</th><th class="c">Total Visits</th><th class="c">% Share</th><th class="c">Peak Month</th><th class="c">Peak Count</th></tr></thead><tbody>'
     + data.brandPerformance.map(function(r) {
-        return '<tr><td>' + esc(r.brand) + '</td><td class="c">' + esc(r.total) + '</td><td class="c">' + esc(r.pct)
+        return '<tr><td>' + brandPill(r.brand) + '</td><td class="c">' + esc(r.total) + '</td><td class="c">' + esc(r.pct)
           + '</td><td class="c">' + esc(r.peakMonth) + '</td><td class="c">' + esc(r.peakCount) + '</td></tr>';
       }).join('')
     + '<tr style="font-weight:700"><td>TOTAL</td><td class="c">' + esc(data.brandTotal.total) + '</td><td class="c">' + esc(data.brandTotal.pct)
@@ -3200,8 +3285,8 @@ function reportDetailRenderRow(r, i) {
   return '<tr>'
     + '<td class="crn">' + (i + 1) + '</td>'
     + '<td>' + esc(r.date) + '</td>'
-    + '<td>' + esc(r.store) + '</td>'
-    + '<td>' + esc(r.brand) + '</td>'
+    + '<td>' + storeNameHtml(r.store, r.storeId, r.brand) + '</td>'
+    + '<td>' + brandPill(r.brand) + '</td>'
     + '<td>' + esc(r.region) + '</td>'
     + '<td>' + esc(r.visitorDisplay) + '</td>'
     + '<td>' + esc(r.purpose) + '</td>'
@@ -3274,8 +3359,8 @@ function healthRenderRow(r, i) {
   var pillClass = HEALTH_TIER_CLASS[tier] || 'pill-mild';
   return '<tr>'
     + '<td class="crn">' + (i + 1) + '</td>'
-    + '<td>' + esc(r.store) + '</td>'
-    + '<td>' + esc(r.brand) + '</td>'
+    + '<td>' + storeNameHtml(r.store, r.storeId, r.brand) + '</td>'
+    + '<td>' + brandPill(r.brand) + '</td>'
     + '<td>' + esc(r.region) + '</td>'
     + '<td>' + esc(r.lastVisitDate) + '</td>'
     + '<td class="c">' + pill(r.daysSince) + '</td>'

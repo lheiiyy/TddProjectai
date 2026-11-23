@@ -54,6 +54,39 @@ const SVT_ML_WIDTH = 9;
 
 const SVT_CHUNK = 5000; // rows per setValues call on rebuild
 
+// v32: MASTER_LOG column K holds the business week (P#W#) of the Date Visited.
+// I–J stay Leo's leaderboard. Written on submit / edit / restore and filled
+// for every row by Rebuild Visit Tables.
+const SVT_ML_BW_COL = 11;
+const SVT_ML_BW_HEADER = 'BUSINESS WEEK';
+
+function svt_bwLabel_(dateVal) {
+  const d = (dateVal instanceof Date) ? dateVal
+    : (typeof _parseDateCell === 'function' ? _parseDateCell(dateVal) : null);
+  return (d && typeof cal_businessWeekLabel_ === 'function') ? cal_businessWeekLabel_(d) : '';
+}
+
+/** Writes K for one MASTER_LOG row. Never throws (the visit itself is already saved). */
+function svt_writeBusinessWeek_(master, row, dateVal) {
+  try {
+    master.getRange(row, SVT_ML_BW_COL).setValue(svt_bwLabel_(dateVal));
+  } catch (e) {
+    if (typeof logError === 'function') logError('svt_writeBusinessWeek_', e);
+  }
+}
+
+/** Header + K for every data row, from the rows already read (A:I). */
+function svt_fillBusinessWeeks_(master, raw) {
+  master.getRange(1, SVT_ML_BW_COL).setValue(SVT_ML_BW_HEADER);
+  if (!raw.length) return 0;
+  const vals = raw.map(r => [svt_bwLabel_(r[SVT_ML.DATE])]);
+  for (let i = 0; i < vals.length; i += SVT_CHUNK) {
+    const part = vals.slice(i, i + SVT_CHUNK);
+    master.getRange(2 + i, SVT_ML_BW_COL, part.length, 1).setValues(part);
+  }
+  return vals.filter(v => v[0]).length;
+}
+
 
 // ═══════════════════════════════════════════════════════════════
 // SECTION 1: PUBLIC ENTRY POINTS (System Tools)
@@ -113,6 +146,7 @@ function svt_rebuildVisitTables_() {
 
     svt_writeTable_(ss, SVT_SHEET.VISITS, SVT_VISIT_HEADERS, built.visits);
     svt_writeTable_(ss, SVT_SHEET.VISIT_VISITORS, SVT_VV_HEADERS, built.links);
+    const bwFilled = svt_fillBusinessWeeks_(master, raw);
     SpreadsheetApp.flush();
 
     const unmapped = built.visits.filter(v => !v[SVT_V.STORE_ID]).length;
@@ -121,7 +155,8 @@ function svt_rebuildVisitTables_() {
       success: true,
       message: 'Rebuilt from MASTER_LOG: ' + built.visits.length + ' visits, '
         + built.links.length + ' visitor links'
-        + (unmapped ? ' · ' + unmapped + ' with no Store ID (see Check Visit Tables)' : '') + '.',
+        + (unmapped ? ' · ' + unmapped + ' with no Store ID (see Check Visit Tables)' : '')
+        + ' · business week (column K) filled for ' + bwFilled + ' rows.',
     };
   } finally {
     lock.releaseLock();

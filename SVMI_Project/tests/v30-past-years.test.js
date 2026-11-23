@@ -162,15 +162,15 @@ window.google = { script: { get run() {
   await page.evaluate(() => loadVisited());
   await page.waitForTimeout(50);
   const curMonth = NOW => NOW.getMonth() + 1;
-  check('"Current Month" sends this month AND this year', JSON.stringify((await last('sl_getVisitedThisMonth')).slice(1)) === JSON.stringify([new Date().getMonth() + 1, CUR]), await last('sl_getVisitedThisMonth'));
+  check('"Current Month" sends this month AND this year', JSON.stringify((await last('sl_getVisitedThisMonth')).slice(1, 3)) === JSON.stringify([new Date().getMonth() + 1, CUR]), await last('sl_getVisitedThisMonth'));
   await page.selectOption('#visYearSel', String(CUR - 1));
   await page.waitForTimeout(50);
-  check('past year with "Current Month" → its December', JSON.stringify((await last('sl_getVisitedThisMonth')).slice(1)) === JSON.stringify([12, CUR - 1])
+  check('past year with "Current Month" → its December', JSON.stringify((await last('sl_getVisitedThisMonth')).slice(1, 3)) === JSON.stringify([12, CUR - 1])
     && (await page.inputValue('#visMonthSel')) === '12', await last('sl_getVisitedThisMonth'));
   check('label shows month + picked year', (await page.textContent('#visMonthLbl')) === 'December ' + (CUR - 1), await page.textContent('#visMonthLbl'));
   await page.selectOption('#visMonthSel', '3');
   await page.waitForTimeout(50);
-  check('March of the picked year', JSON.stringify((await last('sl_getVisitedThisMonth')).slice(1)) === JSON.stringify([3, CUR - 1]), await last('sl_getVisitedThisMonth'));
+  check('March of the picked year', JSON.stringify((await last('sl_getVisitedThisMonth')).slice(1, 3)) === JSON.stringify([3, CUR - 1]), await last('sl_getVisitedThisMonth'));
 
   await page.evaluate(() => switchTab('Visits'));
   await page.waitForTimeout(50);

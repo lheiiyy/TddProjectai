@@ -54,7 +54,7 @@ console.log('\n── portal_getWeekHistory ──');
   check('loads', r.success, r.message);
   check('no Date objects (google.script.run)', !lib.anyDate(r));
   check('week is Monday–Sunday', r.weekStart === '2026-09-28' && r.weekEnd === '2026-10-04', [r.weekStart, r.weekEnd]);
-  check('label', r.label === 'Sep 28 – Oct 4, 2026', r.label);
+  check('label', r.label === 'P10W4 · Sep 28 – Oct 4, 2026' && r.businessWeek === 'P10W4', r.label);
   check('only visits SUBMITTED inside the week (6)', r.total === 6 && r.rows.length === 6, r.rows.map(x => x.date + '/' + x.visited));
   check('newest submission first', JSON.stringify(r.rows.map(x => x.date + ' ' + x.purpose)) ===
     JSON.stringify(['2026-10-04 STORE VISIT', '2026-10-02 CURING/SUPPORT', '2026-10-02 STORE VISIT', '2026-09-30 TLTC', '2026-09-29 STORE VISIT', '2026-09-28 STORE VISIT']), r.rows.map(x => x.date + ' ' + x.purpose));

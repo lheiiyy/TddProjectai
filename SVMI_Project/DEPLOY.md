@@ -1988,6 +1988,12 @@ node SVMI_Project/tests/v30-past-years.test.js
 # back; visit tables stay in sync (Check Visit Tables) after every change;
 # leaderboard rows 2–13 editable but not voidable; browser: ✏️ / 🗑 / ↩ (49 checks)
 node SVMI_Project/tests/v31-visit-edit.test.js
+
+# v32 business calendar P#W# (F9: W1 = Jan 1 → first Sunday, then Mon–Sun; P = 4 weeks,
+# W53 in P13; MASTER_LOG K; Visited period/week picker; Weekly History header; KPI
+# P1–P13 block) and colour pills (F10: store names by cadence, brands) (58 checks).
+# After deploying v32: System Tools → Rebuild Visit Tables once, to fill column K.
+node SVMI_Project/tests/v32-calendar-colors.test.js
 ```
 
 The first two suites exercise the preview's in-memory sample data, not a

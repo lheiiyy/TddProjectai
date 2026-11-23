@@ -277,12 +277,14 @@ function processSubmissionAsync(payload) {
       } else {
         // Row array — must match MASTER_LOG column order exactly:
         // A Timestamp | B Date Visited | C Store | D Brand | E Region |
-        // F Visited By | G Purpose | H Remarks | I Store ID
+        // F Visited By | G Purpose | H Remarks | I Store ID | J — | K Business Week
         var newRow = [
           timestamp, dateFormatted, storeNorm, brand, region,
           newVisitors.join(' | '), // only the NOT-already-recorded visitors
           purposeNorm, remarksVal,
           storeId || '',
+          '',                                                          // J (leaderboard column, blank on data rows)
+          (typeof svt_bwLabel_ === 'function') ? svt_bwLabel_(dateFormatted) : '',  // K business week (v32)
         ];
         master.appendRow(newRow);
         SpreadsheetApp.flush();

@@ -268,15 +268,22 @@ function svd_storeLookup_(asOf) {
  * @param {object[]} [preloaded] svd_loadVisits_() result, to reuse one read
  * @returns {null|{resolved: object[], unmapped: object[]}} null = no tables
  */
-function svd_visitedThisMonth_(brandFilter, monthNumber, reportingYear, preloaded) {
+function svd_visitedThisMonth_(brandFilter, monthNumber, reportingYear, preloaded, businessPeriod) {
   const visits = preloaded || svd_loadVisits_();
   if (!visits) return null;
 
   const now  = new Date();
   const year = (reportingYear != null && !isNaN(Number(reportingYear))) ? Number(reportingYear) : (monthNumber ? getDefaultReportingYear() : new Date().getFullYear());   // v30: "Current Month" = this month of THIS year
   const refMonthIdx = (monthNumber && monthNumber >= 1 && monthNumber <= 12) ? monthNumber - 1 : now.getMonth();
-  const monthStart = new Date(year, refMonthIdx, 1, 0, 0, 0, 0);
-  const monthEnd   = new Date(year, refMonthIdx + 1, 0, 23, 59, 59, 999);
+  let monthStart = new Date(year, refMonthIdx, 1, 0, 0, 0, 0);
+  let monthEnd   = new Date(year, refMonthIdx + 1, 0, 23, 59, 59, 999);
+  // v32: a business period ('P3') or one of its weeks ('P3W2') replaces the month.
+  const bp = svd_parseBusinessPeriod_(businessPeriod);
+  const bpRange = bp && typeof cal_businessRange_ === 'function' ? cal_businessRange_(year, bp.period, bp.week) : null;
+  if (bpRange) {
+    monthStart = new Date(bpRange.start.getFullYear(), bpRange.start.getMonth(), bpRange.start.getDate(), 0, 0, 0, 0);
+    monthEnd   = new Date(bpRange.end.getFullYear(), bpRange.end.getMonth(), bpRange.end.getDate(), 23, 59, 59, 999);
+  }
 
   const asOf = monthEnd.getTime() < now.getTime() ? monthEnd : now;
   const storeOf = svd_storeLookup_(asOf);
@@ -323,7 +330,22 @@ function svd_visitedThisMonth_(brandFilter, monthNumber, reportingYear, preloade
   }));
   unmapped.sort((a, b) => (b.visits - a.visits) || a.name.localeCompare(b.name));
 
-  return { resolved, unmapped };
+  const out = { resolved, unmapped };
+  if (bpRange) {
+    out.businessPeriod = bpRange.label;
+    out.rangeStart = _sl_formatDate(monthStart);
+    out.rangeEnd = _sl_formatDate(monthEnd);
+  }
+  return out;
+}
+
+/** 'P3' → {period:3, week:0}; 'P3W2' → {period:3, week:2}; anything else → null. */
+function svd_parseBusinessPeriod_(v) {
+  const m = /^\s*P(\d{1,2})(?:\s*W(\d))?\s*$/i.exec(String(v == null ? '' : v));
+  if (!m) return null;
+  const period = Number(m[1]), week = m[2] ? Number(m[2]) : 0;
+  if (period < 1 || period > 13) return null;
+  return { period, week };
 }
 
 /**
@@ -885,10 +907,14 @@ function portal_getWeekHistory(anyDateStr) {
   try {
     if (!svd_tablesExist_()) return { success: false, message: 'Visit tables not found — an admin needs to run Rebuild Visit Tables.' };
     const ref = (anyDateStr && _parseDateCell(anyDateStr)) || new Date();
-    const monday = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - ((ref.getDay() + 6) % 7));
-    const nextMonday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 7);
-    const today = new Date();
-    const thisMonday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7));
+    // v32: business weeks (W1 = Jan 1 → first Sunday, then Mon–Sun; the last
+    // week stops on Dec 31). `monday` is the week's first day, which is not a
+    // Monday for W1.
+    const bw = cal_businessWeek_(ref);
+    const monday = bw.start;
+    const sunday = bw.end;
+    const nextMonday = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() + 1);
+    const thisMonday = cal_businessWeek_(new Date()).start;
 
     const p2 = n => String(n).padStart(2, '0');
     const ymd = d => d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
@@ -897,7 +923,8 @@ function portal_getWeekHistory(anyDateStr) {
     const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
     const days = [];
-    for (let i = 0; i < 7; i++) {
+    const nDays = Math.round((nextMonday - monday) / 86400000);
+    for (let i = 0; i < nDays; i++) {
       const d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
       days.push({ date: ymd(d), label: DAY[d.getDay()] + ' ' + p2(d.getMonth() + 1) + '/' + p2(d.getDate()), count: 0 });
     }
@@ -928,16 +955,19 @@ function portal_getWeekHistory(anyDateStr) {
         tsKey: v.recordedKey,
       };
     });
-    const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
-    const label = MON[monday.getMonth()] + ' ' + monday.getDate() + ' – '
-      + (sunday.getMonth() !== monday.getMonth() ? MON[sunday.getMonth()] + ' ' : '') + sunday.getDate() + ', ' + sunday.getFullYear();
+    const range = MON[monday.getMonth()] + ' ' + monday.getDate()
+      + (sunday.getTime() !== monday.getTime() ? ' – '
+        + (sunday.getMonth() !== monday.getMonth() ? MON[sunday.getMonth()] + ' ' : '') + sunday.getDate() : '')
+      + ', ' + sunday.getFullYear();
     return {
       success: true,
       weekStart: ymd(monday),
       weekEnd: ymd(sunday),
-      label,
+      businessWeek: bw.label,                      // v32: 'P12W4'
+      yearWeek: bw.yearWeek,
+      label: bw.label + ' · ' + range,
       isCurrentWeek: monday.getTime() === thisMonday.getTime(),
-      prevStart: ymd(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() - 7)),
+      prevStart: ymd(cal_businessWeek_(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() - 1)).start),
       nextStart: monday.getTime() < thisMonday.getTime() ? ymd(nextMonday) : '',
       days,
       total: rows.length,
