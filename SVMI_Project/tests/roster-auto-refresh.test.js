@@ -34,6 +34,9 @@ function makeSheet(resolveSettingsRef) {
   function resolveFormula(f) {
     const m = /^=TRIM\(SETTINGS!F(\d+)\)$/.exec(f);
     if (m && resolveSettingsRef) return resolveSettingsRef(Number(m[1]));
+    // v33: =IF(TRIM(SETTINGS!Fn)="","NAME",TRIM(SETTINGS!Fn)) — falls back to the build-time name
+    const m2 = /^=IF\(TRIM\(SETTINGS!F(\d+)\)="","([^"]*)",TRIM\(SETTINGS!F\1\)\)$/.exec(f);
+    if (m2 && resolveSettingsRef) return String(resolveSettingsRef(Number(m2[1])) || '').trim() || m2[2];
     return f;
   }
   function displayOf(cell) {

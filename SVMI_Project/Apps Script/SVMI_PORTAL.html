@@ -3294,13 +3294,53 @@ function reportDetailRenderRow(r, i) {
     + '</tr>';
 }
 
+// v33 — KPI by business calendar: P1–P13 (4 weeks each, W53 in P13), W1–W4 per period.
+function kpiBusinessTables(b) {
+  var weeks = b.weeks, P = [];
+  weeks.forEach(function(w, i) { (P[w.period - 1] = P[w.period - 1] || []).push(i); });
+  function cell(v, strong) { return '<td class="c"' + (strong ? ' style="font-weight:700;background:#F4F1E6"' : '') + '>' + (v ? esc(v) : '<span style="color:var(--light)">0</span>') + '</td>'; }
+  function name(v, bold) { return '<td' + (bold ? ' style="font-weight:700"' : '') + '>' + esc(v) + '</td>'; }
+
+  var perPeriod = '<div class="tbl-scroll"><table class="data-tbl"><thead><tr><th>Visitor</th>'
+    + P.map(function(idx, p) { return '<th class="c" title="' + esc(weeks[idx[0]].start + ' – ' + weeks[idx[idx.length - 1]].end) + '">P' + (p + 1) + '</th>'; }).join('')
+    + '<th class="c">YTD</th></tr></thead><tbody>'
+    + b.visitors.map(function(v) { return '<tr>' + name(v.name) + v.periods.map(function(n) { return cell(n); }).join('') + cell(v.ytd, true) + '</tr>'; }).join('')
+    + '<tr style="font-weight:700">' + name('TEAM TOTAL', true) + b.team.periods.map(function(n) { return cell(n, true); }).join('') + cell(b.team.ytd, true) + '</tr>'
+    + '</tbody></table></div>';
+
+  var top = '<tr><th rowspan="2">Visitor</th>' + P.map(function(idx, p) {
+    return '<th class="c" colspan="' + (idx.length + 1) + '" title="' + esc(weeks[idx[0]].start + ' – ' + weeks[idx[idx.length - 1]].end) + '">P' + (p + 1) + '</th>';
+  }).join('') + '</tr>';
+  var sub = '<tr>' + P.map(function(idx) {
+    return idx.map(function(i) { return '<th class="c" title="' + esc(weeks[i].start + ' – ' + weeks[i].end) + '">W' + weeks[i].weekInPeriod + '</th>'; }).join('') + '<th class="c">TOT</th>';
+  }).join('') + '</tr>';
+  function weekCells(r, bold) {
+    return P.map(function(idx, p) {
+      return idx.map(function(i) { return cell(r.weekly[i], bold); }).join('') + cell(r.periods[p], true);
+    }).join('');
+  }
+  var weekly = '<div class="tbl-scroll"><table class="data-tbl"><thead>' + top + sub + '</thead><tbody>'
+    + b.visitors.map(function(v) { return '<tr>' + name(v.name) + weekCells(v) + '</tr>'; }).join('')
+    + '<tr style="font-weight:700">' + name('TEAM TOTAL', true) + weekCells(b.team, true) + '</tr>'
+    + '</tbody></table></div>';
+
+  var note = '<p style="font-size:10px;color:var(--muted);margin-bottom:8px">Business calendar: W1 = Jan 1 to the first Sunday, then Monday–Sunday weeks; each period P1–P13 is 4 weeks (P13 also holds the short last week up to Dec 31). A visit counts once for each visitor named on it. Hover a header for its dates.</p>';
+  return repCard('Visits per Period — P1 to P13 (' + esc(b.year) + ')', note + perPeriod)
+    + repCard('Weekly Summary per Roster — P#W# (' + esc(b.year) + ')', weekly);
+}
+
 function renderKPI2026Report(data) {
   var h = repKpiRow([
     { label: 'Reporting Year', value: data.year },
     { label: 'Visitors Tracked', value: data.visitors.length },
   ]);
 
+  // v33: never let one missing row leave the tab on "Loading…".
+  data.visitors = data.visitors || [];
+  data.months = data.months || [];
+  data.weekLabels = data.weekLabels || [];
   function monthRow(label, r, bold) {
+    if (!r || !r.monthly) return '';
     return '<tr' + (bold ? ' style="font-weight:700"' : '') + '><td>' + esc(label) + '</td>'
       + r.monthly.map(function(v){ return '<td class="c">' + esc(v) + '</td>'; }).join('')
       + '<td class="c">' + esc(r.q1) + '</td><td class="c">' + esc(r.q2) + '</td>'
@@ -3317,20 +3357,25 @@ function renderKPI2026Report(data) {
     + monthRow('TEAM TOTAL', data.team, true)
     + '</tbody></table></div>');
 
+  if (data.business && data.business.weeks && data.business.weeks.length) {
+    h += kpiBusinessTables(data.business);
+  } else {
   function weekRow(label, r, bold) {
+    if (!r || !r.weekly) return '';
     return '<tr' + (bold ? ' style="font-weight:700"' : '') + '><td>' + esc(label) + '</td>'
       + r.weekly.map(function(v){ return '<td class="c">' + esc(v) + '</td>'; }).join('')
       + '</tr>';
   }
 
-  h += repCard('Weekly Summary per Roster — P{Period}W{Week} (' + esc(data.year) + ')',
-    '<p style="font-size:10px;color:var(--muted);margin-bottom:8px">Period = month (P1 = January); week counts continuously across the year, so P1W1 is the year’s first week, not each month’s own first week. Same Sun–Sat weeks as the KPI 2026 sheet’s W1–W5 columns.</p>'
+  h += repCard('Weekly Summary per Roster (' + esc(data.year) + ')',
+    '<p style="font-size:10px;color:var(--muted);margin-bottom:8px">Calendar-month weeks from the KPI sheet (the business-calendar view needs reports on the visit tables).</p>'
     + '<div class="tbl-scroll"><table class="data-tbl"><thead><tr><th>Visitor</th>'
     + data.weekLabels.map(function(lbl){ return '<th class="c">' + esc(lbl) + '</th>'; }).join('')
     + '</tr></thead><tbody>'
     + data.visitors.map(function(v){ return weekRow(v.name, v); }).join('')
     + weekRow('TEAM TOTAL', data.team, true)
     + '</tbody></table></div>');
+  }
 
   document.getElementById('reportsPanel').innerHTML = h;
 }

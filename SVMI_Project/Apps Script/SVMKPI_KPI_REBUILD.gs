@@ -95,7 +95,8 @@ function _colLetter(col) {
 }
 
 // ── Week date-range calculator ──────────────────────────────
-// Weeks are Sun–Sat. W1 = day 1 → next Saturday. W5 = remaining days.
+// v33 (Leo 2026-11-23): weeks are Mon–Sun, same as the business calendar.
+// W1 = day 1 → first Sunday. W5 = remaining days.
 function _weekRanges(year, month) {
   const lastDay = new Date(year, month, 0).getDate();
   const weeks = [];
@@ -103,8 +104,8 @@ function _weekRanges(year, month) {
 
   while (day <= lastDay && weeks.length < 5) {
     const dow = new Date(year, month - 1, day).getDay(); // 0=Sun,6=Sat
-    const toSat = (6 - dow + 7) % 7;
-    const endDay = weeks.length === 4 ? lastDay : Math.min(day + toSat, lastDay);
+    const toSun = (7 - dow) % 7;
+    const endDay = weeks.length === 4 ? lastDay : Math.min(day + toSun, lastDay);
     weeks.push({ s: day, e: endDay });
     day = endDay + 1;
   }
@@ -130,6 +131,18 @@ function _visitorWeekFormula(ref, year, month, s, e) {
     --(MASTER_LOG!B$2:B$${maxRow}>=DATE(${year},${month},${s})),
     --(MASTER_LOG!B$2:B$${maxRow}<=DATE(${year},${month},${e}))
   )`;
+}
+
+/**
+ * v33 — the formula fragment for a visitor's name. A roster member follows
+ * their SETTINGS!F cell (a rename shows up live), but if that cell is later
+ * cleared (visitor removed in the web app) it falls back to the name at build
+ * time, so their visit history keeps counting in the KPI totals.
+ */
+function _kpiNameRef_(settingsRow, name) {
+  if (!settingsRow) return JSON.stringify(name);
+  const live = `TRIM(SETTINGS!F${settingsRow})`;
+  return `IF(${live}="",${JSON.stringify(name)},${live})`;
 }
 
 function _visitorRangeFormula(ref, a, b) {
@@ -164,7 +177,7 @@ function _kpiWritePeriodBlock_(sheet, year, visitors, firstRow, totalRow) {
     .setFontSize(8).setFontWeight('bold').setHorizontalAlignment('center').setVerticalAlignment('middle');
 
   const formulas = visitors.map(({ name, settingsRow }) => {
-    const ref = settingsRow ? `TRIM(SETTINGS!F${settingsRow})` : JSON.stringify(name);
+    const ref = _kpiNameRef_(settingsRow, name);
     return ranges.map(r => _visitorRangeFormula(ref, r.start, r.end));
   });
   if (formulas.length) {
@@ -439,7 +452,7 @@ function buildKPI2026(year, __systemToken) {
     // roster has no live cell to point to anymore, so their name is
     // written as a plain literal instead — their numbers still come from
     // MASTER_LOG either way.
-    const nameRef = settingsRow ? `TRIM(SETTINGS!F${settingsRow})` : JSON.stringify(name);
+    const nameRef = _kpiNameRef_(settingsRow, name);   // v33: falls back to the build-time name
 
     sheet.setRowHeight(row, 18);
 

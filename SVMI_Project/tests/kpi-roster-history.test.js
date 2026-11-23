@@ -43,6 +43,9 @@ function makeSheet(settingsSheet) {
   function resolveFormula(f) {
     const m = /^=TRIM\(SETTINGS!F(\d+)\)$/.exec(f);
     if (m) return settingsSheet.rawGet(Number(m[1]), 6);
+    // v33: =IF(TRIM(SETTINGS!Fn)="","NAME",TRIM(SETTINGS!Fn)) — falls back to the build-time name
+    const m2 = /^=IF\(TRIM\(SETTINGS!F(\d+)\)="","([^"]*)",TRIM\(SETTINGS!F\1\)\)$/.exec(f);
+    if (m2) return String(settingsSheet.rawGet(Number(m2[1]), 6) || '').trim() || m2[2];
     return f; // SUMPRODUCT/SUM/etc — not evaluated, returned as-is
   }
   function displayOf(cell) {
@@ -222,10 +225,10 @@ for (let row = DATA_ROW_START; row <= DATA_ROW_START + 5; row++) {
 check('4 rows written: LEO, YANA (roster, live formulas), BEA (historical, literal), TEAM TOTAL',
   nameCellsWritten.length === 4, JSON.stringify(nameCellsWritten));
 check('4th row is TEAM TOTAL', nameCellsWritten[3] && nameCellsWritten[3].value === 'TEAM TOTAL', JSON.stringify(nameCellsWritten[3]));
-check('LEO\'s name cell is a live SETTINGS!F formula (still on the roster)',
-  /^=TRIM\(SETTINGS!F2\)$/.test((nameCellsWritten[0] || {}).formula || ''), JSON.stringify(nameCellsWritten[0]));
-check('YANA\'s name cell is a live SETTINGS!F formula (still on the roster)',
-  /^=TRIM\(SETTINGS!F3\)$/.test((nameCellsWritten[1] || {}).formula || ''), JSON.stringify(nameCellsWritten[1]));
+check('LEO\'s name cell follows SETTINGS!F live, with LEO as the fallback',
+  /^=IF\(TRIM\(SETTINGS!F2\)="","LEO",TRIM\(SETTINGS!F2\)\)$/.test((nameCellsWritten[0] || {}).formula || ''), JSON.stringify(nameCellsWritten[0]));
+check('YANA\'s name cell follows SETTINGS!F live, with YANA as the fallback',
+  /^=IF\(TRIM\(SETTINGS!F3\)="","YANA",TRIM\(SETTINGS!F3\)\)$/.test((nameCellsWritten[1] || {}).formula || ''), JSON.stringify(nameCellsWritten[1]));
 check('BEA\'s name cell is a literal value, not a formula (no SETTINGS row to point to anymore)',
   nameCellsWritten[2] && nameCellsWritten[2].formula == null && nameCellsWritten[2].value === 'BEA',
   JSON.stringify(nameCellsWritten[2]));
@@ -282,6 +285,33 @@ console.log('\n── getKPI2026Report(): reads the visitor data block ONCE, not
     readsForThisCall === 1,
     'reads attributable to this call: ' + readsForThisCall
   );
+}
+
+console.log('\n── v33: a visitor removed in the web app keeps their history ──');
+{
+  // The web app clears the removed visitor's SETTINGS!F cell (here: YANA, F3).
+  const yanaRow = settingsRows[1];
+  const saved = yanaRow[5];
+  yanaRow[5] = '';
+  sandbox.SpreadsheetApp.getActiveSpreadsheet = () => ({
+    getSheetByName: (name) => (name === 'KPI 2026' ? kpiSheet : null),
+  });
+  const rr = sandbox.getKPI2026Report();
+  check('YANA still has her row after being removed from the roster', rr.visitors.map(v => v.name).includes('YANA'), rr.visitors.map(v => v.name).join(','));
+  const yf = kpiSheet.rawFormula(DATA_ROW_START + 1, 3);
+  check('her week formulas still search for "YANA" when F3 is blank', yf && yf.indexOf('IF(TRIM(SETTINGS!F3)="","YANA"') !== -1, yf);
+  yanaRow[5] = saved;
+}
+
+console.log('\n── v33: a blank name row (cleared in SETTINGS!F) no longer ends the report ──');
+{
+  // YANA's row (7) loses its name, as when a roster name is deleted after a build.
+  kpiSheet.getRange(DATA_ROW_START + 1, 2).setFormula(null);
+  kpiSheet.getRange(DATA_ROW_START + 1, 2).setValue('');
+  const r3 = sandbox.getKPI2026Report();
+  const names3 = r3.visitors.map(v => v.name);
+  check('rows after the blank one still read (LEO, BEA)', JSON.stringify(names3) === JSON.stringify(['LEO', 'BEA']), JSON.stringify(names3));
+  check('TEAM TOTAL still found after a blank row', r3.team && Array.isArray(r3.team.monthly), JSON.stringify(r3.team));
 }
 
 console.log('\n══════════════════════════════════');

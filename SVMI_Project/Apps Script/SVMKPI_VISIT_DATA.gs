@@ -984,6 +984,61 @@ function portal_getWeekHistory(anyDateStr) {
 
 
 // ═══════════════════════════════════════════════════════════════
+// SECTION 8b: KPI BY BUSINESS WEEK (v33, Leo 2026-11-23)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Visits per visitor per business week (P#W#, SVMKPI_CALENDAR.gs) for a year,
+ * from the visit tables. Same counting rule as the KPI sheet: a visit counts
+ * once for each named visitor. `order` = visitor names in the KPI sheet's row
+ * order; anyone else with visits that year is added after them, A–Z, so a
+ * removed visitor's history still counts.
+ * @returns {null|{weeks:object[], visitors:object[], team:object}}
+ */
+function svd_kpiBusinessWeeks_(year, order, preloaded) {
+  if (typeof cal_businessWeek_ !== 'function') return null;
+  const visits = preloaded || svd_loadVisits_();
+  if (!visits) return null;
+  year = Number(year);
+  const nWeeks = cal_businessWeekCount_(year);
+  const weeks = [];
+  for (let w = 1; w <= nWeeks; w++) {
+    const r = cal_businessWeekRange_(year, w);
+    const b = cal_businessWeek_(r.start);
+    weeks.push({ yearWeek: w, label: b.label, period: b.period, weekInPeriod: b.weekInPeriod,
+      start: _sl_formatDate(r.start), end: _sl_formatDate(r.end) });
+  }
+  const counts = {};
+  visits.forEach(v => {
+    if (!v.date || v.date.getFullYear() !== year) return;
+    const wk = cal_businessWeek_(v.date).yearWeek;
+    v.visitors.forEach(n => {
+      const name = String(n || '').trim().toUpperCase();
+      if (!name) return;
+      const c = counts[name] || (counts[name] = new Array(nWeeks).fill(0));
+      c[wk - 1]++;
+    });
+  });
+  const names = [];
+  (order || []).forEach(n => { n = String(n || '').trim().toUpperCase(); if (n && names.indexOf(n) === -1 && n !== 'TEAM TOTAL') names.push(n); });
+  Object.keys(counts).sort().forEach(n => { if (names.indexOf(n) === -1) names.push(n); });
+  const sum = a => a.reduce((x, y) => x + y, 0);
+  const periodsOf = weekly => {
+    const p = new Array(13).fill(0);
+    weekly.forEach((n, i) => { p[weeks[i].period - 1] += n; });
+    return p;
+  };
+  const visitors = names.map(name => {
+    const weekly = counts[name] || new Array(nWeeks).fill(0);
+    return { name, weekly, periods: periodsOf(weekly), ytd: sum(weekly) };
+  });
+  const teamWeekly = new Array(nWeeks).fill(0);
+  visitors.forEach(v => v.weekly.forEach((n, i) => { teamWeekly[i] += n; }));
+  return { year, weeks, visitors, team: { weekly: teamWeekly, periods: periodsOf(teamWeekly), ytd: sum(teamWeekly) } };
+}
+
+
+// ═══════════════════════════════════════════════════════════════
 // SECTION 9: REPORT YEARS (F7, v30)
 // ═══════════════════════════════════════════════════════════════
 

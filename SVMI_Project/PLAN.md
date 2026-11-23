@@ -323,6 +323,26 @@ amber, Tien Ma's teal, Koobideh brown — ⚠ Leo to confirm/replace with brand 
   History, both store dropdowns, the store profile banner.
 - Tests: pill class per category/brand, no pill without a category, dropdown still keyboard-usable.
 
+### v33 — KPI tab stuck on "Loading…" (Leo, 2026-11-23, after v32 went live)
+Cause: KPI 2026 row 9 has a blank name (a roster name cleared in SETTINGS!F after the sheet was built). The report
+reader stopped at the first blank name, so it never reached TEAM TOTAL; the page then failed on the missing total
+and stayed on "Loading…". Old bug, not from v32. Fix: blank rows are skipped (scan ends at TEAM TOTAL or after 3 blank
+rows); the page renders without a missing row instead of failing. Test: `kpi-roster-history.test.js` (+2).
+The blank row was **JOSH**, removed from the roster in the web app (SETTINGS!F5 cleared) — his KPI row pointed at
+that cell, so his name and every count went to 0. Leo (2026-11-23): a removed visitor's visits must still count in the
+year's KPI. Fix: KPI name/count formulas (weekly, P1–P13) and the Executive Summary leaderboard now read
+`IF(TRIM(SETTINGS!Fn)="","<name at build time>",TRIM(SETTINGS!Fn))` — a rename still shows live, a removal keeps the
+history. Existing sheets: run **Rebuild KPI** once after deploy (JOSH comes back as a history row). Tests: +2 in
+`kpi-roster-history.test.js`, `roster-auto-refresh.test.js` mock updated.
+**KPI on the business calendar (Leo 2026-11-23: "YES SUNDIN ANG BAGONG BUSINESS CALENDAR", "MONDAY TILL SUNDAY"):**
+- KPI tab: the old "P{month}W{n}" weekly table (Sun–Sat) is replaced by **Visits per Period P1–P13** and **Weekly
+  Summary P#W#** (P1–P13 × W1–W4, P13 with W5, a TOT per period), counted from the visit tables
+  (`svd_kpiBusinessWeeks_`): sheet's visitor order first, then anyone else with visits that year (removed visitors
+  included). Monthly Totals / Q1–Q4 / YTD still come from the KPI sheet.
+- KPI sheet: the month blocks' W1–W5 are now **Mon–Sun** (W1 = day 1 → first Sunday); takes effect on Rebuild KPI.
+- Tests: `v32-calendar-colors.test.js` +12.
+Leo confirmed the v32 business calendar table (P1–P13, W53 in P13) on 2026-11-23.
+
 ### Decisions needed from Leo
 
 | # | Question | Recommendation |
